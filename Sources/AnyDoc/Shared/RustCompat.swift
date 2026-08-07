@@ -100,6 +100,32 @@ extension UInt64 {
     }
 }
 
+/// Rust `str` `{:?}` (Debug) formatting: double-quoted with
+/// `char::escape_debug` escapes — `\t`/`\r`/`\n`/`\\`/`\"`/`\0` named, other
+/// non-printable scalars as `\u{hex}`, printable scalars verbatim.
+func rustDebugString(_ s: String) -> String {
+    var out = "\""
+    for c in s.unicodeScalars {
+        switch c {
+        case "\t": out += "\\t"
+        case "\r": out += "\\r"
+        case "\n": out += "\\n"
+        case "\\": out += "\\\\"
+        case "\"": out += "\\\""
+        case "\0": out += "\\0"
+        default:
+            switch c.properties.generalCategory {
+            case .control, .format, .lineSeparator, .paragraphSeparator, .privateUse, .surrogate,
+                .unassigned:
+                out += "\\u{\(String(c.value, radix: 16))}"
+            default:
+                out.unicodeScalars.append(c)
+            }
+        }
+    }
+    return out + "\""
+}
+
 /// Rust `f64::from_str` grammar check, without Swift's extras (hex floats):
 /// `[+-]? ( digits ( '.' digits? )? | '.' digits ) ( [eE] [+-]? digits )?`.
 /// Special values (`inf`, `nan`) are excluded by construction — callers
