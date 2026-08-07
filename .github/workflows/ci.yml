@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  # Linux is the primary target: Apple closed-source frameworks do not exist
+  # there, so a green build is structural proof of the zero-dependency claim.
+  linux:
+    runs-on: ubuntu-latest
+    container: swift:6.0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Purity lint
+        run: bash scripts/lint-purity.sh
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Purity lint
+        run: bash scripts/lint-purity.sh
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
