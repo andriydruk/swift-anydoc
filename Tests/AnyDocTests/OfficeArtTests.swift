@@ -64,8 +64,7 @@ private func record(verInst: UInt16, recType: UInt16, body: [UInt8]) -> [UInt8] 
         #expect(wmf?.bytes == payload)
     }
 
-    @Test(.disabled("inflate lands at integration"))
-    func compressedMetafileBlipsInflate() throws {
+    @Test func compressedMetafileBlipsInflate() throws {
         // Deflate-compressed EMF payload: raw-deflate of [1,2,3,4,5]
         // (one stored block).
         let deflated: [UInt8] = [0x01, 0x05, 0x00, 0xFA, 0xFF, 1, 2, 3, 4, 5]

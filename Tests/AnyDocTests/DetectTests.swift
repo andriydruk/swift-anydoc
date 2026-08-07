@@ -33,12 +33,14 @@ import Testing
     // Shared/Cfb.swift lands, an OLE compound file cannot be opened, so
     // every OLE input detects as nil. Flip this to the stream-name
     // assertions (doc/ppt/xls fixtures) when CompoundFile is implemented.
-    @Test func oleFilesDetectAsNilUntilCfbLands() throws {
+    @Test func oleFilesDetectByStreamName() throws {
         let doc = try readFile(fixturePath("doc/text.doc"))
         #expect(doc.starts(with: [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]))
-        #expect(Format.detect(from: doc) == nil)
+        #expect(Format.detect(from: doc) == .doc)
         let xls = try readFile(fixturePath("xls/sheet.xls"))
-        #expect(Format.detect(from: xls) == nil)
+        #expect(Format.detect(from: xls) == .excel)
+        let ppt = try readFile(fixturePath("ppt/pres.ppt"))
+        #expect(Format.detect(from: ppt) == .ppt)
     }
 
     @Test func mimetypeIdentifiesOdfAndEpub() {
