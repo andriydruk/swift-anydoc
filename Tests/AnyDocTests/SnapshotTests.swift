@@ -14,7 +14,7 @@ import Testing
 
 /// Formats the Swift port implements so far. Grows phase by phase; a format
 /// listed here has every one of its fixtures compared byte-for-byte.
-let implementedFormats: Set<Format> = [.csv, .docx]
+let implementedFormats: Set<Format> = [.csv, .docx, .epub]
 
 private let testsDir = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent()  // AnyDocTests
