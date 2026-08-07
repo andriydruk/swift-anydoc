@@ -34,9 +34,7 @@ public enum Format: Sendable, Hashable, CaseIterable {
     /// formats (CSV) carry no signature and return `nil`; so does anything
     /// unrecognized.
     public static func detect(from bytes: [UInt8]) -> Format? {
-        // TODO(Phase 2/5): port formats/detect.rs (ZIP + OLE + PDF + RTF
-        // signatures) as the container readers land.
-        nil
+        detectFormat(from: bytes)
     }
 
     /// The format a bare extension names (no leading dot), matched
