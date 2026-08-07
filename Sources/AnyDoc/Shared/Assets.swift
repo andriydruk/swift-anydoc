@@ -29,7 +29,31 @@ struct AssetSink {
     }
 }
 
-// `rel_image_source` lands with the OPC package/relationship layer.
+/// Resolve an image relationship to its source. External-mode relationships
+/// carry the image's URL directly; internal-mode targets load from the
+/// package and are retained as assets. Failures degrade to `nil` per the
+/// unified policy; fatal errors propagate.
+func relImageSource(
+    _ pkg: Package,
+    _ rels: Relationships,
+    basePart: String,
+    assets: MutBox<AssetSink>,
+    relId: String
+) throws -> ImageSource? {
+    guard let rel = rels.get(relId) else {
+        return nil
+    }
+    if rel.mode == .external {
+        return rel.target.isEmpty ? nil : .external(rel.target)
+    }
+    guard let (part, bytes) = try relTargetBytes(pkg, rels, basePart: basePart, relId: relId)
+    else {
+        return nil
+    }
+    let media = mediaTypeFor(part)
+    let id = try assets.value.add(mediaType: media, originPart: part, bytes: bytes)
+    return .asset(id)
+}
 
 /// MIME type from a part path's extension.
 func mediaTypeFor(_ part: String) -> String {
@@ -53,7 +77,7 @@ func mediaTypeFor(_ part: String) -> String {
 
 extension String {
     /// Rust `str::to_ascii_lowercase`: ASCII letters only, all else verbatim.
-    fileprivate func asciiLowercased() -> String {
+    func asciiLowercased() -> String {
         var out = String.UnicodeScalarView()
         for c in unicodeScalars {
             if c >= "A" && c <= "Z" {

@@ -100,6 +100,13 @@ extension UInt64 {
     }
 }
 
+/// Shared mutable cell (the Rust `RefCell`): state threaded through parsing
+/// contexts by reference where the context itself is copied or re-scoped.
+final class MutBox<T> {
+    var value: T
+    init(_ value: T) { self.value = value }
+}
+
 /// Rust `str` `{:?}` (Debug) formatting: double-quoted with
 /// `char::escape_debug` escapes — `\t`/`\r`/`\n`/`\\`/`\"`/`\0` named, other
 /// non-printable scalars as `\u{hex}`, printable scalars verbatim.
