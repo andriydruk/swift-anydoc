@@ -564,10 +564,30 @@ everything built in Phases 0-5 combined, so it is being taken in waves.
     so the bug is reproduced and documented at the call site rather than
     corrected, which would silently change output for every stream using
     Predictor 13.
-- **Later waves:** encryption (RC4/MD5/AES-CBC); fonts and text mapping
-  (`ToUnicode` CMaps, base14, TrueType `cmap`, glyph names); the content-stream
-  interpreter; layout and reading order; table detection (16.3k LOC in the
-  reference, the largest single piece); Markdown assembly.
+- **Wave 2 — content streams and text extraction.**
+  - `PdfContentStream.swift`: the postfix tokenizer. Operands reuse the object
+    lexer (content streams have no indirect references, so a bare number is
+    always a number); `BI ... ID ... EI` inline images are skipped as binary
+    so their payload cannot be lexed as operators; a malformed token is
+    skipped and the stream resynchronizes rather than ending, because a
+    viewer that stopped at the first bad token would lose the rest of the page.
+  - `PdfToUnicode.swift`: `ToUnicode` CMaps — codespace ranges (which fix the
+    code width), `bfchar`, and both `bfrange` forms, with surrogate pairs
+    combined into one scalar.
+  - `PdfTextExtractor.swift`: the text state machine — graphics stack,
+    text/line matrices, and the showing operators (`Tj`, `TJ`, `'`, `"`) with
+    `Tc`/`Tw`/`Tz`/`TL`/`Ts`/`Tr`. Emits positioned runs.
+  - Verified end to end on the fixture: 238 code mappings parsed, **479 runs
+    and 951 characters extracted**, containing every heading and phrase the
+    committed Markdown golden expects, including the astral U+1D11E clef that
+    exercises surrogate pairing.
+  - **Known limitation, deliberate:** glyph *widths* are not read yet, so a
+    run's starting position is exact but its advance within the run is not.
+    Layout must not rely on run widths until the font tables land.
+- **Later waves:** font width tables and the base14/TrueType/glyph-name
+  encodings; encryption (RC4/MD5/AES-CBC); layout and reading order; table
+  detection (16.3k LOC in the reference, the largest single piece); Markdown
+  assembly.
 
 The one PDF fixture is a classic-xref PDF 1.7 using only FlateDecode, with 7
 embedded TrueType fonts carrying `ToUnicode` CMaps and a `StructTreeRoot`, so
