@@ -350,7 +350,9 @@ private struct XmlParser {
             i += 1
         }
         guard i < bytes.count, bytes[i] == UInt8(ascii: ";") else {
-            throw ConvertError.malformed("unparseable xml: unclosed entity reference")
+            throw ConvertError.malformed(
+                "unparseable xml: ill-formed document: entity or character reference "
+                    + "not closed: `;` not found before end of input")
         }
         let name = String(decoding: bytes[start..<i], as: UTF8.self)
         pos = i + 1
@@ -364,7 +366,9 @@ private struct XmlParser {
     private mutating func parseMarkup() throws {
         // pos is at '<'.
         guard pos + 1 < bytes.count else {
-            throw ConvertError.malformed("unparseable xml: unexpected eof after '<'")
+            throw ConvertError.malformed(
+                "unparseable xml: syntax error: tag not closed: "
+                    + "`>` not found before end of input")
         }
         switch bytes[pos + 1] {
         case UInt8(ascii: "?"):
@@ -372,7 +376,7 @@ private struct XmlParser {
         case UInt8(ascii: "!"):
             try parseDeclaration()
         case UInt8(ascii: "/"):
-            parseEndTag()
+            try parseEndTag()
         default:
             try parseStartTag()
         }
@@ -387,55 +391,100 @@ private struct XmlParser {
             }
             i += 1
         }
-        throw ConvertError.malformed("unparseable xml: unterminated processing instruction")
+        // quick-xml distinguishes an unclosed XML declaration (`<?xml`
+        // followed by whitespace, `?`, or end of input) from a general PI.
+        let isXmlDecl = matchesAt(pos, "<?xml")
+            && (pos + 5 >= bytes.count || isXmlWhitespaceByte(bytes[pos + 5])
+                || bytes[pos + 5] == UInt8(ascii: "?"))
+        throw ConvertError.malformed(
+            isXmlDecl
+                ? "unparseable xml: syntax error: XML declaration not closed: "
+                    + "`?>` not found before end of input"
+                : "unparseable xml: syntax error: processing instruction not closed: "
+                    + "`?>` not found before end of input")
     }
 
     private mutating func parseDeclaration() throws {
-        if matchesAt(pos, "<!--") {
-            var i = pos + 4
-            while i + 2 < bytes.count {
-                if bytes[i] == UInt8(ascii: "-"), bytes[i + 1] == UInt8(ascii: "-"),
-                    bytes[i + 2] == UInt8(ascii: ">")
+        // quick-xml dispatches `<!` markup on the single next byte: `-`
+        // opens a comment, `[` a CDATA section, `D`/`d` a DOCTYPE, and
+        // anything else (or end of input) is a hard syntax error. The full
+        // prefix (`<!--`, `<![CDATA[`, `<!DOCTYPE`) is validated only once
+        // the construct's terminator has been found.
+        let kind: UInt8? = pos + 2 < bytes.count ? bytes[pos + 2] : nil
+        let unclosedComment = ConvertError.malformed(
+            "unparseable xml: syntax error: comment not closed: "
+                + "`-->` not found before end of input")
+        let unclosedCData = ConvertError.malformed(
+            "unparseable xml: syntax error: CDATA not closed: "
+                + "`]]>` not found before end of input")
+        let unclosedDoctype = ConvertError.malformed(
+            "unparseable xml: syntax error: DOCTYPE not closed: "
+                + "`>` not found before end of input")
+        switch kind {
+        case UInt8(ascii: "-"):
+            // A properly finished comment spans at least `<!---->`, so the
+            // terminating `>` sits six or more bytes past the `<`.
+            var i = pos + 6
+            while i < bytes.count {
+                if bytes[i] == UInt8(ascii: ">"), bytes[i - 1] == UInt8(ascii: "-"),
+                    bytes[i - 2] == UInt8(ascii: "-")
                 {
-                    pos = i + 3
+                    guard matchesAt(pos, "<!--") else {
+                        throw unclosedComment
+                    }
+                    pos = i + 1
                     return
                 }
                 i += 1
             }
-            throw ConvertError.malformed("unparseable xml: unterminated comment")
-        }
-        if matchesAt(pos, "<![CDATA[") {
-            var i = pos + 9
-            while i + 2 < bytes.count {
-                if bytes[i] == UInt8(ascii: "]"), bytes[i + 1] == UInt8(ascii: "]"),
-                    bytes[i + 2] == UInt8(ascii: ">")
+            throw unclosedComment
+        case UInt8(ascii: "["):
+            var i = pos + 2
+            while i < bytes.count {
+                if bytes[i] == UInt8(ascii: ">"), bytes[i - 1] == UInt8(ascii: "]"),
+                    bytes[i - 2] == UInt8(ascii: "]")
                 {
-                    let text = String(decoding: bytes[(pos + 9)..<i], as: UTF8.self)
-                    pos = i + 3
+                    // XML (and quick-xml) require the uppercase spelling.
+                    guard matchesAt(pos, "<![CDATA["), i >= pos + 11 else {
+                        throw unclosedCData
+                    }
+                    let text = String(decoding: bytes[(pos + 9)..<(i - 2)], as: UTF8.self)
+                    pos = i + 1
                     try bumpNodes()
                     pushText(text)
                     return
                 }
                 i += 1
             }
-            throw ConvertError.malformed("unparseable xml: unterminated cdata section")
-        }
-        // DOCTYPE or another `<!` directive: skip, tracking the internal
-        // subset's brackets.
-        var depth = 0
-        var i = pos + 2
-        while i < bytes.count {
-            switch bytes[i] {
-            case UInt8(ascii: "["): depth += 1
-            case UInt8(ascii: "]"): depth = max(0, depth - 1)
-            case UInt8(ascii: ">") where depth == 0:
-                pos = i + 1
-                return
-            default: break
+            throw unclosedCData
+        case UInt8(ascii: "D"), UInt8(ascii: "d"):
+            // DOCTYPE: skip, tracking the internal subset's brackets.
+            var depth = 0
+            var i = pos + 2
+            while i < bytes.count {
+                switch bytes[i] {
+                case UInt8(ascii: "["): depth += 1
+                case UInt8(ascii: "]"): depth = max(0, depth - 1)
+                case UInt8(ascii: ">") where depth == 0:
+                    guard matchesAtIgnoreAsciiCase(pos, "<!DOCTYPE"), i >= pos + 9 else {
+                        throw unclosedDoctype
+                    }
+                    if bytes[(pos + 9)..<i].allSatisfy(isXmlWhitespaceByte) {
+                        throw ConvertError.malformed(
+                            "unparseable xml: ill-formed document: `<!DOCTYPE>` "
+                                + "declaration does not contain a name of a document type")
+                    }
+                    pos = i + 1
+                    return
+                default: break
+                }
+                i += 1
             }
-            i += 1
+            throw unclosedDoctype
+        default:
+            throw ConvertError.malformed(
+                "unparseable xml: syntax error: unknown or missed symbol in markup")
         }
-        throw ConvertError.malformed("unparseable xml: unterminated markup declaration")
     }
 
     private func matchesAt(_ at: Int, _ literal: String) -> Bool {
@@ -447,13 +496,50 @@ private struct XmlParser {
         return true
     }
 
+    private func matchesAtIgnoreAsciiCase(_ at: Int, _ literal: String) -> Bool {
+        let lit = Array(literal.utf8)
+        guard at + lit.count <= bytes.count else { return false }
+        for (i, b) in lit.enumerated() where asciiLower(bytes[at + i]) != asciiLower(b) {
+            return false
+        }
+        return true
+    }
+
     // MARK: tags
 
-    private mutating func parseEndTag() {
+    private mutating func parseEndTag() throws {
+        // quick-xml scans end tags with the same quote-aware parser as start
+        // tags (#776): `</tag attr=">">` runs to the second `>`, and EOF
+        // inside a quote reports the attribute-value error.
         var i = pos + 2
         let nameStart = i
-        while i < bytes.count, bytes[i] != UInt8(ascii: ">") {
+        var quote: UInt8? = nil
+        while i < bytes.count {
+            let b = bytes[i]
+            if let q = quote {
+                if b == q { quote = nil }
+            } else if b == UInt8(ascii: "\"") || b == UInt8(ascii: "'") {
+                quote = b
+            } else if b == UInt8(ascii: ">") {
+                break
+            }
             i += 1
+        }
+        guard i < bytes.count else {
+            switch quote {
+            case UInt8(ascii: "'"):
+                throw ConvertError.malformed(
+                    "unparseable xml: syntax error: attribute value not closed: "
+                        + "`'` not found before end of input")
+            case UInt8(ascii: "\""):
+                throw ConvertError.malformed(
+                    "unparseable xml: syntax error: attribute value not closed: "
+                        + "`\"` not found before end of input")
+            default:
+                throw ConvertError.malformed(
+                    "unparseable xml: syntax error: tag not closed: "
+                        + "`>` not found before end of input")
+            }
         }
         // The end tag's qualified name runs to the first whitespace; only
         // the local part is compared (quick-xml's `local_name`).
@@ -471,7 +557,20 @@ private struct XmlParser {
             }
             attach(.elem(elem))
         } else {
-            recovered = true
+            // A close tag with no open element is a hard quick-xml error
+            // (`IllFormed(UnmatchedEndTag)`) even with end-name checking
+            // off; only mismatched or missing ends are recoverable. The
+            // reported name is the tag content with trailing whitespace
+            // trimmed (`trim_markup_names_in_closing_tags`), and a
+            // non-UTF-8 name decodes to the empty string as in quick-xml.
+            var trimmedEnd = i
+            while trimmedEnd > nameStart, isXmlWhitespaceByte(bytes[trimmedEnd - 1]) {
+                trimmedEnd -= 1
+            }
+            let name = validateUtf8(bytes[nameStart..<trimmedEnd]) ?? ""
+            throw ConvertError.malformed(
+                "unparseable xml: ill-formed document: "
+                    + "close tag `</\(name)>` does not match any open tag")
         }
     }
 
@@ -498,7 +597,22 @@ private struct XmlParser {
             i += 1
         }
         guard i < bytes.count else {
-            throw ConvertError.malformed("unparseable xml: unterminated tag")
+            // quick-xml reports where the input broke off: inside a quoted
+            // attribute value, or in the tag itself.
+            switch quote {
+            case UInt8(ascii: "'"):
+                throw ConvertError.malformed(
+                    "unparseable xml: syntax error: attribute value not closed: "
+                        + "`'` not found before end of input")
+            case UInt8(ascii: "\""):
+                throw ConvertError.malformed(
+                    "unparseable xml: syntax error: attribute value not closed: "
+                        + "`\"` not found before end of input")
+            default:
+                throw ConvertError.malformed(
+                    "unparseable xml: syntax error: tag not closed: "
+                        + "`>` not found before end of input")
+            }
         }
         var span = bytes[(pos + 1)..<i]
         pos = i + 1
@@ -515,7 +629,11 @@ private struct XmlParser {
         }
         let rawName = String(decoding: span[span.startIndex..<j], as: UTF8.self)
 
-        // Raw attributes; a malformed one drops it and the rest, visibly.
+        // Raw attributes; parsing mirrors quick-xml's checked iterator
+        // (`IterState`): each malformed attribute is dropped with a log and
+        // scanning resumes at the error's documented recovery position, so
+        // the attributes after it survive. Errors at the end of the tag
+        // (missing `=`/value, unclosed quote) end the iteration.
         var rawAttrs: [RawAttr] = []
         var k = j
         var seenQnames: Set<String> = []
@@ -526,7 +644,11 @@ private struct XmlParser {
             if k >= span.endIndex {
                 break
             }
+            // The first character is unconditionally part of the key (the
+            // reference's non-whitespace scan consumes it), so keys are
+            // never empty and a stray `=` starts a key.
             let nameStart = k
+            k += 1
             while k < span.endIndex, span[k] != UInt8(ascii: "="), !isXmlWhitespaceByte(span[k]) {
                 k += 1
             }
@@ -534,19 +656,49 @@ private struct XmlParser {
             while k < span.endIndex, isXmlWhitespaceByte(span[k]) {
                 k += 1
             }
-            guard k < span.endIndex, span[k] == UInt8(ascii: "=") else {
+            guard k < span.endIndex else {
+                // `key` at the end of the tag: `AttrError::ExpectedEq`.
                 Log.debug("dropping undecodable attribute: missing '='")
                 break scan
             }
+            guard span[k] == UInt8(ascii: "=") else {
+                // A key not followed by `=` drops alone; the offending
+                // character starts the next attribute (`ExpectedEq`
+                // recovery position).
+                Log.debug("dropping undecodable attribute: missing '='")
+                continue scan
+            }
+            let eqIndex = k
             k += 1
+            // Duplicate names are checked — and new names registered — before
+            // the value is parsed (`check_for_duplicates`); recovery skips
+            // from the `=` to the next whitespace, which lands after a
+            // space-free quoted value and inside one that contains spaces,
+            // exactly as quick-xml's `SkipEqValue` recovery does.
+            if !seenQnames.insert(qname).inserted {
+                Log.debug("dropping undecodable attribute: duplicate \(qname)")
+                k = eqIndex
+                while k < span.endIndex, !isXmlWhitespaceByte(span[k]) {
+                    k += 1
+                }
+                continue scan
+            }
             while k < span.endIndex, isXmlWhitespaceByte(span[k]) {
                 k += 1
             }
-            guard k < span.endIndex,
-                span[k] == UInt8(ascii: "\"") || span[k] == UInt8(ascii: "'")
-            else {
-                Log.debug("dropping undecodable attribute: unquoted value")
+            guard k < span.endIndex else {
+                // `key =` at the end of the tag: `AttrError::ExpectedValue`.
+                Log.debug("dropping undecodable attribute: missing value")
                 break scan
+            }
+            guard span[k] == UInt8(ascii: "\"") || span[k] == UInt8(ascii: "'") else {
+                // Unquoted value: drop it and resume after the token
+                // (`AttrError::UnquotedValue` recovery: skip to whitespace).
+                Log.debug("dropping undecodable attribute: unquoted value")
+                while k < span.endIndex, !isXmlWhitespaceByte(span[k]) {
+                    k += 1
+                }
+                continue scan
             }
             let q = span[k]
             k += 1
@@ -555,35 +707,70 @@ private struct XmlParser {
                 k += 1
             }
             guard k < span.endIndex else {
+                // Unclosed quote runs to the end of the tag:
+                // `AttrError::ExpectedQuote`.
                 Log.debug("dropping undecodable attribute: unterminated value")
                 break scan
             }
             let value = Array(span[valueStart..<k])
             k += 1
-            if qname.isEmpty {
-                Log.debug("dropping undecodable attribute: empty name")
-                break scan
-            }
-            // Duplicates are a syntax error in quick-xml's checked iterator:
-            // the duplicate and everything after it drop.
-            if !seenQnames.insert(qname).inserted {
-                Log.debug("dropping undecodable attribute: duplicate \(qname)")
-                break scan
-            }
             rawAttrs.append(RawAttr(qname: qname, value: value))
         }
 
         // Namespace declarations on this element open its scope frame before
-        // any name on it resolves.
+        // any name on it resolves. quick-xml collects them in a *separate*
+        // attribute pass with duplicate checks off that stops entirely at
+        // the first malformed attribute (`NamespaceResolver::push` breaks on
+        // the first `Err`), so a binding written after a syntax error never
+        // applies even though the DOM pass above recovers past it.
         var frame: [(prefix: String, uri: String?)] = []
-        for attr in rawAttrs {
-            if attr.qname == "xmlns" {
-                let uri = String(decoding: attr.value, as: UTF8.self)
+        var n = j
+        ns: while true {
+            while n < span.endIndex, isXmlWhitespaceByte(span[n]) {
+                n += 1
+            }
+            if n >= span.endIndex {
+                break
+            }
+            let nameStart = n
+            n += 1
+            while n < span.endIndex, span[n] != UInt8(ascii: "="), !isXmlWhitespaceByte(span[n]) {
+                n += 1
+            }
+            let nameEnd = n
+            while n < span.endIndex, isXmlWhitespaceByte(span[n]) {
+                n += 1
+            }
+            guard n < span.endIndex, span[n] == UInt8(ascii: "=") else {
+                break ns  // ExpectedEq
+            }
+            n += 1
+            while n < span.endIndex, isXmlWhitespaceByte(span[n]) {
+                n += 1
+            }
+            guard n < span.endIndex,
+                span[n] == UInt8(ascii: "\"") || span[n] == UInt8(ascii: "'")
+            else {
+                break ns  // ExpectedValue / UnquotedValue
+            }
+            let q = span[n]
+            n += 1
+            let valueStart = n
+            while n < span.endIndex, span[n] != q {
+                n += 1
+            }
+            guard n < span.endIndex else {
+                break ns  // ExpectedQuote
+            }
+            let qname = String(decoding: span[nameStart..<nameEnd], as: UTF8.self)
+            // The binding stores the raw value: quick-xml does not normalize
+            // namespace URIs.
+            let uri = String(decoding: span[valueStart..<n], as: UTF8.self)
+            n += 1
+            if qname == "xmlns" {
                 frame.append((prefix: "", uri: uri.isEmpty ? nil : uri))
-            } else if attr.qname.hasPrefix("xmlns:") {
-                let prefix = String(attr.qname.dropFirst("xmlns:".count))
-                let uri = String(decoding: attr.value, as: UTF8.self)
-                frame.append((prefix: prefix, uri: uri.isEmpty ? nil : uri))
+            } else if qname.hasPrefix("xmlns:") {
+                frame.append((prefix: String(qname.dropFirst("xmlns:".count)), uri: uri.isEmpty ? nil : uri))
             }
         }
         scopes.append(frame)
