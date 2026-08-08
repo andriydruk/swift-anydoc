@@ -127,12 +127,18 @@ func normalizeOracleArtifacts(_ dump: String, against expected: String) -> Strin
             let bytes = [UInt8](try Data(contentsOf: file))
             guard var document = try? PdfDocument(bytes: bytes) else { continue }
             var lines: [PdfTextLine] = []
-            var styles: [String: PdfFontStyle] = [:]
             for page in pdfPages(&document) {
-                lines += pdfGroupIntoLines(pdfPageTextRuns(&document, page))
-                for (name, style) in pdfPageFontStyles(&document, page) { styles[name] = style }
+                let styles = pdfPageFontStyles(&document, page)
+                let graphics = pdfExtractGraphics(pdfPageOperations(&document, page))
+                for var line in pdfGroupIntoLines(pdfPageTextRuns(&document, page)) {
+                    pdfApplyFontStyles(&line.items, styles)
+                    pdfMarkUnderlines(
+                        &line.items, rectangles: pdfUnderlineInk(graphics),
+                        lines: graphics.lines)
+                    lines.append(line)
+                }
             }
-            let markdown = pdfRenderMarkdown(pdfBuildBlocks(lines, styles: styles))
+            let markdown = pdfRenderMarkdown(pdfBuildBlocks(lines, formatted: true))
             if !markdown.isEmpty {
                 #expect(markdown.hasSuffix("\n"), "\(file.lastPathComponent): no trailing newline")
                 rendered += 1

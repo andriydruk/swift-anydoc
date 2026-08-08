@@ -860,30 +860,63 @@ until an oracle compared item lists.
    **none for `"`**, so `aw ac string "` applies both spacings and the line
    move and then silently discards the glyphs. An upstream bug; output has to
    match, so this port now drops the string too and says why at the call site.
-3. **A `bfrange` with a multi-unit destination — open.**
-   `<0004> <0004> <00660066>` maps one code to `ff` in this port and to
-   nothing in the reference, so `cid-font.pdf`'s item lists differ in length.
-   Not yet diagnosed; `cid-font.pdf` is excluded **by name, with the reason
-   stated in the test**, from the underline probe only.
+3. **A `bfrange` with a multi-unit destination — settled in wave 11.**
+   See below.
 
-**Also noticed, not acted on:** the reference has no `Tz` arm either, so it
-ignores horizontal scaling where this port applies it to run width. That
-would diverge widths on any page using `Tz` — and width feeds underline
-overlap. Recorded rather than changed, because unlike `"` it needs a
-measurement to confirm which way the divergence runs.
+**Also noticed:** the reference has no `Tz` arm either. Settled in wave 11.
+
+- **Wave 11 — inline decoration, and closing out the open divergences.**
+  - `pdfLineTextWithEmphasis` was rewritten against the reference's
+    `text_with_formatting`. Two changes of substance. Underline is
+    **exclusive**: `<u>` content stays free of `**` and `*`, because
+    consumers match tag content literally and mixed `<u>**x**</u>` nesting
+    breaks that. And each style now opens and closes **independently** —
+    the old code closed both markers whenever either changed, turning a bold
+    run followed by a bold-italic run into `**a*****b***` instead of
+    `**a*b***`. The fixture never exercised that transition, so nothing
+    caught it until the reference was read line by line.
+  - Bold and italic moved onto `PdfLayoutItem` alongside underline, since
+    underline is not a font property and the writer has to weigh all three
+    together. `pdfApplyFontStyles` stamps them from the font tables.
+  - Strikeout is detected and, as in the reference, never rendered.
+
+### The three divergences, all now settled by measurement
+
+- **`bfrange` with a multi-scalar base — reproduced.** The reference converts
+  the base of a `<lo> <hi> <base>` range with a scalar-only helper that
+  returns nothing when the destination decodes to more than one character, so
+  `<0004> <0004> <00660066>` drops **the whole range** rather than mapping to
+  `ff`. A surrogate pair is still one scalar and survives. `cid-font.pdf` is
+  no longer excluded from any probe.
+- **`"` is entirely unimplemented — reproduced properly.** Wave 10 stopped
+  showing the string but still applied the operator's two spacings and the
+  line move. The reference has no arm for `"` at all, so *nothing* happens:
+  measured, text after a `"` carries none of its spacings. `"` is now a
+  complete no-op.
+- **`Tz` is entirely unimplemented — reproduced.** Measured rather than
+  assumed: under `50 Tz` the reference reports a nine-glyph run as 54pt, not
+  27pt. Horizontal scaling now reaches no advance, and the dead
+  `horizontalScale` state was removed rather than left as a variable that
+  can only ever be 100.
+
+Both operator findings are upstream bugs — the glyphs are on the page, and
+condensed text really is narrower — reproduced because output has to match,
+and marked as such at the call site. The probe's item dump now carries run
+**width**, which is what turned the `Tz` and `"` questions from arguments
+into measurements.
 
 ## Phase 6 status
 
 Working end to end: bytes → objects → xref → filters → content operations →
 ToUnicode-decoded text → exact positions and widths → lines, words,
 paragraphs → captions, headings, lists and code → Markdown. The document's
-structure, prose, emphasis, lists and cleanup come out right, and links and
-form fields are recovered; its *tables* are not.
+structure, prose, emphasis, underlines, lists and cleanup come out right,
+and links and form fields are recovered; its *tables* are not.
 
 Graphics paths are now extracted, which unblocks the two largest remaining
 pieces. Remaining, roughly by size: table detection (16.3k LOC, the largest
-single piece in the project), `<u>` run rendering and superscripts on top of
-the underline flags, the base14/TrueType/glyph-name encodings for fonts without a
+single piece in the project), superscript and subscript merging, the
+base14/TrueType/glyph-name encodings for fonts without a
 `ToUnicode` CMap, multi-column layout, and encryption. Link items are
 extracted but not yet *merged into the text* they sit over — that needs the
 layout to consume positioned annotations alongside text runs.

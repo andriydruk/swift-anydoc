@@ -19,9 +19,16 @@ struct PdfLayoutItem {
     var width: Float
     var fontSize: Float
     var fontName: String
+    /// Resolved from the font's name and descriptor when the item is built;
+    /// see `PdfFontStyle.swift`. Held per item rather than looked up per
+    /// font at write time, because underline is not a font property at all
+    /// and the writer has to weigh all three together.
+    var isBold = false
+    var isItalic = false
     /// Set by geometric detection, not by anything the font declares: a PDF
     /// draws an underline as a separate path. See `PdfUnderline.swift`.
     var isUnderline = false
+    /// Detected the same way, and — as in the reference — never rendered.
     var isStrikeout = false
 }
 

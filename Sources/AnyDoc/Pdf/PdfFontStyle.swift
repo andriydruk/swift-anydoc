@@ -83,55 +83,92 @@ func pdfFontStyle(_ document: inout PdfDocument, _ font: PdfDictionary) -> PdfFo
     return style
 }
 
+/// Stamp each item with the style its font declares, so the writer can weigh
+/// bold, italic and underline together.
+func pdfApplyFontStyles(_ items: inout [PdfLayoutItem], _ styles: [String: PdfFontStyle]) {
+    for index in items.indices {
+        guard let style = styles[items[index].fontName] else { continue }
+        items[index].isBold = style.bold
+        items[index].isItalic = style.italic
+    }
+}
+
 /// A line's text with emphasis markers around the runs that carry them.
 ///
-/// Markers open and close as the style changes, and never wrap the space
-/// between two words — `**a** **b**` rather than `**a b**` would be wrong
-/// only if the space itself were emphasized, which it never meaningfully is,
-/// so trailing spaces are pushed outside the markers.
-func pdfLineTextWithEmphasis(_ line: PdfTextLine, styles: [String: PdfFontStyle]) -> String {
+/// Underline is **exclusive**: `<u>` content stays free of `**` and `*`.
+/// Consumers match tag content literally, and mixed `<u>**x**</u>` nesting
+/// breaks that, so an underlined run is never also emphasised.
+///
+/// Each style opens and closes on its own. Closing all three whenever any one
+/// changes would turn a bold run followed by a bold-italic run into
+/// `**a*****b***` instead of `**a*b***`.
+func pdfLineTextWithEmphasis(
+    _ line: PdfTextLine,
+    formatBold: Bool = true,
+    formatItalic: Bool = true,
+    formatUnderline: Bool = true
+) -> String {
+    if !formatBold, !formatItalic, !formatUnderline { return pdfLineText(line) }
+
     var result = ""
     var openBold = false
     var openItalic = false
-    var previous: PdfLayoutItem?
+    var openUnderline = false
 
-    func closeAll() {
-        if openItalic {
+    for (index, item) in line.items.enumerated() {
+        let trimmed = item.text.rustTrim()
+        if trimmed.isEmpty { continue }
+
+        // The previous *item*, not the previous non-empty one: the reference
+        // indexes back by one whatever sat there.
+        let needsSpace =
+            index == 0 || result.isEmpty
+            ? false
+            : pdfNeedsSpace(line.items[index - 1], item, result)
+        // A leading space in the run is itself a word boundary, and the
+        // trimmed text about to be appended would lose it.
+        let hasLeadingSpace = item.text.hasPrefix(" ")
+
+        let underline = formatUnderline && item.isUnderline
+        let bold = formatBold && item.isBold && !underline
+        let italic = formatItalic && item.isItalic && !underline
+
+        // Close in the reverse of the order they open, so the markers nest.
+        if openItalic, !italic {
             result += "*"
             openItalic = false
         }
-        if openBold {
+        if openBold, !bold {
             result += "**"
             openBold = false
         }
-    }
-
-    for item in line.items {
-        let trimmed = item.text.rustTrim()
-        if trimmed.isEmpty { continue }
-        let style = styles[item.fontName] ?? PdfFontStyle()
-
-        var separator = ""
-        if let previous, !result.isEmpty, pdfNeedsSpace(previous, item, result) {
-            separator = " "
+        if openUnderline, !underline {
+            result += "</u>"
+            openUnderline = false
         }
-        // A style change closes the old markers before the separating space,
-        // so the space sits outside them.
-        if style.bold != openBold || style.italic != openItalic {
-            closeAll()
+
+        // The separating space sits outside the markers.
+        if needsSpace || (hasLeadingSpace && !result.isEmpty && !result.hasSuffix(" ")) {
+            result += " "
         }
-        result += separator
-        if style.bold, !openBold {
+
+        if underline, !openUnderline {
+            result += "<u>"
+            openUnderline = true
+        }
+        if bold, !openBold {
             result += "**"
             openBold = true
         }
-        if style.italic, !openItalic {
+        if italic, !openItalic {
             result += "*"
             openItalic = true
         }
         result += trimmed
-        previous = item
     }
-    closeAll()
+
+    if openItalic { result += "*" }
+    if openBold { result += "**" }
+    if openUnderline { result += "</u>" }
     return result
 }

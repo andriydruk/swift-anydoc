@@ -94,13 +94,7 @@ import Testing
 ///     graphicsprobe --underline "$f" > "$f.underline"
 ///   done
 @Suite struct PdfUnderlineProbeTests {
-    /// One corpus file diverges for a reason that has nothing to do with
-    /// underlines: `cid-font.pdf` maps a code to a two-unit destination in a
-    /// `bfrange` (`<0004> <0004> <00660066>`), which this port decodes as
-    /// `ff` and the reference decodes as nothing, so the item lists differ in
-    /// length before any rule is considered. Excluded here by name rather
-    /// than papered over; tracked as an open ToUnicode divergence in PLAN.md.
-    private let knownTextDivergences: Set<String> = ["cid-font.pdf"]
+    private func format(_ value: Float) -> String { String(format: "%.3f", value) }
 
     @Test func underlineFlagsMatchTheReference() throws {
         guard let path = ProcessInfo.processInfo.environment["ANYDOC_PDF_CORPUS"], !path.isEmpty
@@ -112,7 +106,6 @@ import Testing
         for file in walkFiles(directory).filter({ $0.pathExtension == "pdf" }).sorted(by: {
             $0.path < $1.path
         }) {
-            if knownTextDivergences.contains(file.lastPathComponent) { continue }
             let dumpPath = file.appendingPathExtension("underline")
             guard let expected = try? String(contentsOf: dumpPath, encoding: .utf8),
                 expected.hasPrefix("#PAGE")
@@ -132,7 +125,8 @@ import Testing
                 for item in items {
                     let text = item.text.rustTrim()
                     ours.append(
-                        "item \(item.isUnderline ? 1 : 0) \(item.isStrikeout ? 1 : 0) \(text)")
+                        "item \(item.isUnderline ? 1 : 0) \(item.isStrikeout ? 1 : 0) "
+                            + "\(format(item.width)) \(text)")
                 }
             }
 

@@ -48,7 +48,6 @@ private struct PdfSavedState {
     var fontSize: Float
     var charSpacing: Float
     var wordSpacing: Float
-    var horizontalScale: Float
     var leading: Float
     var rise: Float
     var renderingMode: Int
@@ -81,7 +80,6 @@ func pdfExtractTextRuns(
     var fontSize: Float = 0
     var charSpacing: Float = 0
     var wordSpacing: Float = 0
-    var horizontalScale: Float = 100
     var leading: Float = 0
     var rise: Float = 0
     var renderingMode = 0
@@ -105,7 +103,7 @@ func pdfExtractTextRuns(
                 bytes, $0, fontSize: fontSize, charSpacing: charSpacing,
                 wordSpacing: wordSpacing)
         } ?? 0
-        let advance = textWidth * (horizontalScale / 100)
+        let advance = textWidth
 
         let text = decode(fontName, bytes)
         if !text.isEmpty, includeInvisible || renderingMode != 3 {
@@ -151,7 +149,7 @@ func pdfExtractTextRuns(
             stack.append(
                 PdfSavedState(
                     ctm: ctm, fontName: fontName, fontSize: fontSize, charSpacing: charSpacing,
-                    wordSpacing: wordSpacing, horizontalScale: horizontalScale, leading: leading,
+                    wordSpacing: wordSpacing, leading: leading,
                     rise: rise, renderingMode: renderingMode))
         case "Q":
             if let saved = stack.popLast() {
@@ -160,7 +158,6 @@ func pdfExtractTextRuns(
                 fontSize = saved.fontSize
                 charSpacing = saved.charSpacing
                 wordSpacing = saved.wordSpacing
-                horizontalScale = saved.horizontalScale
                 leading = saved.leading
                 rise = saved.rise
                 renderingMode = saved.renderingMode
@@ -190,8 +187,6 @@ func pdfExtractTextRuns(
             charSpacing = number(operands, 0, default: charSpacing)
         case "Tw":
             wordSpacing = number(operands, 0, default: wordSpacing)
-        case "Tz":
-            horizontalScale = number(operands, 0, default: horizontalScale)
         case "Ts":
             rise = number(operands, 0, default: rise)
         case "Tr":
@@ -220,18 +215,20 @@ func pdfExtractTextRuns(
             // Next line, then show.
             nextLine()
             if let bytes = operands.first?.asStringBytes { show(bytes) }
-        case "\"":
-            // `aw ac string "`: set both spacings, move to the next line,
-            // then show the string.
-            //
-            // The reference has no arm for this operator at all, so the text
-            // it shows is silently dropped and only the state changes and the
-            // line move survive. That is an upstream bug — the glyphs are on
-            // the page — but output has to match, so it is reproduced here
-            // and the string is not shown. See PLAN.md.
-            wordSpacing = number(operands, 0, default: wordSpacing)
-            charSpacing = number(operands, 1, default: charSpacing)
-            nextLine()
+        // `aw ac string "` and `scale Tz` are both **entirely unimplemented**
+        // in the reference's content-stream walker: it has arms for `Tj`,
+        // `TJ` and `'` but none for `"`, and none for `Tz` either. So `"`
+        // shows nothing, sets neither spacing and does not move to the next
+        // line; and horizontal scaling never reaches any advance.
+        //
+        // Both are upstream bugs — the glyphs are on the page, and condensed
+        // text really is narrower — and both were measured against the
+        // reference rather than assumed: under `50 Tz` it reports a 9-glyph
+        // run as 54pt, not 27pt, and text after a `"` carries none of that
+        // operator's spacings. Output has to match, so they are reproduced.
+        // See PLAN.md.
+        case "\"", "Tz":
+            break
         case "TJ":
             guard let array = operands.first?.asArray else { break }
             // A TJ array is one run, not one run per string: the writer
@@ -291,21 +288,21 @@ func pdfExtractTextRuns(
                             pdfStringWidth(
                                 bytes, $0, fontSize: fontSize, charSpacing: charSpacing,
                                 wordSpacing: wordSpacing)
-                        } ?? 0) * (horizontalScale / 100)
+                        } ?? 0)
                     continue
                 }
                 guard let adjustment = element.asNumber else { continue }
                 let value = Float(adjustment)
                 if value < -columnGapThreshold, !pieces.isEmpty {
                     flushSegment()
-                    advance += -value / 1000 * fontSize * (horizontalScale / 100)
+                    advance += -value / 1000 * fontSize
                     segmentStart = advance
                     continue
                 }
                 if value < -spaceThreshold, !pieces.isEmpty, !pieces.hasSuffix(" ") {
                     pieces += " "
                 }
-                advance += -value / 1000 * fontSize * (horizontalScale / 100)
+                advance += -value / 1000 * fontSize
             }
             flushSegment()
             textMatrix.e = origin.e + advance * origin.a

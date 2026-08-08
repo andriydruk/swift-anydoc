@@ -793,7 +793,7 @@ func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [P
         func item(_ text: String, _ x: Float, _ font: String) -> PdfLayoutItem {
             PdfLayoutItem(text: text, x: x, y: 0, width: 20, fontSize: 10, fontName: font)
         }
-        let line = PdfTextLine(
+        var line = PdfTextLine(
             items: [
                 item("plain ", 0, "R"), item("bold", 25, "B"), item(" and ", 50, "R"),
                 item("italic", 75, "I"),
@@ -803,17 +803,18 @@ func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [P
             "B": PdfFontStyle(bold: true, italic: false),
             "I": PdfFontStyle(bold: false, italic: true),
         ]
-        #expect(pdfLineTextWithEmphasis(line, styles: styles) == "plain **bold** and *italic*")
+        pdfApplyFontStyles(&line.items, styles)
+        #expect(pdfLineTextWithEmphasis(line) == "plain **bold** and *italic*")
     }
 
     /// Markers always close, even when the line ends inside one.
     @Test func markersCloseAtTheEnd() {
-        let line = PdfTextLine(
+        var line = PdfTextLine(
             items: [
                 PdfLayoutItem(text: "end", x: 0, y: 0, width: 20, fontSize: 10, fontName: "B")
             ], y: 0)
-        let out = pdfLineTextWithEmphasis(line, styles: ["B": PdfFontStyle(bold: true)])
-        #expect(out == "**end**")
+        pdfApplyFontStyles(&line.items, ["B": PdfFontStyle(bold: true)])
+        #expect(pdfLineTextWithEmphasis(line) == "**end**")
     }
 }
 
@@ -823,16 +824,22 @@ func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [P
     @Test func fixtureEmitsEmphasis() throws {
         var document = try loadFixture()
         var lines: [PdfTextLine] = []
-        var styles: [String: PdfFontStyle] = [:]
+        var allStyles: [String: PdfFontStyle] = [:]
         for page in pdfPages(&document) {
-            lines += pdfGroupIntoLines(pdfPageTextRuns(&document, page))
-            for (name, style) in pdfPageFontStyles(&document, page) { styles[name] = style }
+            let styles = pdfPageFontStyles(&document, page)
+            for (name, style) in styles { allStyles[name] = style }
+            for var line in pdfGroupIntoLines(pdfPageTextRuns(&document, page)) {
+                pdfApplyFontStyles(&line.items, styles)
+                lines.append(line)
+            }
         }
-        #expect(styles.values.contains { $0.bold }, "no bold font was detected")
-        #expect(styles.values.contains { $0.italic }, "no italic font was detected")
+        #expect(allStyles.values.contains { $0.bold }, "no bold font was detected")
+        #expect(allStyles.values.contains { $0.italic }, "no italic font was detected")
 
-        let markdown = pdfRenderMarkdown(pdfBuildBlocks(lines, styles: styles))
-        print("pdf emphasis: \(styles.count) fonts, \(styles.values.filter(\.bold).count) bold")
+        let markdown = pdfRenderMarkdown(pdfBuildBlocks(lines, formatted: true))
+        print(
+            "pdf emphasis: \(allStyles.count) fonts, "
+                + "\(allStyles.values.filter(\.bold).count) bold")
         // The golden's own first paragraph.
         #expect(
             markdown.contains("Plain paragraph with **bold**, *italic*, and struck runs."),

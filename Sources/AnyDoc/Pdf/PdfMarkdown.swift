@@ -105,7 +105,7 @@ private let listContinuationRightSlack: Float = 50
 /// The reference streams these straight into one output string; blocks are
 /// kept here because the rest of this port's Markdown writers work that way,
 /// and the two agree after `pdfRenderMarkdown` puts the separators back.
-func pdfBuildBlocks(_ lines: [PdfTextLine], styles: [String: PdfFontStyle] = [:]) -> [PdfBlock] {
+func pdfBuildBlocks(_ lines: [PdfTextLine], formatted: Bool = false) -> [PdfBlock] {
     let bodySize = pdfBodyFontSize(lines)
     let tiers = pdfHeadingTiers(lines, bodySize: bodySize)
     let paragraphThreshold = pdfParagraphThreshold(lines, bodySize: bodySize)
@@ -121,7 +121,7 @@ func pdfBuildBlocks(_ lines: [PdfTextLine], styles: [String: PdfFontStyle] = [:]
     var previousY: Float?
 
     func render(_ line: PdfTextLine) -> String {
-        styles.isEmpty ? pdfLineText(line) : pdfLineTextWithEmphasis(line, styles: styles)
+        formatted ? pdfLineTextWithEmphasis(line) : pdfLineText(line)
     }
     func closeParagraph() {
         if !paragraph.isEmpty { blocks.append(.paragraph(paragraph.joined())) }

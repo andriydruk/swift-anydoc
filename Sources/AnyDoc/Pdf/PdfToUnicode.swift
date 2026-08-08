@@ -67,6 +67,14 @@ func parsePdfToUnicode(_ content: [UInt8]) -> PdfToUnicodeCMap {
                 // The destination increments with the code, in its last
                 // UTF-16 unit.
                 let base = hexDigitsToUnits(digits)
+                // A base denoting more than one scalar drops the whole
+                // range. The reference converts it with a scalar-only helper
+                // that returns nothing for a multi-character string, so
+                // `<0004> <0004> <00660066>` — the `ff` ligature — maps to
+                // nothing at all rather than to `ff`. That loses text the
+                // font really shows, but output has to match. Note a
+                // surrogate pair is still *one* scalar and survives.
+                guard unitsToString(base).unicodeScalars.count == 1 else { break }
                 for offset in 0..<count {
                     var units = base
                     if var last = units.last {

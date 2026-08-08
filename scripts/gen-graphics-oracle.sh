@@ -144,9 +144,10 @@ pub fn probe_underline(bytes: &[u8]) -> String {
             out.push_str(&format!("#PAGE {n}\n"));
             for i in &items {
                 out.push_str(&format!(
-                    "item {} {} {}\n",
+                    "item {} {} {:.3} {}\n",
                     i.is_underline as u8,
                     i.is_strikeout as u8,
+                    i.width,
                     i.text.trim()
                 ));
             }

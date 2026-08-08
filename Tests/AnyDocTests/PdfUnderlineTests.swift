@@ -132,3 +132,65 @@ import Testing
         #expect(ink.count == 2, "clip-only rectangles draw nothing and must not be ink")
     }
 }
+
+/// Rendering inline decoration: `<u>` runs, and how the three styles nest.
+@Suite struct PdfInlineFormattingTests {
+    private func line(_ items: [PdfLayoutItem]) -> PdfTextLine {
+        PdfTextLine(items: items, y: 0)
+    }
+    private func item(
+        _ text: String, _ x: Float, bold: Bool = false, italic: Bool = false,
+        underline: Bool = false
+    ) -> PdfLayoutItem {
+        var made = PdfLayoutItem(
+            text: text, x: x, y: 0, width: Float(text.count) * 5, fontSize: 10, fontName: "F")
+        made.isBold = bold
+        made.isItalic = italic
+        made.isUnderline = underline
+        return made
+    }
+
+    @Test func underlinedRunsBecomeTags() {
+        let text = pdfLineTextWithEmphasis(
+            line([item("plain ", 0), item("linked", 40, underline: true)]))
+        #expect(text == "plain <u>linked</u>")
+    }
+
+    /// `<u>` content stays free of `**` and `*`: consumers match tag content
+    /// literally and mixed nesting breaks that.
+    @Test func underlineSuppressesEmphasisInsideIt() {
+        let text = pdfLineTextWithEmphasis(
+            line([item("bold underlined", 0, bold: true, italic: true, underline: true)]))
+        #expect(text == "<u>bold underlined</u>")
+    }
+
+    /// Each style closes on its own. Closing all three whenever one changes
+    /// would give `**a*****b***` here.
+    @Test func stylesOpenAndCloseIndependently() {
+        let text = pdfLineTextWithEmphasis(
+            line([item("a", 0, bold: true), item("b", 5, bold: true, italic: true)]))
+        #expect(text == "**a*b***")
+    }
+
+    @Test func markersCloseAtTheEndOfTheLine() {
+        let text = pdfLineTextWithEmphasis(line([item("end", 0, bold: true, italic: true)]))
+        #expect(text == "***end***")
+    }
+
+    /// Turning every format off gives the plain writer's output.
+    @Test func formattingCanBeTurnedOff() {
+        let subject = line([item("a", 0, bold: true), item("b", 40, underline: true)])
+        let formatted = pdfLineTextWithEmphasis(subject)
+        let plain = pdfLineTextWithEmphasis(
+            subject, formatBold: false, formatItalic: false, formatUnderline: false)
+        #expect(formatted != plain)
+        #expect(plain == pdfLineText(subject))
+    }
+
+    /// Strikeout is detected but never rendered, as in the reference.
+    @Test func strikeoutIsNeverRendered() {
+        var struck = item("gone", 0)
+        struck.isStrikeout = true
+        #expect(pdfLineTextWithEmphasis(line([struck])) == "gone")
+    }
+}
