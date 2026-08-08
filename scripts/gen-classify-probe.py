@@ -124,8 +124,117 @@ fn unescape(s: &str) -> String {
     ) as handle:
         handle.write(
             "[package]\nname='classifyprobe'\nversion='0.0.0'\nedition='2021'\n"
+            "[dependencies]\nregex='1'\nonce_cell='1'\n"
             "[[bin]]\nname='classifyprobe'\npath='src/main.rs'\n"
+            "[[bin]]\nname='postprobe'\npath='src/post.rs'\n"
         )
+
+
+POST_HARNESS = r"""
+use std::io::{self, Read, Write};
+
+fn main() {
+    let mut input = String::new();
+    io::stdin().read_to_string(&mut input).unwrap();
+    let out = io::stdout();
+    let mut out = out.lock();
+    for line in input.split('\n') {
+        if line.is_empty() { continue }
+        let text: String = unescape(line);
+        let mut spaces = text.clone();
+        collapse_consecutive_spaces(&mut spaces);
+        let mut brackets = text.clone();
+        remove_spaces_before_closing_brackets(&mut brackets);
+        let mut punctuation = text.clone();
+        remove_spaces_before_sentence_punctuation(&mut punctuation);
+        writeln!(out, "{}|{}|{}|{}|{}|{}|{}|{}|{}",
+            line,
+            escape(&spaces),
+            escape(&brackets),
+            escape(&punctuation),
+            escape(&collapse_dot_leaders(&text)),
+            escape(&fix_hyphenation(&text)),
+            escape(&remove_page_numbers(&text)),
+            is_page_number_line(text.trim()) as u8,
+            escape(&format_urls(&text))).unwrap();
+    }
+}
+
+fn escape(s: &str) -> String {
+    s.chars().map(|c| match c {
+        '\n' => "\\n".to_string(), '\r' => "\\r".to_string(), '\t' => "\\t".to_string(),
+        '\\' => "\\\\".to_string(), '|' => "\\p".to_string(),
+        _ => c.to_string(),
+    }).collect()
+}
+
+fn unescape(s: &str) -> String {
+    let mut out = String::new();
+    let mut it = s.chars();
+    while let Some(c) = it.next() {
+        if c != '\\' { out.push(c); continue }
+        match it.next() {
+            Some('n') => out.push('\n'), Some('r') => out.push('\r'),
+            Some('t') => out.push('\t'), Some('p') => out.push('|'),
+            Some('\\') => out.push('\\'), Some(other) => { out.push('\\'); out.push(other) }
+            None => out.push('\\'),
+        }
+    }
+    out
+}
+"""
+
+
+def write_post_probe(reference, directory):
+    """The same trick for `markdown/postprocess.rs`. `clean_markdown` itself
+    needs the options struct, so the individual passes are probed instead and
+    the Swift side composes them in the same order."""
+    source = open(
+        os.path.join(reference, "markdown", "postprocess.rs"), encoding="utf-8"
+    ).read()
+    body = source[source.index("/// Collapse runs of 2+ spaces") : source.index("#[cfg(test)]")]
+    body = body.replace("\nfn ", "\npub fn ")
+    header = "#![allow(dead_code)]\nuse regex::Regex;\n"
+    with open(os.path.join(directory, "classifyprobe", "src", "post.rs"), "w",
+              encoding="utf-8") as handle:
+        handle.write(header + body + POST_HARNESS)
+
+
+def post_cases(random_count):
+    """Probe strings for the cleanup passes: whitespace residue, stranded
+    punctuation, spaced hyphens, page-number shapes, and bare URLs."""
+    out = [
+        "Vice  President", "a  b   c", "  indented  text  ", "| a  | b  |",
+        "word ]", "[link ]", "a ] b ]", "word .", "word ,", "word ;",
+        "3 . 14", "a . b", "see ... more", "x ... y ... z", "end .",
+        "cell . | next", "Limoeiro do Nort e", "compound - word", "- list item",
+        "a - b - c", "x - 1", "1 - x", "café - bar", "u\u0308ber - bar",
+        "....", ".....", "Intro....1", "a....b....c",
+        "1", "42", "1234", "12345", "Page 3", "Page 3 of 9", "page  of",
+        "Page", "Page of", "3 of 12", "- 7 -", "-7-", "- x -", "PAGE 2",
+        "https://example.test/a", "see https://example.test/a.",
+        "https://example.test/a, and", "(https://example.test/a)",
+        "[https://example.test/a](https://example.test/a)",
+        "[text](https://example.test/a)", "[unclosed https://example.test/a",
+        "http://x.test", "https://", "https:// ", "a https://x.test b",
+        "https://x.test/p]", "https://x.test/p;", "https://x.test/(p)",
+    ]
+    # Multi-line shapes, which is where remove_page_numbers actually decides.
+    out += [
+        "para\n\n7\n\npara", "para\n7\npara", "7\n\npara", "para\n\n7",
+        "para\n---\n7\n---\npara", "para\n7\n---", "para\n7\n\n---",
+        "a\n\n\n\nb", "a\n\n\nb", "\n\n\n", "a\nb\nc",
+    ]
+
+    generator = random.Random(4321)
+    alphabet = list("ab .,;-|][()  \n") + [
+        "  ", "...", "....", "https://x.test/p", "Page 3", "7", "\u00e9", "\u0301",
+        "\u00a0", "-", " - ", "](", "[", "]", "\t",
+    ]
+    for _ in range(random_count):
+        length = generator.randint(0, 18)
+        out.append("".join(generator.choice(alphabet) for _ in range(length)))
+    return out
 
 
 def escape(text):
@@ -242,7 +351,9 @@ def main():
     arguments = parser.parse_args()
 
     os.makedirs(arguments.directory, exist_ok=True)
-    write_probe(reference_source(), arguments.directory)
+    reference = reference_source()
+    write_probe(reference, arguments.directory)
+    write_post_probe(reference, arguments.directory)
 
     crate = os.path.join(arguments.directory, "classifyprobe")
     subprocess.run(["cargo", "build", "--release", "--offline"], cwd=crate, check=True)
@@ -269,7 +380,30 @@ def main():
             stdin=stdin, stdout=stdout, check=True,
         )
 
-    print(f"{len(corpus)} probe strings; oracle answers written to {arguments.directory}")
+    post_seen, post_corpus = set(), []
+    for case in post_cases(arguments.cases // 4):
+        escaped = escape(case)
+        if not escaped or escaped in post_seen:
+            continue
+        post_seen.add(escaped)
+        post_corpus.append(escaped)
+
+    post_cases_path = os.path.join(arguments.directory, "postprocess-cases.txt")
+    with open(post_cases_path, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(post_corpus) + "\n")
+
+    with open(post_cases_path, encoding="utf-8") as stdin, open(
+        os.path.join(arguments.directory, "postprocess-rust.txt"), "w", encoding="utf-8"
+    ) as stdout:
+        subprocess.run(
+            [os.path.join(crate, "target", "release", "postprobe")],
+            stdin=stdin, stdout=stdout, check=True,
+        )
+
+    print(
+        f"{len(corpus)} classifier strings and {len(post_corpus)} cleanup strings; "
+        f"oracle answers written to {arguments.directory}"
+    )
 
 
 if __name__ == "__main__":

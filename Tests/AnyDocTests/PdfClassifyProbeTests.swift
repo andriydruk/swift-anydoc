@@ -38,7 +38,7 @@ import Testing
     /// Scalars throughout, never characters. A backslash followed by a
     /// combining mark is one Swift `Character`, so a grapheme-wise reader
     /// mangles exactly the rows this probe exists to check.
-    private func unescape<S: StringProtocol>(_ text: S) -> String {
+    func unescape<S: StringProtocol>(_ text: S) -> String {
         var result = String.UnicodeScalarView()
         var iterator = text.unicodeScalars.makeIterator()
         while let scalar = iterator.next() {
@@ -59,7 +59,7 @@ import Testing
         return String(result)
     }
 
-    private func escape(_ text: String) -> String {
+    func escape(_ text: String) -> String {
         var result = String.UnicodeScalarView()
         for scalar in text.unicodeScalars {
             switch scalar {
@@ -75,7 +75,7 @@ import Testing
     }
 
     /// Split a row on the field separator by scalar, for the same reason.
-    private func fields(of row: Substring) -> [String] {
+    func fields(of row: Substring) -> [String] {
         var pieces: [String] = []
         var current = String.UnicodeScalarView()
         for scalar in row.unicodeScalars {
@@ -137,6 +137,64 @@ import Testing
             #expect(
                 mismatches.isEmpty,
                 "\(mismatches.count) classifier divergences:\n\(report)")
+        #endif
+    }
+}
+
+/// Differential check of the Markdown cleanup passes against
+/// `markdown/postprocess.rs`, compiled verbatim into the same probe binary.
+///
+/// The reference implements three of these with regexes; this port hand-wrote
+/// them to stay dependency-free, which means the hand-written versions have
+/// to be shown equivalent rather than assumed so — including where the
+/// patterns behave unexpectedly, as `replace_all`'s non-overlapping matches
+/// do on `a - b - c`.
+@Suite struct PdfPostprocessProbeTests {
+    @Test func cleanupPassesAgreeWithTheReference() throws {
+        #if canImport(Foundation)
+            guard let path = ProcessInfo.processInfo.environment["ANYDOC_CLASSIFY_PROBE"],
+                !path.isEmpty
+            else { return }
+            let expected = try String(
+                contentsOfFile: path + "/postprocess-rust.txt", encoding: .utf8)
+
+            let shared = PdfClassifyProbeTests()
+            var compared = 0
+            var mismatches: [String] = []
+            for row in expected.split(separator: "\n") {
+                let fields = shared.fields(of: row)
+                guard fields.count == 9 else {
+                    mismatches.append("malformed probe row: \(row)")
+                    continue
+                }
+                let text = shared.unescape(fields[0])
+                let ours = [
+                    shared.escape(pdfCollapseConsecutiveSpaces(text)),
+                    shared.escape(pdfRemoveSpacesBeforeClosingBrackets(text)),
+                    shared.escape(pdfRemoveSpacesBeforeSentencePunctuation(text)),
+                    shared.escape(pdfCollapseDotLeaders(text)),
+                    shared.escape(pdfFixHyphenation(text)),
+                    shared.escape(pdfRemovePageNumbers(text)),
+                    pdfIsPageNumberLine(text.rustTrim()) ? "1" : "0",
+                    shared.escape(pdfFormatUrls(text)),
+                ]
+                let theirs = Array(fields[1...])
+                if ours != theirs {
+                    let names = [
+                        "spaces", "brackets", "punctuation", "dot-leaders", "hyphenation",
+                        "page-numbers", "is-page-number", "urls",
+                    ]
+                    let differing = zip(names, zip(ours, theirs))
+                        .filter { $0.1.0 != $0.1.1 }
+                        .map { "\($0.0): ours=\($0.1.0) rust=\($0.1.1)" }
+                        .joined(separator: ", ")
+                    mismatches.append("\(fields[0]) → \(differing)")
+                }
+                compared += 1
+            }
+            print("pdf cleanup probe: \(compared) strings compared")
+            let report = mismatches.prefix(20).joined(separator: "\n")
+            #expect(mismatches.isEmpty, "\(mismatches.count) cleanup divergences:\n\(report)")
         #endif
     }
 }

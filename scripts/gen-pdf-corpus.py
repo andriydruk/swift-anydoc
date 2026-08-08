@@ -220,6 +220,61 @@ def write(name, data):
     open(os.path.join(OUT, name + ".pdf"), "wb").write(data)
 
 
+def annotated_document(b):
+    """A page carrying /Link annotations and an AcroForm, so the annotation
+    layer has something to find. Nothing here is drawn by the content stream:
+    a link is a rectangle plus an action, and a field value lives off the
+    trailer, which is exactly why they need their own extraction path."""
+    content_id = b.stream(b"/Filter/FlateDecode", flate(CONTENT))
+    font_id = b.add(SIMPLE_FONT)
+    page_id = b.reserve()
+    pages_id = b.reserve()
+
+    # An external URI, an internal jump with no URI (dropped), a non-Link
+    # annotation (skipped), and one whose rectangle is reversed.
+    external = b.add(
+        b"<</Type/Annot/Subtype/Link/Rect[100 700 300 720]"
+        b"/A<</S/URI/URI(https://example.test/a)>>>>"
+    )
+    internal = b.add(b"<</Type/Annot/Subtype/Link/Rect[100 660 300 680]/Dest[0 /Fit]>>")
+    other = b.add(b"<</Type/Annot/Subtype/Text/Rect[10 10 20 20]/Contents(note)>>")
+    reversed_rect = b.add(
+        b"<</Type/Annot/Subtype/Link/Rect[300 720 100 700]"
+        b"/A<</S/URI/URI(https://example.test/b)>>>>"
+    )
+
+    # A text field under a group, so the qualified name is exercised, plus a
+    # checkbox, an unchecked checkbox, and a signature field (all skipped but
+    # the last two for different reasons).
+    text_field = b.reserve()
+    group = b.reserve()
+    b.add(
+        b"<</T(city)/FT/Tx/V(Lisbon)/Rect[100 600 300 620]/P %d 0 R/Parent %d 0 R>>"
+        % (page_id, group),
+        text_field,
+    )
+    b.add(b"<</T(address)/Kids[%d 0 R]>>" % text_field, group)
+    checkbox = b.add(b"<</T(agree)/FT/Btn/V/Yes/Rect[100 560 120 580]/P %d 0 R>>" % page_id)
+    unchecked = b.add(b"<</T(spam)/FT/Btn/V/Off/Rect[100 520 120 540]/P %d 0 R>>" % page_id)
+    signature = b.add(b"<</T(sig)/FT/Sig/V<</Type/Sig>>/Rect[100 480 300 500]>>")
+
+    b.add(
+        b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+        b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R"
+        b"/Annots[%d 0 R %d 0 R %d 0 R %d 0 R]>>"
+        % (pages_id, font_id, content_id, external, internal, other, reversed_rect),
+        page_id,
+    )
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    acroform = b.add(
+        b"<</Fields[%d 0 R %d 0 R %d 0 R %d 0 R]>>"
+        % (group, checkbox, unchecked, signature)
+    )
+    return b.add(
+        b"<</Type/Catalog/Pages %d 0 R/AcroForm %d 0 R>>" % (pages_id, acroform)
+    )
+
+
 # --- baseline -------------------------------------------------------------
 b = Builder()
 write("classic-xref", classic_trailer(b, base_document(b)))
@@ -448,5 +503,11 @@ b.next_id += 1
 b.out += b"%d 0 obj\n<</Filter/FlateDecode/Length 999999>>\nstream\n" % lying
 b.out += data + b"\nendstream\nendobj\n"
 write("lying-length", classic_trailer(b, root))
+
+
+
+# --- annotations and form fields -----------------------------------------
+b = Builder()
+write("annotations", classic_trailer(b, annotated_document(b)))
 
 print("generated %d pdfs in %s" % (len([f for f in os.listdir(OUT) if f.endswith(".pdf")]), OUT))

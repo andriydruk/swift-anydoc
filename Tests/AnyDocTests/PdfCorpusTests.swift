@@ -141,3 +141,62 @@ func normalizeOracleArtifacts(_ dump: String, against expected: String) -> Strin
         print("pdf corpus: \(rendered) files rendered to markdown")
     }
 }
+
+/// Links and form fields, read from the corpus's `annotations.pdf`.
+///
+/// These live in dictionaries the content stream never mentions, so nothing
+/// else in the suite reaches them: a hyperlink is a rectangle plus an action,
+/// and a field value hangs off the trailer.
+@Suite struct PdfAnnotationTests {
+    private func annotatedDocument() throws -> PdfDocument? {
+        guard let directory = corpusDirectory else { return nil }
+        let path = directory.appendingPathComponent("annotations.pdf")
+        return try PdfDocument(bytes: [UInt8](Data(contentsOf: path)))
+    }
+
+    @Test func linkAnnotationsCarryTheirUriAndRectangle() throws {
+        guard var document = try annotatedDocument() else { return }
+        let pages = pdfPages(&document)
+        let links = pdfPageLinks(&document, page: try #require(pages.first), pageNumber: 1)
+
+        // Four annotations on the page; the internal /Dest jump has no URI so
+        // it is dropped, and the /Text annotation is not a link.
+        #expect(links.count == 2, "got \(links.map(\.text))")
+        let first = try #require(links.first)
+        #expect(first.text == "https://example.test/a")
+        #expect(first.kind == .link("https://example.test/a"))
+        #expect(first.x == 100)
+        #expect(first.y == 700)
+        #expect(first.width == 200)
+        #expect(first.height == 20)
+
+        // A reversed rectangle is passed through as given, negative extents
+        // and all — the reference does not normalise a link's rect.
+        let reversed = try #require(links.last)
+        #expect(reversed.width == -200)
+        #expect(reversed.height == -20)
+    }
+
+    @Test func formFieldsAreQualifiedAndFiltered() throws {
+        guard var document = try annotatedDocument() else { return }
+        let pages = pdfPages(&document)
+        #expect(pdfPageObjectIds(&document).count == pages.count)
+        let fields = pdfFormFields(&document, pageNumbers: pdfPageNumbers(&document))
+        let texts = fields.map(\.text)
+
+        // The text field inherits its group's name; the checkbox reports Yes;
+        // the unchecked box and the signature field are dropped.
+        #expect(texts.contains("address.city: Lisbon"), "got \(texts)")
+        #expect(texts.contains("agree: Yes"), "got \(texts)")
+        #expect(!texts.contains { $0.hasPrefix("spam") })
+        #expect(!texts.contains { $0.hasPrefix("sig") })
+
+        // A field's rectangle *is* normalised, unlike a link's.
+        let city = try #require(fields.first { $0.text.hasSuffix("Lisbon") })
+        #expect(city.x == 100)
+        #expect(city.y == 600)
+        #expect(city.width == 200)
+        #expect(city.height == 20)
+        #expect(city.page == 1)
+    }
+}

@@ -721,18 +721,69 @@ the defect if their reference sites use `to_lowercase()` rather than
 `to_ascii_lowercase()`. The `anydoc` crate is not vendored locally, so this
 needs a re-clone to settle. Not changed on speculation.
 
+- **Wave 8 — links and cleanup.** Two things that had no home yet.
+  - `PdfLinks.swift` ports `extractor/links.rs`: `/Link` annotations (rect +
+    `/A` → `/URI`), and the AcroForm field tree (qualified names, inherited
+    `/FT`, `Tx`/`Ch`/`Btn` values, `Off` and `Sig` skipped). Neither is in the
+    content stream, so nothing else in the port could reach them. Also adds
+    `pdfPageObjectIds`/`pdfPageNumbers`, the first page-tree walk in the
+    library — the field extractor needs page *numbers*, and until now page
+    enumeration only existed as a test helper.
+    - A link's rectangle is passed through unnormalised (a reversed one gives
+      negative extents); a field's **is** normalised. That asymmetry is the
+      reference's and is now pinned by test.
+  - `PdfPostprocess.swift` ports `markdown/postprocess.rs`: doubled-space
+    collapse, spaces before `]` and before sentence punctuation, spaced-hyphen
+    repair, standalone page-number removal, bare-URL linking, blank-line
+    collapse, and the final trim. `pdfRenderMarkdown` now runs it, as the
+    reference runs `clean_markdown` over the whole document.
+    - The reference's three regexes are hand-written to keep the port
+      dependency-free, each annotated with the pattern it stands in for.
+  - Deliberately not ported: the compact profile's dot-leader collapse is
+    implemented but off by default, matching the reference; named-destination
+    resolution is absent there too.
+
+### The cleanup probe
+
+`scripts/gen-classify-probe.py` gained a second binary extracting
+`postprocess.rs` verbatim, and `PdfPostprocessProbeTests` compares eight
+passes over ~8.8k generated strings. It found **130 divergences on the first
+run**, in five of the eight passes. Two causes:
+
+- **The same grapheme trap as wave 7**, in `collapse_consecutive_spaces`,
+  `remove_spaces_before_closing_brackets`,
+  `remove_spaces_before_sentence_punctuation`, `collapse_dot_leaders` and
+  `fix_hyphenation`. `"]" + U+0301` is one Swift `Character`, so `== "]"`
+  failed; `".... " + U+0301` hid the fourth dot; two spaces followed by a
+  combining mark collapsed to one in Rust and neither in Swift. All five now
+  iterate `unicodeScalars`.
+- **Two reference behaviours the port had guessed at.**
+  `collapse_consecutive_spaces` guards its separator on `!result.is_empty()`
+  rather than on the loop index, so **leading blank lines are silently
+  dropped** — `"\nabc"` → `"abc"`, `"\n\n\n"` → `""` — while interior ones
+  survive. And `format_urls` counts brackets in `text[..start]`, which
+  includes brackets *inside* URLs matched earlier; counting emitted output
+  instead gave different link decisions.
+
+Both are now reproduced and pinned by test. The wave-7 lesson generalised:
+every pass that walks a string against reference literals is a candidate,
+and the probe is the only thing that finds them.
+
 ## Phase 6 status
 
 Working end to end: bytes → objects → xref → filters → content operations →
 ToUnicode-decoded text → exact positions and widths → lines, words,
 paragraphs → captions, headings, lists and code → Markdown. The document's
-structure, prose, emphasis and lists come out right; its *links, notes and
-tables* do not yet.
+structure, prose, emphasis, lists and cleanup come out right, and links and
+form fields are recovered; its *tables* are not.
 
 Remaining, roughly by size: table detection (16.3k LOC, the largest single
-piece in the project), links and notes (superscripts, `<u>` annotations), the
+piece in the project), geometric underline detection (`extractor/underline.rs`)
+and the `<u>` runs and superscripts that depend on it, the
 base14/TrueType/glyph-name encodings for fonts without a `ToUnicode` CMap,
-multi-column layout, and encryption.
+multi-column layout, and encryption. Link items are extracted but not yet
+*merged into the text* they sit over — that needs the layout to consume
+positioned annotations alongside text runs.
 
 The one PDF fixture is a classic-xref PDF 1.7 using only FlateDecode, with 7
 embedded TrueType fonts carrying `ToUnicode` CMaps and a `StructTreeRoot` —
@@ -740,7 +791,7 @@ a narrow slice, which is why the generated corpus below exists.
 
 ### Generated adversarial corpus
 
-`scripts/gen-pdf-corpus.py` writes 20 PDFs byte by byte, each aimed at a path
+`scripts/gen-pdf-corpus.py` writes 21 PDFs byte by byte, each aimed at a path
 the fixture cannot reach. It is deterministic: regenerating produces
 identical bytes, so the oracle dumps stay valid.
 
@@ -751,14 +802,15 @@ identical bytes, so the oracle dumps stay valid.
 | Streams | `indirect-length`, `lying-length` |
 | Fonts and content | `cid-font`, `content-shapes`, `content-array`, `two-column` |
 | Malformed | `bad-xref-offsets`, `truncated`, `no-startxref`, `garbage-header` |
+| Annotations | `annotations` (links, reversed rect, AcroForm field tree) |
 
 `Tests/AnyDocTests/PdfCorpusTests.swift` runs against it when
 `ANYDOC_PDF_CORPUS` points at the generated directory, and skips otherwise —
 the corpus is a build product, not a committed artifact. Two assertions: the
 object graph must match a dump from the `pdfprobe` lopdf oracle, and every
 file must reach the end of the pipeline without crashing or hanging. Current
-result: **17 graphs compared identical, 3 rejections agreed** (lopdf and this
-port reject the same three malformed files), **16 rendered to Markdown**.
+result: **18 graphs compared identical, 3 rejections agreed** (lopdf and this
+port reject the same three malformed files), **17 rendered to Markdown**.
 
 The corpus found one real divergence, now fixed. A stream whose direct
 `/Length` overruns the file was being recovered by scanning forward for

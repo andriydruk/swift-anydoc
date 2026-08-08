@@ -234,7 +234,9 @@ private func isListContinuation(_ x: Float, of listX: Float) -> Bool {
 }
 
 /// Render blocks as Markdown.
-func pdfRenderMarkdown(_ blocks: [PdfBlock]) -> String {
+func pdfRenderMarkdown(
+    _ blocks: [PdfBlock], cleanup: PdfCleanupOptions = PdfCleanupOptions()
+) -> String {
     var parts: [String] = []
     for block in blocks {
         switch block {
@@ -252,7 +254,9 @@ func pdfRenderMarkdown(_ blocks: [PdfBlock]) -> String {
     }
     // Blocks are separated by a blank line, and the document ends with one
     // newline — the same contract the Markdown renderer holds for every
-    // other format in this port.
+    // other format in this port. The cleanup pass then repairs the residue
+    // that reassembling fragments leaves behind, as it does in the
+    // reference, which runs it over the whole document at the end.
     let body = parts.joined(separator: "\n\n")
-    return body.isEmpty ? "" : body + "\n"
+    return body.isEmpty ? "" : pdfCleanMarkdown(body + "\n", options: cleanup)
 }
