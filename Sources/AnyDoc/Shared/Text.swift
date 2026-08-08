@@ -34,6 +34,19 @@ func isXmlSpace(_ c: Unicode.Scalar) -> Bool {
     c == " " || c == "\t" || c == "\r" || c == "\n"
 }
 
+/// Strip XML whitespace from both ends — what an unmarked `xml:space`
+/// contract discards, in OOXML text runs and spreadsheet strings alike.
+func trimXmlSpace(_ s: String) -> Substring {
+    var view = s[...]
+    while let first = view.unicodeScalars.first, isXmlSpace(first) {
+        view = view[view.unicodeScalars.index(after: view.unicodeScalars.startIndex)...]
+    }
+    while let last = view.unicodeScalars.last, isXmlSpace(last) {
+        view = view[..<view.unicodeScalars.index(before: view.unicodeScalars.endIndex)]
+    }
+    return view
+}
+
 /// Collapse whitespace runs to single spaces.
 func collapseWhitespace(_ text: some StringProtocol) -> String {
     var out = String.UnicodeScalarView()

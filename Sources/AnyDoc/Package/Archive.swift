@@ -87,6 +87,14 @@ final class Package {
         zip.indexForName(trimLeadingSlashes(name)) != nil
     }
 
+    /// Every entry name, in central-directory order. For frontends whose
+    /// reference implementation resolves part names by something other than
+    /// an exact match (the spreadsheet reader compares case-insensitively)
+    /// and so must build their own index.
+    var entryNames: [String] {
+        zip.entries.map { String(decoding: $0.nameRaw, as: UTF8.self) }
+    }
+
     /// Read a part that must exist for any meaningful output.
     func requiredPart(_ name: String) throws -> [UInt8] {
         guard let bytes = try part(name) else {

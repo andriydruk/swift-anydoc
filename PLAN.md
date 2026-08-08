@@ -397,5 +397,24 @@ reference (which the MIT license permits, with attribution), not clean-room reim
   reader matching the Rust `csv` crate's lenient semantics. Validated byte-identical
   against the actual Rust binary: 4/4 fixtures, 9/9 adversarial cases, 120/120
   deterministic mutants (corrupt bytes + truncations).
-- **Next: Phase 2** — inflate + ZIP reader, XML pull parser + capped DOM, OPC layer,
-  DOCX. Then CI (Linux + macOS) once there is a remote to attach it to.
+- **Phase 2 — done.** Inflate (RFC 1951) + ZIP reader with entry/total/count limits and
+  CRC checking, XML pull parser + capped namespace-interning DOM, OPC layer
+  (content types, relationships, part-path resolution), MS-CFB reader, and the shared
+  modules (DrawingML, OfficeArt, fields, list/numbering, HTML mapper, grid builder).
+  DOCX landed on top: all 10 docx snapshots byte-identical.
+- **Phase 3 — done.** ODF (odt/ods/odp), PPTX, EPUB, and XLSX. All 41 fixtures for the
+  ported formats are byte-identical to the Rust binary; 10 malformed fixtures match on
+  error class.
+  - XLSX replaces `calamine` with an in-repo reader of the slice anydoc uses: shared
+    strings (rich text, phonetic skipping, `xml:space`, `_x00HH_` escapes), the
+    number-format table that decides which numbers are dates, the cell grid, and
+    merged regions. Includes `rustFormatF64` — Rust's positional `f64` `Display` plus
+    the exact-decimal 15-significant-digit rounding spreadsheets need (§2, gotcha 1).
+  - Validated beyond the fixtures: 43 hand-built adversarial workbooks (float
+    precision, all reserved and custom format codes, serial edge values incl. the 1900
+    leap-year bug and the 1904 epoch, every cell type, merge geometry, implicit cell
+    positions, malformed parts) byte-identical to the Rust binary; a 1050-mutant
+    corruption sweep with zero crashes, zero hangs and zero output divergences (~6% of
+    mutants still differ on error *class*, all of them corrupt-input-only).
+- **Next: Phase 4** — RTF. Then Phase 5 (legacy binary: DOC, PPT, XLS/XLSB over the
+  existing CFB reader) and CI (Linux + macOS) once there is a remote to attach it to.

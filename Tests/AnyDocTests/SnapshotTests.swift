@@ -14,7 +14,12 @@ import Testing
 
 /// Formats the Swift port implements so far. Grows phase by phase; a format
 /// listed here has every one of its fixtures compared byte-for-byte.
-let implementedFormats: Set<Format> = [.csv, .docx, .epub, .pptx, .odt, .ods, .odp]
+let implementedFormats: Set<Format> = [.csv, .docx, .epub, .pptx, .odt, .ods, .odp, .excel]
+
+/// Extensions still awaiting a parser inside an otherwise implemented
+/// format. `Format.excel` covers both the SpreadsheetML package and the
+/// legacy binary workbook; only the former is ported.
+let unimplementedExtensions: Set<String> = ["xls", "xlsb"]
 
 private let testsDir = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent()  // AnyDocTests
@@ -70,7 +75,8 @@ private func trimTrailingNewlines(_ s: String) -> Substring {
             guard let format = Format(path: fixture.path) else {
                 continue
             }
-            guard implementedFormats.contains(format) else {
+            let ext = fixture.pathExtension.lowercased()
+            guard implementedFormats.contains(format), !unimplementedExtensions.contains(ext) else {
                 skipped += 1
                 continue
             }

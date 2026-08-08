@@ -675,17 +675,6 @@ private func collectTextBoxes(_ elem: XmlElement, _ out: inout [XmlElement]) {
 
 /// Rust `str::trim_matches(is_xml_space)`: strip XML whitespace from both
 /// ends only.
-private func trimXmlSpace(_ s: String) -> Substring {
-    var view = s[...]
-    while let first = view.unicodeScalars.first, isXmlSpace(first) {
-        view = view[view.unicodeScalars.index(after: view.unicodeScalars.startIndex)...]
-    }
-    while let last = view.unicodeScalars.last, isXmlSpace(last) {
-        view = view[..<view.unicodeScalars.index(before: view.unicodeScalars.endIndex)]
-    }
-    return view
-}
-
 // ---------------------------------------------------------------------------
 // Tables
 
