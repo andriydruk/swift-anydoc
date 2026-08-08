@@ -581,13 +581,25 @@ everything built in Phases 0-5 combined, so it is being taken in waves.
     and 951 characters extracted**, containing every heading and phrase the
     committed Markdown golden expects, including the astral U+1D11E clef that
     exercises surrogate pairing.
-  - **Known limitation, deliberate:** glyph *widths* are not read yet, so a
-    run's starting position is exact but its advance within the run is not.
-    Layout must not rely on run widths until the font tables land.
-- **Later waves:** font width tables and the base14/TrueType/glyph-name
-  encodings; encryption (RC4/MD5/AES-CBC); layout and reading order; table
-  detection (16.3k LOC in the reference, the largest single piece); Markdown
-  assembly.
+- **Wave 3 — glyph metrics.** `PdfFontWidths.swift`: simple fonts
+  (`/Widths` indexed from `/FirstChar`, with the Type 3 `/FontMatrix` grid
+  and the space-width fallback) and composite fonts (the descendant
+  CIDFont's `/W` runs over `/DW`). Wired into the extractor, so the text
+  matrix now advances by the measured width — an invisible or undecodable
+  string still advances, since skipping it would misplace everything after
+  it in the text object.
+  - Verified by prediction rather than by inspection: **472/472** runs on the
+    fixture's first page are measured, and **417/429 (97%)** of forward
+    advances land within 2pt of where the next run actually starts. A wrong
+    width table would show systematic drift instead.
+  - The measurement surfaced a fact layout has to handle: **content order is
+    not visual order.** The fixture twice jumps backwards to place a glyph
+    from another font (the U+1D11E clef, the family emoji) after later text
+    on the same line. That is the problem `reading_order.rs` exists to solve.
+- **Later waves:** the base14/TrueType/glyph-name encodings for fonts without
+  a `ToUnicode` CMap; encryption (RC4/MD5/AES-CBC); layout and reading order;
+  table detection (16.3k LOC in the reference, the largest single piece);
+  Markdown assembly.
 
 The one PDF fixture is a classic-xref PDF 1.7 using only FlateDecode, with 7
 embedded TrueType fonts carrying `ToUnicode` CMaps and a `StructTreeRoot`, so

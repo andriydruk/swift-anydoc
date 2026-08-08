@@ -1,12 +1,11 @@
 /// The text-showing subset of the content-stream interpreter
 /// (ISO 32000-1 §9.4), producing positioned text runs.
 ///
-/// This wave covers the state machine and the text-space arithmetic: the
-/// graphics stack, the text and line matrices, and the operators that move
-/// or show text. What it does **not** yet do is measure glyphs — the font
-/// width tables are a later wave — so a run's *starting* position is exact
-/// while its advance within the run is not. Downstream layout must not rely
-/// on run widths until those land.
+/// Covers the state machine and the text-space arithmetic: the graphics
+/// stack, the text and line matrices, the operators that move or show text,
+/// and the glyph advance. With the font metrics supplied, a run's start and
+/// its width are both exact, which is what layout needs to group runs into
+/// lines and detect word gaps.
 
 /// One shown string with the position it started at, in device space.
 struct PdfTextRun {
@@ -16,6 +15,9 @@ struct PdfTextRun {
     var y: Float
     /// Effective font size, scaled by the text and current transform.
     var fontSize: Float
+    /// How far the run advances, in device space along the writing
+    /// direction. Zero when the font's metrics were unavailable.
+    var width: Float
     /// The resource name of the font in effect (`/F1`), for later lookup.
     var fontName: String
     /// Text rendering mode; 3 is invisible, used for OCR overlays.
@@ -59,6 +61,7 @@ private struct PdfSavedState {
 func pdfExtractTextRuns(
     _ operations: [PdfOperation],
     initialCtm: PdfMatrix = identityMatrix,
+    metrics: (String) -> PdfFontWidths? = { _ in nil },
     decode: (String, [UInt8]) -> String
 ) -> [PdfTextRun] {
     var runs: [PdfTextRun] = []
@@ -82,22 +85,42 @@ func pdfExtractTextRuns(
         return Float(value)
     }
 
-    /// Emit a run at the current text position.
+    /// Emit a run at the current text position and advance past it.
+    ///
+    /// The advance happens whether or not the run was emitted: an invisible
+    /// or undecodable string still moves the cursor, and skipping it would
+    /// misplace everything after it in the text object.
     func show(_ bytes: [UInt8]) {
         guard inText else { return }
+        let font = metrics(fontName)
+        // Text-space width, then the horizontal scale the state applies.
+        let textWidth = font.map {
+            pdfStringWidth(
+                bytes, $0, fontSize: fontSize, charSpacing: charSpacing,
+                wordSpacing: wordSpacing)
+        } ?? 0
+        let advance = textWidth * (horizontalScale / 100)
+
         let text = decode(fontName, bytes)
-        if text.isEmpty { return }
-        // The run's origin is the text-space origin mapped through the text
-        // matrix and then the CTM, with the rise applied along y.
-        let risen: PdfMatrix = (1, 0, 0, 1, 0, rise)
-        let placed = pdfMultiply(pdfMultiply(risen, textMatrix), ctm)
-        runs.append(
-            PdfTextRun(
-                text: text, x: placed.e, y: placed.f,
-                // The effective size is the nominal size under the vertical
-                // scale of the combined transform.
-                fontSize: fontSize * abs(placed.d),
-                fontName: fontName, renderingMode: renderingMode))
+        if !text.isEmpty {
+            // The run's origin is the text-space origin mapped through the
+            // text matrix and then the CTM, with the rise applied along y.
+            let risen: PdfMatrix = (1, 0, 0, 1, 0, rise)
+            let placed = pdfMultiply(pdfMultiply(risen, textMatrix), ctm)
+            // The advance is a text-space distance, so it scales the same
+            // way the text matrix scales x.
+            let deviceScale = (textMatrix.a * ctm.a + textMatrix.b * ctm.c).magnitude
+            runs.append(
+                PdfTextRun(
+                    text: text, x: placed.e, y: placed.f,
+                    // The effective size is the nominal size under the
+                    // vertical scale of the combined transform.
+                    fontSize: fontSize * abs(placed.d),
+                    width: advance * deviceScale,
+                    fontName: fontName, renderingMode: renderingMode))
+        }
+        textMatrix.e += advance * textMatrix.a
+        textMatrix.f += advance * textMatrix.b
     }
 
     /// `Td`: move the line matrix by (tx, ty) in text space.

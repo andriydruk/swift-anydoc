@@ -56,9 +56,28 @@ func pdfPageFontCMaps(_ document: inout PdfDocument, _ page: PdfDictionary)
     return out
 }
 
+/// The glyph metrics of a page's fonts, by resource name.
+func pdfPageFontMetrics(_ document: inout PdfDocument, _ page: PdfDictionary)
+    -> [String: PdfFontWidths]
+{
+    var out: [String: PdfFontWidths] = [:]
+    guard let resources = document.value(page, "Resources")?.asDictionary,
+        let fonts = document.value(resources, "Font")?.asDictionary
+    else { return out }
+    for key in fonts.keys {
+        let name = String(decoding: key, as: UTF8.self)
+        guard let font = document.value(fonts, name)?.asDictionary,
+            let info = pdfParseFontWidths(&document, font)
+        else { continue }
+        out[name] = info
+    }
+    return out
+}
+
 /// Every text run of a page, decoded through its fonts' ToUnicode CMaps.
 func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [PdfTextRun] {
     let cmaps = pdfPageFontCMaps(&document, page)
+    let metrics = pdfPageFontMetrics(&document, page)
     var data: [UInt8] = []
     // /Contents is a stream or an array of streams that concatenate.
     if let single = document.value(page, "Contents")?.asStream {
@@ -73,7 +92,7 @@ func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [P
         }
     }
     let operations = pdfParseContentStream(data)
-    return pdfExtractTextRuns(operations) { fontName, bytes in
+    return pdfExtractTextRuns(operations, metrics: { metrics[$0] }) { fontName, bytes in
         guard let cmap = cmaps[fontName] else {
             // Without a CMap the bytes are their own code points, which is
             // right for the ASCII a simple font shows.
@@ -263,5 +282,172 @@ func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [P
         // The first run should sit near the top of a US Letter page.
         let first = try #require(runs.first)
         #expect(first.y > 600, "the first run is not near the top: \(first.y)")
+    }
+}
+
+@Suite struct PdfFontWidthTests {
+    /// A simple font's `/Widths` is indexed from `/FirstChar`.
+    @Test func simpleFontWidthsIndexFromFirstChar() throws {
+        var document = try loadFixture()
+        var font = PdfDictionary()
+        font["Subtype"] = .name(Array("TrueType".utf8))
+        font["FirstChar"] = .integer(65)
+        font["LastChar"] = .integer(67)
+        font["Widths"] = .array([.integer(500), .integer(600), .integer(700)])
+        let info = try #require(pdfParseFontWidths(&document, font))
+        #expect(info.width(of: 65) == 500)
+        #expect(info.width(of: 66) == 600)
+        #expect(info.width(of: 67) == 700)
+        // Outside the declared span a simple font has no width.
+        #expect(info.width(of: 68) == 0)
+        #expect(!info.isCid)
+        #expect(info.unitsScale == 0.001)
+        // No code 32 in the table, so the standard-grid default applies.
+        #expect(info.spaceWidth == 250)
+    }
+
+    /// A `/Widths` array longer than `/LastChar` allows is truncated.
+    @Test func widthsStopAtLastChar() throws {
+        var document = try loadFixture()
+        var font = PdfDictionary()
+        font["Subtype"] = .name(Array("Type1".utf8))
+        font["FirstChar"] = .integer(65)
+        font["LastChar"] = .integer(66)
+        font["Widths"] = .array([.integer(500), .integer(600), .integer(700)])
+        let info = try #require(pdfParseFontWidths(&document, font))
+        #expect(info.widths.count == 2)
+        #expect(info.width(of: 67) == 0)
+    }
+
+    /// Type 3 fonts declare their own grid through `/FontMatrix`.
+    @Test func type3FontsUseTheirFontMatrix() throws {
+        var document = try loadFixture()
+        var font = PdfDictionary()
+        font["Subtype"] = .name(Array("Type3".utf8))
+        font["FirstChar"] = .integer(97)
+        font["LastChar"] = .integer(97)
+        font["Widths"] = .array([.integer(1024)])
+        font["FontMatrix"] = .array([
+            .real(0.000488), .real(0), .real(0), .real(0.000488), .real(0), .real(0),
+        ])
+        let info = try #require(pdfParseFontWidths(&document, font))
+        #expect(abs(info.unitsScale - 0.000488) < 1e-6)
+        // Off the standard grid, the space is estimated from the average.
+        #expect(info.spaceWidth != 250)
+    }
+
+    /// The `/W` array's two forms: a consecutive list and a range.
+    @Test func cidWidthArrayHandlesBothForms() throws {
+        var document = try loadFixture()
+        var widths: [UInt16: UInt16] = [:]
+        // 1 [100 200 300]  then  10 12 900
+        let array: [PdfObject] = [
+            .integer(1), .array([.integer(100), .integer(200), .integer(300)]),
+            .integer(10), .integer(12), .integer(900),
+        ]
+        parseCidWidthArray(&document, array, into: &widths)
+        #expect(widths[1] == 100)
+        #expect(widths[2] == 200)
+        #expect(widths[3] == 300)
+        #expect(widths[10] == 900)
+        #expect(widths[11] == 900)
+        #expect(widths[12] == 900)
+        #expect(widths[13] == nil)
+    }
+
+    /// A composite font falls back to `/DW` for codes the `/W` array omits.
+    @Test func compositeFontsUseTheDefaultWidth() throws {
+        var document = try loadFixture()
+        var cidFont = PdfDictionary()
+        cidFont["DW"] = .integer(1000)
+        cidFont["W"] = .array([.integer(32), .array([.integer(500)])])
+        var font = PdfDictionary()
+        font["Subtype"] = .name(Array("Type0".utf8))
+        font["DescendantFonts"] = .array([.dictionary(cidFont)])
+        let info = try #require(pdfParseFontWidths(&document, font))
+        #expect(info.isCid)
+        #expect(info.width(of: 32) == 500)
+        #expect(info.width(of: 999) == 1000)
+        #expect(info.spaceWidth == 500)
+    }
+
+    /// The string width sums glyphs and adds the spacing that applies per
+    /// glyph and per space.
+    @Test func stringWidthAddsSpacing() {
+        var font = PdfFontWidths()
+        font.widths = [65: 500, 32: 250]
+        font.unitsScale = 0.001
+        let bytes: [UInt8] = [65, 32, 65]
+        // (500 + 250 + 500)/1000 * 10 = 12.5
+        #expect(
+            abs(pdfStringWidth(bytes, font, fontSize: 10, charSpacing: 0, wordSpacing: 0) - 12.5)
+                < 1e-4)
+        // Three glyphs of char spacing, one space of word spacing.
+        let spaced = pdfStringWidth(bytes, font, fontSize: 10, charSpacing: 1, wordSpacing: 2)
+        #expect(abs(spaced - (12.5 + 3 + 2)) < 1e-4)
+    }
+
+    /// The fixture's fonts must all yield metrics, and its runs must have
+    /// non-zero widths now that they are measured.
+    @Test func fixtureRunsHaveMeasuredWidths() throws {
+        var document = try loadFixture()
+        let pages = pdfPages(&document)
+        let metrics = pdfPageFontMetrics(&document, pages[0])
+        #expect(!metrics.isEmpty, "no font metrics were parsed")
+        for (name, info) in metrics {
+            #expect(!info.widths.isEmpty, "font \(name) has no widths")
+        }
+        let runs = pdfPageTextRuns(&document, pages[0])
+        let measured = runs.filter { $0.width > 0 }
+        #expect(
+            measured.count > runs.count / 2,
+            "only \(measured.count) of \(runs.count) runs were measured")
+        print("pdf widths: \(measured.count)/\(runs.count) runs measured")
+    }
+
+    /// With widths applied, a run's advance must land where the next run
+    /// actually starts. This is the real check on the width math: if the
+    /// glyph widths were wrong, the predicted end of one run would drift
+    /// from the observed start of the next.
+    ///
+    /// Content order is *not* visual order — a writer may jump backwards to
+    /// place a glyph from another font, which the fixture does twice — so
+    /// only forward-advancing pairs are measured, and reordering is the
+    /// layout wave's problem rather than a defect here.
+    @Test func runAdvanceLandsWhereTheNextRunStarts() throws {
+        var document = try loadFixture()
+        let pages = pdfPages(&document)
+        let runs = pdfPageTextRuns(&document, pages[0])
+        var byLine: [Int: [PdfTextRun]] = [:]
+        for run in runs { byLine[Int(run.y.rounded()), default: []].append(run) }
+
+        var measured = 0
+        var accurate = 0
+        for (_, lineRuns) in byLine where lineRuns.count > 1 {
+            for (previous, next) in zip(lineRuns, lineRuns.dropFirst()) {
+                // Only pairs the writer emitted left to right are comparable.
+                guard next.x > previous.x, previous.width > 0 else { continue }
+                measured += 1
+                // The gap past the predicted end is the writer's own
+                // kerning/positioning, which is small; a wrong width would
+                // show up as a large, systematic drift.
+                let predictedEnd = previous.x + previous.width
+                if abs(next.x - predictedEnd) < 2.0 { accurate += 1 }
+            }
+        }
+        #expect(measured > 100, "too few adjacent pairs to judge: \(measured)")
+        let ratio = Double(accurate) / Double(max(measured, 1))
+        #expect(ratio > 0.9, "only \(accurate)/\(measured) advances land within 2pt")
+        print("pdf advance: \(accurate)/\(measured) within 2pt")
+    }
+
+    /// Runs must not pile up at one x, which is what a missing advance
+    /// would produce.
+    @Test func runsDoNotShareOneOrigin() throws {
+        var document = try loadFixture()
+        let pages = pdfPages(&document)
+        let runs = pdfPageTextRuns(&document, pages[0])
+        let distinctX = Set(runs.map { Int($0.x.rounded()) })
+        #expect(distinctX.count > runs.count / 4, "runs cluster at too few positions")
     }
 }
