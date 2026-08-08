@@ -56,8 +56,7 @@ public enum AnyDoc {
         case .ppt:
             return try parsePpt(bytes)
         case .doc:
-            throw ConvertError.unsupported(
-                "format \(format) is not implemented yet in swift-anydoc")
+            return try parseDoc(bytes)
         }
     }
 

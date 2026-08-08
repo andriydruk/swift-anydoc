@@ -201,8 +201,8 @@ struct XlsWorkbook {
         let file: CompoundFile
         do {
             file = try CompoundFile(bytes: bytes)
-        } catch let e as ConvertError {
-            throw ConvertError.malformed("unreadable workbook: \(e.message)")
+        } catch ConvertError.malformed(_, let detail) {
+            throw ConvertError.malformed("unreadable workbook: \(detail)")
         }
         // The workbook stream's name varies with the producer and its era.
         var stream: [UInt8]?

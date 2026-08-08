@@ -470,7 +470,28 @@ reference (which the MIT license permits, with attribution), not clean-room reim
   - **Still open:** gbk, euc-kr and big5 remain unported and fall back to windows-1252
     with a logged warning. No fixture exercises them; the same dumper covers them when
     they are needed.
-- **Next: Phase 5 wave 3b** — DOC (FIB, piece table, SPRM decoding, STSH styles, list
-  tables, tables via `buildEdgeTable`). This is the last unported format of the core
-  13 and the largest single one (~2k LOC in the reference). Then CI (Linux + macOS)
-  once there is a remote to attach it to.
+- **Phase 5 wave 3b — done.** DOC, the last unported format of the core 13: FIB, piece
+  table with `Prm`/`Prm0` decoding, CHPX/PAPX runs out of the FKP pages applied over the
+  STSH `istdBase` chains in specification order, the PlfLst/PlfLfo list tables with their
+  restart and start-at rules, and tables through the shared `buildEdgeTable`.
+  - Validated: all 4 doc snapshots plus `truncated--errors.doc` byte-identical, 39
+    hand-built adversarial documents byte-identical (OLE container, FIB, piece table,
+    FKP pages, style sheet and list tables all written directly), and 1,075 corruption
+    mutants with zero divergences of any kind.
+
+## Milestone: core parity
+
+**All 13 non-PDF formats are ported.** The snapshot corpus compares 57 of 58 fixtures
+byte-for-byte against the Rust binary (the remaining one is the PDF fixture); the
+differential harness reports 53 identical / 0 divergent / 12 error-class matches.
+265 hand-built adversarial documents across every format are byte-identical, and the
+corruption sweeps total well over 6,000 mutants with no crashes, no hangs, and no
+output divergences.
+
+Known gaps, all documented above: `.xlsb` (a distinct record stream), the gbk / euc-kr /
+big5 code pages (no fixture exercises them), and the `.xls` container-layer strictness
+difference on corrupt compound files.
+
+- **Next: Phase 6** — PDF, which is comparable in size to everything above combined.
+  Before that, Phase 7's CI (Linux + macOS) is worth standing up once there is a remote
+  to attach it to, since it is what proves the purity constraint structurally.

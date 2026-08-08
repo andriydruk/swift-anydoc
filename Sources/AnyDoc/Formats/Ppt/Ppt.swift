@@ -14,8 +14,8 @@ func parsePpt(_ bytes: [UInt8]) throws -> Document {
     let ole: CompoundFile
     do {
         ole = try CompoundFile(bytes: bytes)
-    } catch let e as ConvertError {
-        throw ConvertError.malformed("not an OLE2 compound file: \(e.message)")
+    } catch ConvertError.malformed(_, let detail) {
+        throw ConvertError.malformed("not an OLE2 compound file: \(detail)")
     }
     let data = try readOleStream(ole, "PowerPoint Document")
     let currentUser = (try? readOleStream(ole, "Current User")) ?? []
