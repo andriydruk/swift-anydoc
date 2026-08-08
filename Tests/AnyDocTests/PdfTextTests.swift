@@ -642,3 +642,109 @@ func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [P
         print("pdf paragraphs: \(paragraphs.count) from \(lines.count) lines")
     }
 }
+
+@Suite struct PdfMarkdownTests {
+    private func line(_ text: String, size: Float, y: Float, x: Float = 72) -> PdfTextLine {
+        PdfTextLine(
+            items: [
+                PdfLayoutItem(text: text, x: x, y: y, width: 100, fontSize: size, fontName: "F")
+            ], y: y)
+    }
+
+    /// The body size is the most common one, weighted by how much text is
+    /// set in it — not by how many runs use it.
+    @Test func bodySizeIsTheMostCommonByTextVolume() {
+        let lines = [
+            line("A very long paragraph of body text here", size: 10, y: 700),
+            line("More body text at the same size", size: 10, y: 688),
+            line("Big", size: 24, y: 730),
+        ]
+        #expect(pdfBodyFontSize(lines) == 10)
+    }
+
+    /// Tiers are the distinct sizes above the body, largest first, clustered.
+    @Test func tiersClusterNearbySizes() {
+        let lines = [
+            line("Title", size: 24, y: 730),
+            line("Section", size: 16, y: 700),
+            // Within half a point of the tier above: the same tier.
+            line("Another section", size: 16.3, y: 680),
+            line("body body body body", size: 10, y: 660),
+        ]
+        let tiers = pdfHeadingTiers(lines, bodySize: 10)
+        #expect(tiers.count == 2)
+        #expect(tiers[0] == 24)
+        #expect(abs(tiers[1] - 16.3) < 0.5)
+    }
+
+    /// A line with no letters cannot define a tier — a large page number
+    /// would otherwise claim the top level.
+    @Test func digitOnlyLinesDoNotDefineTiers() {
+        let lines = [
+            line("42", size: 30, y: 60),
+            line("Real Heading", size: 16, y: 700),
+            line("body body body", size: 10, y: 660),
+        ]
+        let tiers = pdfHeadingTiers(lines, bodySize: 10)
+        #expect(tiers == [16])
+    }
+
+    /// Size decides the level; body-sized text is not a heading.
+    @Test func levelsFollowTheTiers() {
+        let tiers: [Float] = [24, 16]
+        #expect(pdfHeadingLevel(fontSize: 24, bodySize: 10, tiers: tiers) == 1)
+        #expect(pdfHeadingLevel(fontSize: 16, bodySize: 10, tiers: tiers) == 2)
+        #expect(pdfHeadingLevel(fontSize: 10, bodySize: 10, tiers: tiers) == nil)
+        // Just under a fifth larger is still body text.
+        #expect(pdfHeadingLevel(fontSize: 11.9, bodySize: 10, tiers: tiers) == nil)
+        // Much larger but matching no tier lands after the known tiers.
+        #expect(pdfHeadingLevel(fontSize: 40, bodySize: 10, tiers: []) == 1)
+    }
+
+    /// Blocks come out as headings and paragraphs, and render as Markdown.
+    @Test func blocksRenderAsMarkdown() {
+        let lines = [
+            line("Title", size: 20, y: 730),
+            line("First body line here", size: 10, y: 700),
+            line("continuing the paragraph", size: 10, y: 688),
+            line("Section", size: 14, y: 650),
+            line("Another paragraph of text", size: 10, y: 620),
+        ]
+        let markdown = pdfRenderMarkdown(pdfBuildBlocks(lines))
+        #expect(markdown.hasPrefix("# Title\n\n"))
+        #expect(markdown.contains("## Section"))
+        #expect(markdown.contains("First body line here continuing the paragraph"))
+        #expect(markdown.hasSuffix("\n"))
+        #expect(!markdown.hasSuffix("\n\n"))
+    }
+}
+
+@Suite struct PdfFixtureMarkdownTests {
+    /// End to end: the fixture through the whole pipeline, compared against
+    /// the reference's own headings.
+    @Test func fixtureRendersHeadingsAndProse() throws {
+        var document = try loadFixture()
+        var lines: [PdfTextLine] = []
+        for page in pdfPages(&document) {
+            lines += pdfGroupIntoLines(pdfPageTextRuns(&document, page))
+        }
+        let blocks = pdfBuildBlocks(lines)
+        let markdown = pdfRenderMarkdown(blocks)
+        let headings = blocks.compactMap { block -> String? in
+            if case .heading(let level, let text) = block {
+                return "\(level):\(text)"
+            }
+            return nil
+        }
+        print("pdf markdown: \(markdown.count) chars, \(headings.count) headings")
+        for heading in headings.prefix(8) { print("  H \(heading)") }
+
+        // The golden's own heading text, at the levels it assigns.
+        #expect(headings.contains("1:Fixture Document"))
+        #expect(headings.contains { $0 == "2:Lists" })
+        #expect(headings.contains { $0.hasSuffix(":Notes and special text") })
+        // Prose survives into the body.
+        #expect(markdown.contains("Plain paragraph with bold, italic, and struck runs."))
+        #expect(markdown.hasSuffix("\n"))
+    }
+}

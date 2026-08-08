@@ -619,10 +619,42 @@ everything built in Phases 0-5 combined, so it is being taken in waves.
   - **Not ported:** multi-column detection, newspaper layout, XY-cut region
     splitting, per-producer letter-spacing calibration. A single-column page
     does not reach them.
-- **Later waves:** the base14/TrueType/glyph-name encodings for fonts without
-  a `ToUnicode` CMap; encryption (RC4/MD5/AES-CBC); heading and list
-  detection; table detection (16.3k LOC in the reference, the largest single
-  piece); Markdown assembly.
+- **Wave 5 — headings and Markdown.** `PdfMarkdown.swift`: the body size is
+  the most common one weighted by text volume; the distinct sizes at least a
+  fifth larger, clustered at half a point and ordered largest first, are the
+  heading tiers; a line's size picks its level. Lines without letters cannot
+  define a tier, so a large folio does not claim H1. Blocks render as
+  Markdown.
+  - **The pipeline now emits Markdown end to end.** Against
+    `Tests/Golden/pdf__text.pdf.golden`, all **7 headings match at the right
+    levels** (`# Fixture Document`, `## Lists`, `## Table`, `## Notes and
+    special text`, `## Links and anchors`, `## Objects`, `## Quote and code`)
+    and the prose matches.
+  - **What still differs, and why** — each is an unported wave, not a defect:
+    - **Emphasis markers.** The golden has `**bold**` and `*italic*`; style
+      detection from font names and descriptor flags is not ported.
+    - **List items.** The golden keeps them on separate lines; paragraph
+      grouping currently merges them, because list detection is not ported.
+    - **Superscripts and links.** Footnote markers (`footnote¹`) and the
+      `<u>…</u>` link markup need the note and annotation handling.
+
+## Phase 6 status
+
+Working end to end: bytes → objects → xref → filters → content operations →
+ToUnicode-decoded text → exact positions and widths → lines, words,
+paragraphs → headings → Markdown. The document's structure and prose come out
+right; its *emphasis, lists, links and tables* do not yet.
+
+Remaining, roughly by size: table detection (16.3k LOC, the largest single
+piece in the project), the rest of Markdown assembly (lists, emphasis, links,
+notes), the base14/TrueType/glyph-name encodings for fonts without a
+`ToUnicode` CMap, multi-column layout, and encryption.
+
+**The corpus gap is now the dominant risk.** One narrow fixture — single
+column, classic xref, FlateDecode, seven TrueType fonts with `ToUnicode` —
+cannot exercise the xref-stream, object-stream, CID-font, encryption or
+multi-column paths that are already written. Phase 6 cannot claim parity
+without a real corpus, and the differential harness is a local/manual step.
 
 The one PDF fixture is a classic-xref PDF 1.7 using only FlateDecode, with 7
 embedded TrueType fonts carrying `ToUnicode` CMaps and a `StructTreeRoot`, so
