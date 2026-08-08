@@ -631,12 +631,19 @@ everything built in Phases 0-5 combined, so it is being taken in waves.
     special text`, `## Links and anchors`, `## Objects`, `## Quote and code`)
     and the prose matches.
   - **What still differs, and why** — each is an unported wave, not a defect:
-    - **Emphasis markers.** The golden has `**bold**` and `*italic*`; style
-      detection from font names and descriptor flags is not ported.
     - **List items.** The golden keeps them on separate lines; paragraph
       grouping currently merges them, because list detection is not ported.
     - **Superscripts and links.** Footnote markers (`footnote¹`) and the
       `<u>…</u>` link markup need the note and annotation handling.
+- **Wave 6 — emphasis.** `PdfFontStyle.swift`: PDF has no bold or italic
+  attribute, so recovering emphasis means asking what the *font* is. Two
+  sources, neither reliable alone: the `BaseFont` name (which subset
+  generators reduce to opaque tags like `Tc1`) and the `FontDescriptor`
+  (`ItalicAngle` past a few degrees, Flags bit 7 Italic, bit 19 ForceBold).
+  Either is enough. Markers open and close as the style changes, with the
+  separating space kept outside them, and headings stay unmarked.
+  - The golden's first paragraph now matches exactly:
+    `Plain paragraph with **bold**, *italic*, and struck runs.`
 
 ## Phase 6 status
 

@@ -74,6 +74,22 @@ func pdfPageFontMetrics(_ document: inout PdfDocument, _ page: PdfDictionary)
     return out
 }
 
+/// The emphasis of a page's fonts, by resource name.
+func pdfPageFontStyles(_ document: inout PdfDocument, _ page: PdfDictionary)
+    -> [String: PdfFontStyle]
+{
+    var out: [String: PdfFontStyle] = [:]
+    guard let resources = document.value(page, "Resources")?.asDictionary,
+        let fonts = document.value(resources, "Font")?.asDictionary
+    else { return out }
+    for key in fonts.keys {
+        let name = String(decoding: key, as: UTF8.self)
+        guard let font = document.value(fonts, name)?.asDictionary else { continue }
+        out[name] = pdfFontStyle(&document, font)
+    }
+    return out
+}
+
 /// Every text run of a page, decoded through its fonts' ToUnicode CMaps.
 func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [PdfTextRun] {
     let cmaps = pdfPageFontCMaps(&document, page)
@@ -746,5 +762,108 @@ func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [P
         // Prose survives into the body.
         #expect(markdown.contains("Plain paragraph with bold, italic, and struck runs."))
         #expect(markdown.hasSuffix("\n"))
+    }
+}
+
+@Suite struct PdfFontStyleTests {
+    /// The BaseFont name is the first source, matched case-insensitively.
+    @Test func namesDeclareStyle() {
+        #expect(pdfStyleFromFontName("Helvetica-Bold") == PdfFontStyle(bold: true, italic: false))
+        #expect(pdfStyleFromFontName("Times-Italic") == PdfFontStyle(bold: false, italic: true))
+        #expect(
+            pdfStyleFromFontName("Helvetica-BoldOblique")
+                == PdfFontStyle(bold: true, italic: true))
+        #expect(pdfStyleFromFontName("ABCDEF+Arial") == PdfFontStyle())
+        // The abbreviations real producers emit.
+        #expect(pdfStyleFromFontName("NimbusRomNo9L-Medi").bold)
+        #expect(pdfStyleFromFontName("SomeFont-Bd").bold)
+        #expect(pdfStyleFromFontName("SomeFont_It").italic)
+        #expect(pdfStyleFromFontName("Fette-Kursiv").italic)
+        // `-MediItal` is URW's bold *italic* face, so it stays bold — the
+        // exclusion is for `MediumItal`, a different family's regular italic.
+        #expect(pdfStyleFromFontName("NimbusRomNo9L-MediItal").bold)
+        #expect(!pdfStyleFromFontName("SomeFont-MediumItalic").bold)
+    }
+
+    /// The descriptor is the second source, and carries the truth when the
+    /// name is an opaque subset tag.
+    @Test func descriptorsDeclareStyle() throws {
+        var document = try loadFixture()
+        func font(_ descriptor: PdfDictionary) -> PdfDictionary {
+            var f = PdfDictionary()
+            f["BaseFont"] = .name(Array("Tc1".utf8))
+            f["FontDescriptor"] = .dictionary(descriptor)
+            return f
+        }
+        var slanted = PdfDictionary()
+        slanted["ItalicAngle"] = .integer(-12)
+        slanted["Flags"] = .integer(32)
+        #expect(pdfFontStyle(&document, font(slanted)) == PdfFontStyle(bold: false, italic: true))
+
+        // A token slant of a degree or two is not a style.
+        var upright = PdfDictionary()
+        upright["ItalicAngle"] = .integer(-1)
+        upright["Flags"] = .integer(32)
+        #expect(pdfFontStyle(&document, font(upright)) == PdfFontStyle())
+
+        // Flags bit 7 is Italic, bit 19 is ForceBold.
+        var flagged = PdfDictionary()
+        flagged["Flags"] = .integer(64 | (1 << 18))
+        #expect(pdfFontStyle(&document, font(flagged)) == PdfFontStyle(bold: true, italic: true))
+    }
+
+    /// Markers open and close as the style changes, with the separating
+    /// space outside them.
+    @Test func emphasisMarkersWrapRuns() {
+        func item(_ text: String, _ x: Float, _ font: String) -> PdfLayoutItem {
+            PdfLayoutItem(text: text, x: x, y: 0, width: 20, fontSize: 10, fontName: font)
+        }
+        let line = PdfTextLine(
+            items: [
+                item("plain ", 0, "R"), item("bold", 25, "B"), item(" and ", 50, "R"),
+                item("italic", 75, "I"),
+            ], y: 0)
+        let styles: [String: PdfFontStyle] = [
+            "R": PdfFontStyle(),
+            "B": PdfFontStyle(bold: true, italic: false),
+            "I": PdfFontStyle(bold: false, italic: true),
+        ]
+        #expect(pdfLineTextWithEmphasis(line, styles: styles) == "plain **bold** and *italic*")
+    }
+
+    /// Markers always close, even when the line ends inside one.
+    @Test func markersCloseAtTheEnd() {
+        let line = PdfTextLine(
+            items: [
+                PdfLayoutItem(text: "end", x: 0, y: 0, width: 20, fontSize: 10, fontName: "B")
+            ], y: 0)
+        let out = pdfLineTextWithEmphasis(line, styles: ["B": PdfFontStyle(bold: true)])
+        #expect(out == "**end**")
+    }
+}
+
+@Suite struct PdfFixtureEmphasisTests {
+    /// The fixture's emphasised runs must come out marked, matching the
+    /// golden's own sentence.
+    @Test func fixtureEmitsEmphasis() throws {
+        var document = try loadFixture()
+        var lines: [PdfTextLine] = []
+        var styles: [String: PdfFontStyle] = [:]
+        for page in pdfPages(&document) {
+            lines += pdfGroupIntoLines(pdfPageTextRuns(&document, page))
+            for (name, style) in pdfPageFontStyles(&document, page) { styles[name] = style }
+        }
+        #expect(styles.values.contains { $0.bold }, "no bold font was detected")
+        #expect(styles.values.contains { $0.italic }, "no italic font was detected")
+
+        let markdown = pdfRenderMarkdown(pdfBuildBlocks(lines, styles: styles))
+        print("pdf emphasis: \(styles.count) fonts, \(styles.values.filter(\.bold).count) bold")
+        // The golden's own first paragraph.
+        #expect(
+            markdown.contains("Plain paragraph with **bold**, *italic*, and struck runs."),
+            "emphasis did not match the golden's first paragraph")
+        // Headings stay unmarked: they are emphasised by being headings.
+        #expect(markdown.contains("\n# Fixture Document\n") || markdown.hasPrefix("# Fixture Document\n"))
+        #expect(!markdown.contains("# **"))
     }
 }

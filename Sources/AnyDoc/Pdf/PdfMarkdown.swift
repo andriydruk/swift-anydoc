@@ -81,8 +81,9 @@ enum PdfBlock {
 }
 
 /// Turn laid-out lines into blocks: headings by size, everything else
-/// gathered into paragraphs.
-func pdfBuildBlocks(_ lines: [PdfTextLine]) -> [PdfBlock] {
+/// gathered into paragraphs. `styles` supplies each font's emphasis, which
+/// becomes `**`/`*` markers in the text.
+func pdfBuildBlocks(_ lines: [PdfTextLine], styles: [String: PdfFontStyle] = [:]) -> [PdfBlock] {
     let bodySize = pdfBodyFontSize(lines)
     let tiers = pdfHeadingTiers(lines, bodySize: bodySize)
 
@@ -91,22 +92,27 @@ func pdfBuildBlocks(_ lines: [PdfTextLine]) -> [PdfBlock] {
     // heading or a paragraph break interrupts them.
     var pending: [PdfTextLine] = []
 
+    func render(_ line: PdfTextLine) -> String {
+        styles.isEmpty ? pdfLineText(line) : pdfLineTextWithEmphasis(line, styles: styles)
+    }
+
     func flushPending() {
         guard !pending.isEmpty else { return }
         for group in pdfGroupIntoParagraphs(pending) {
-            let text = group.map(pdfLineText).filter { !$0.isEmpty }.joined(separator: " ")
+            let text = group.map(render).filter { !$0.isEmpty }.joined(separator: " ")
             if !text.isEmpty { blocks.append(.paragraph(text)) }
         }
         pending = []
     }
 
     for line in lines {
-        let text = pdfLineText(line)
-        if text.isEmpty { continue }
+        if pdfLineText(line).isEmpty { continue }
         let size = line.items.first?.fontSize ?? 0
         if let level = pdfHeadingLevel(fontSize: size, bodySize: bodySize, tiers: tiers) {
             flushPending()
-            blocks.append(.heading(level: level, text: text))
+            // A heading is already emphasized by being a heading; markers
+            // inside one would render as literal asterisks in most viewers.
+            blocks.append(.heading(level: level, text: pdfLineText(line)))
             continue
         }
         pending.append(line)
