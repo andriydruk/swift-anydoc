@@ -140,7 +140,8 @@ enum XlsEncoding {
     static func forCodepage(_ codepage: UInt16) -> XlsEncoding {
         switch codepage {
         case 1200, 0: return .utf16le
-        case 932, 936, 949, 950: return .unsupportedMultiByte
+        case 932: return .singleByte(.shiftJis)
+        case 936, 949, 950: return .unsupportedMultiByte
         case 65001: return .singleByte(.windows1252)  // UTF-8: ASCII-compatible
         default: return .singleByte(codepageEncoding(UInt32(codepage)))
         }

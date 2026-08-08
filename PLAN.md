@@ -461,5 +461,16 @@ reference (which the MIT license permits, with attribution), not clean-room reim
     written directly, covering the persist chain, master cascade, mask layouts, notes
     pairing and the recovery path), and 725 corruption mutants with zero divergences of
     any kind.
-- **Next: Phase 5 wave 3** — the CJK code pages and DOC (FIB, piece table, SPRMs, STSH,
-  list tables). Then CI (Linux + macOS) once there is a remote to attach it to.
+- **Phase 5 wave 3a — done.** shift_jis, closing the largest part of the CJK gap Phase 4
+  left open. `Sources/AnyDoc/Encoding/ShiftJis.swift` holds the WHATWG `index jis0208`
+  table, recovered by asking `encoding_rs` itself what every valid byte pair means
+  (`scripts/dump-cjk-tables/` + `scripts/gen-shiftjis-table.py`). Verified exhaustively:
+  all 9,604 mapped byte pairs decode identically to the reference. RTF `\fcharset128`,
+  `\ansicpg932` and the XLS code-page record now select it.
+  - **Still open:** gbk, euc-kr and big5 remain unported and fall back to windows-1252
+    with a logged warning. No fixture exercises them; the same dumper covers them when
+    they are needed.
+- **Next: Phase 5 wave 3b** — DOC (FIB, piece table, SPRM decoding, STSH styles, list
+  tables, tables via `buildEdgeTable`). This is the last unported format of the core
+  13 and the largest single one (~2k LOC in the reference). Then CI (Linux + macOS)
+  once there is a remote to attach it to.

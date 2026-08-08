@@ -280,3 +280,49 @@ private func doc(_ body: String) -> String {
         #expect(try markdown(doc(bs + "uc0" + u(1055, "") + " tail")) == "Пtail\n")
     }
 }
+
+@Suite struct ShiftJisTests {
+    /// The WHATWG algorithm's three regions: ASCII, halfwidth katakana, and
+    /// lead/trail pairs resolved through the `index jis0208` table.
+    @Test func decodesEachRegion() {
+        let sjis = LegacyEncoding.shiftJis
+        #expect(sjis.decode(Array("plain ASCII".utf8)) == "plain ASCII")
+        // 0xA1...0xDF are halfwidth katakana, one byte each.
+        #expect(sjis.decode([0xB1, 0xB2, 0xB3]) == "ｱｲｳ")
+        // Lead/trail pairs: 0x82 0xA0 is HIRAGANA A, 0x93 0xFA is 日.
+        #expect(sjis.decode([0x82, 0xA0]) == "あ")
+        #expect(sjis.decode([0x93, 0xFA, 0x96, 0x7B]) == "日本")
+        // Both trail-byte ranges resolve, on either side of the 0x7F gap:
+        // the offset applied to the trail byte differs across it.
+        #expect(sjis.decode([0x81, 0x40]) == "\u{3000}")
+        #expect(sjis.decode([0x81, 0x80]) == "\u{00F7}")
+    }
+
+    /// Bytes that name nothing become U+FFFD rather than disappearing.
+    @Test func unmappedSequencesReplace() {
+        let sjis = LegacyEncoding.shiftJis
+        // A lead byte with no trail byte at all.
+        #expect(sjis.decode([0x82]) == "\u{FFFD}")
+        // A lead byte followed by an invalid trail: the trail byte is not
+        // consumed, so it is reprocessed on its own (here, a space).
+        #expect(sjis.decode([0x82, 0x20]) == "\u{FFFD} ")
+        // 0xA0 and 0xFD...0xFF are not lead bytes.
+        #expect(sjis.decode([0xA0]) == "\u{FFFD}")
+        #expect(sjis.decode([0xFD]) == "\u{FFFD}")
+        // A pointer inside the index that the index leaves unmapped.
+        #expect(sjis.decode([0x82, 0x40]) == "\u{FFFD}")
+    }
+
+    /// Pointers 8836...10715 map straight into the private use area rather
+    /// than through the index.
+    @Test func privateUseRangeIsArithmetic() {
+        // lead 0xF0, trail 0x40 -> pointer 8836 -> U+E000.
+        #expect(LegacyEncoding.shiftJis.decode([0xF0, 0x40]) == "\u{E000}")
+    }
+
+    /// The code page and font charset both select it.
+    @Test func selectedByCodepageAndCharset() {
+        #expect(codepageEncoding(932) == .shiftJis)
+        #expect(charsetEncoding(128, default: .windows1252) == .shiftJis)
+    }
+}
