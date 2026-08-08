@@ -75,50 +75,162 @@ func pdfHeadingLevel(fontSize: Float, bodySize: Float, tiers: [Float]) -> Int? {
 }
 
 /// A block of the reconstructed document.
-enum PdfBlock {
+enum PdfBlock: Equatable {
     case heading(level: Int, text: String)
     case paragraph(String)
+    /// A figure or table caption, which stands alone rather than joining the
+    /// paragraph around it.
+    case caption(String)
+    /// A run of list items, each already carrying its Markdown marker.
+    case list([String])
+    /// Lines set in a monospace font, rendered as a fenced block.
+    case code([String])
 }
 
-/// Turn laid-out lines into blocks: headings by size, everything else
-/// gathered into paragraphs. `styles` supplies each font's emphasis, which
-/// becomes `**`/`*` markers in the text.
+/// A heading needs more than three bytes and at most fifteen words. Below the
+/// one it is a fragment; above it, prose that happens to be large.
+private let headingMinimumBytes = 3
+private let headingMaximumWords = 15
+
+/// A list item's continuation may start this far right of the item's own left
+/// edge, and this far left of it, and still belong to it.
+private let listContinuationLeftSlack: Float = 5
+private let listContinuationRightSlack: Float = 50
+
+/// Turn laid-out lines into blocks, following the reference's order of
+/// decision: captions, then headings, then list items and their
+/// continuations, then code, then paragraphs. `styles` supplies each font's
+/// emphasis, which becomes `**`/`*` markers in the text.
+///
+/// The reference streams these straight into one output string; blocks are
+/// kept here because the rest of this port's Markdown writers work that way,
+/// and the two agree after `pdfRenderMarkdown` puts the separators back.
 func pdfBuildBlocks(_ lines: [PdfTextLine], styles: [String: PdfFontStyle] = [:]) -> [PdfBlock] {
     let bodySize = pdfBodyFontSize(lines)
     let tiers = pdfHeadingTiers(lines, bodySize: bodySize)
+    let paragraphThreshold = pdfParagraphThreshold(lines, bodySize: bodySize)
 
     var blocks: [PdfBlock] = []
-    // Lines that are not headings accumulate into a paragraph until a
-    // heading or a paragraph break interrupts them.
-    var pending: [PdfTextLine] = []
+    // The paragraph, list or code block being accumulated. Only one is ever
+    // open, since every branch below closes the others first.
+    var paragraph: [String] = []
+    var paragraphHadDotLeaders = false
+    var list: [String] = []
+    var listX: Float?
+    var code: [String] = []
+    var previousY: Float?
 
     func render(_ line: PdfTextLine) -> String {
         styles.isEmpty ? pdfLineText(line) : pdfLineTextWithEmphasis(line, styles: styles)
     }
-
-    func flushPending() {
-        guard !pending.isEmpty else { return }
-        for group in pdfGroupIntoParagraphs(pending) {
-            let text = group.map(render).filter { !$0.isEmpty }.joined(separator: " ")
-            if !text.isEmpty { blocks.append(.paragraph(text)) }
-        }
-        pending = []
+    func closeParagraph() {
+        if !paragraph.isEmpty { blocks.append(.paragraph(paragraph.joined())) }
+        paragraph = []
+        paragraphHadDotLeaders = false
+    }
+    func closeList() {
+        if !list.isEmpty { blocks.append(.list(list)) }
+        list = []
+        listX = nil
+    }
+    func closeCode() {
+        if !code.isEmpty { blocks.append(.code(code)) }
+        code = []
     }
 
     for line in lines {
-        if pdfLineText(line).isEmpty { continue }
-        let size = line.items.first?.fontSize ?? 0
-        if let level = pdfHeadingLevel(fontSize: size, bodySize: bodySize, tiers: tiers) {
-            flushPending()
-            // A heading is already emphasized by being a heading; markers
-            // inside one would render as literal asterisks in most viewers.
-            blocks.append(.heading(level: level, text: pdfLineText(line)))
+        let plain = pdfLineText(line).rustTrim()
+        let formatted = render(line).rustTrim()
+        let lineX = line.items.first?.x ?? 0
+        // A backward jump is as much a break as a forward one: newspaper
+        // columns come out of the content stream one after the other.
+        let gap = previousY.map { $0 - line.y } ?? .infinity
+        previousY = line.y
+
+        if abs(gap) > paragraphThreshold { closeParagraph() }
+        if formatted.isEmpty { continue }
+
+        let isCodeLine = line.items.contains { pdfIsMonospaceFont($0.fontName) }
+        if !isCodeLine { closeCode() }
+
+        if pdfIsCaptionLine(plain) {
+            closeParagraph()
+            closeList()
+            blocks.append(.caption(formatted))
             continue
         }
-        pending.append(line)
+
+        // A wrapped list item must not be promoted to a heading: PDFs often
+        // bold the lead phrase of an item across its wrap lines, and an
+        // all-bold middle line would otherwise split one item in two.
+        let looksLikeListContinuation =
+            !list.isEmpty && listX.map { isListContinuation(lineX, of: $0) } == true
+            && gap >= 0 && gap <= paragraphThreshold && !pdfIsListItem(plain)
+
+        let size = line.items.first?.fontSize ?? 0
+        let level =
+            isCodeLine || looksLikeListContinuation || plain.utf8.count <= headingMinimumBytes
+            || plain.rustSplitWhitespace().count > headingMaximumWords
+            || pdfStartsWithBulletMarker(plain)
+            ? nil
+            : pdfHeadingLevel(fontSize: size, bodySize: bodySize, tiers: tiers)
+
+        if let level {
+            closeParagraph()
+            closeList()
+            closeCode()
+            // A heading is already emphasized by being a heading; markers
+            // inside one would render as literal asterisks in most viewers.
+            blocks.append(.heading(level: level, text: plain))
+            continue
+        }
+
+        if pdfIsListItem(plain) {
+            closeParagraph()
+            closeCode()
+            list.append(pdfFormatListItem(formatted))
+            listX = lineX
+            continue
+        }
+        if !list.isEmpty {
+            // A continuation sits under the item's own text and follows it
+            // closely enough — up to seven lines' worth of leading, which is
+            // generous, but the reference is generous here.
+            let isContinuation =
+                listX.map { isListContinuation(lineX, of: $0) } == true
+                && gap < bodySize * 7 && !pdfHasDotLeaders(plain)
+            if isContinuation {
+                list[list.count - 1] += " " + formatted
+                continue
+            }
+            closeList()
+        }
+
+        if isCodeLine {
+            closeParagraph()
+            code.append(plain)
+            continue
+        }
+
+        // Ordinary text joins the paragraph above it with a space — unless
+        // either line carries dot leaders, where the break is the point.
+        let dotLeaders = pdfHasDotLeaders(plain)
+        if !paragraph.isEmpty {
+            paragraph.append(dotLeaders || paragraphHadDotLeaders ? "\n" : " ")
+        }
+        paragraph.append(formatted)
+        paragraphHadDotLeaders = dotLeaders
     }
-    flushPending()
+    closeParagraph()
+    closeList()
+    closeCode()
     return blocks
+}
+
+/// Whether a line starting at `x` sits under a list item whose text starts at
+/// `listX`: at or just left of it, and not so far right as to be a new block.
+private func isListContinuation(_ x: Float, of listX: Float) -> Bool {
+    x >= listX - listContinuationLeftSlack && x <= listX + listContinuationRightSlack
 }
 
 /// Render blocks as Markdown.
@@ -130,6 +242,12 @@ func pdfRenderMarkdown(_ blocks: [PdfBlock]) -> String {
             parts.append(String(repeating: "#", count: max(1, min(level, 6))) + " " + text)
         case .paragraph(let text):
             parts.append(text)
+        case .caption(let text):
+            parts.append(text)
+        case .list(let items):
+            parts.append(items.joined(separator: "\n"))
+        case .code(let lines):
+            parts.append("```\n" + lines.joined(separator: "\n") + "\n```")
         }
     }
     // Blocks are separated by a blank line, and the document ends with one

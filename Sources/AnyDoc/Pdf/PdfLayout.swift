@@ -189,49 +189,6 @@ func pdfNeedsSpace(_ previous: PdfLayoutItem, _ current: PdfLayoutItem, _ soFar:
     return !(gap < fontSize * 0.10)
 }
 
-/// Lines grouped into paragraphs by their vertical spacing.
-///
-/// A gap noticeably larger than the run of line spacing before it starts a
-/// new paragraph; so does a line whose left edge steps in or out, which is
-/// how an indented first line or a list item reads.
-func pdfGroupIntoParagraphs(_ lines: [PdfTextLine]) -> [[PdfTextLine]] {
-    guard !lines.isEmpty else { return [] }
-    // The typical line pitch, taken as the median of the gaps so one big
-    // jump between sections does not set the scale.
-    var gaps: [Float] = []
-    for (previous, next) in zip(lines, lines.dropFirst()) {
-        let gap = previous.y - next.y
-        if gap > 0 { gaps.append(gap) }
-    }
-    let typical: Float
-    if gaps.isEmpty {
-        typical = 0
-    } else {
-        let sorted = gaps.sorted()
-        typical = sorted[sorted.count / 2]
-    }
-
-    var paragraphs: [[PdfTextLine]] = []
-    var current: [PdfTextLine] = [lines[0]]
-    for (previous, next) in zip(lines, lines.dropFirst()) {
-        let gap = previous.y - next.y
-        // A gap half again the usual pitch reads as a break. With no pitch
-        // to compare against, every line stands alone.
-        let brokeByGap = typical <= 0 ? true : gap > typical * 1.5
-        // A step in the left edge larger than an em is a new block, not a
-        // continuation of the same wrapped paragraph.
-        let brokeByIndent = abs(next.minX - previous.minX) > max(previous.maxFontSize, 1)
-        if brokeByGap || brokeByIndent {
-            paragraphs.append(current)
-            current = [next]
-        } else {
-            current.append(next)
-        }
-    }
-    paragraphs.append(current)
-    return paragraphs
-}
-
 extension String {
     /// Trim the whitespace PDF text carries, which is ASCII plus the
     /// no-break space producers emit for justified text.

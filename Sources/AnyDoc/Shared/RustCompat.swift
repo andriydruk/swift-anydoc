@@ -62,6 +62,24 @@ extension StringProtocol {
         return view
     }
 
+    /// Rust `str::split_whitespace`: split on runs of Unicode whitespace,
+    /// yielding no empty pieces.
+    func rustSplitWhitespace() -> [Self.SubSequence] {
+        var pieces: [Self.SubSequence] = []
+        var start: Self.Index?
+        for index in unicodeScalars.indices {
+            let isSpace = unicodeScalars[index].isRustWhitespace
+            if isSpace {
+                if let begin = start { pieces.append(self[begin..<index]) }
+                start = nil
+            } else if start == nil {
+                start = index
+            }
+        }
+        if let begin = start { pieces.append(self[begin...]) }
+        return pieces
+    }
+
     /// Rust `str::lines`: split on `\n`, strip one trailing `\r` per line, and
     /// produce no final empty line for a trailing newline.
     func rustLines() -> [String] {

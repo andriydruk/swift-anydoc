@@ -18,8 +18,11 @@ struct PdfFontStyle: Equatable {
 /// Matching is on the lowercased name, so `Helvetica-BoldOblique` reads as
 /// both. The abbreviations are the ones real producers emit.
 func pdfStyleFromFontName(_ name: String) -> PdfFontStyle {
-    let lower = name.asciiLowercased()
-    func has(_ needle: String) -> Bool { lower.contains(needle) }
+    // Rust's `to_lowercase` and byte-wise `contains`, not Swift's
+    // grapheme-wise ones: `Courier` followed by a combining mark still
+    // contains `courier` to the reference, and `Ö` still lowercases.
+    let lower = name.rustLowercased()
+    func has(_ needle: String) -> Bool { scalarsContain(lower, needle) }
 
     // `Medium` is a weight several families use for semi-bold; `Medi` is the
     // URW Type 1 abbreviation (NimbusRomNo9L-Medi is LaTeX's Times-Bold).

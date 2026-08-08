@@ -645,17 +645,84 @@ everything built in Phases 0-5 combined, so it is being taken in waves.
   - The golden's first paragraph now matches exactly:
     `Plain paragraph with **bold**, *italic*, and struck runs.`
 
+- **Wave 7 — lists, captions and code.** `PdfClassify.swift` ports
+  `markdown/classify.rs` (captions, bullet markers, list items, list
+  formatting, code, monospace font names) plus `has_dot_leaders` and
+  `compute_paragraph_threshold` from `markdown/analysis.rs`. `pdfBuildBlocks`
+  was rewritten from a two-pass gather into the reference's own streaming
+  order — paragraph break, caption, heading, list item, list continuation,
+  code, prose — and `PdfBlock` gained `.caption`, `.list` and `.code`.
+  - Heading detection now carries the gates that make lists work: a line is
+    not promoted when it is code, a wrapped list continuation, three bytes or
+    fewer, over fifteen words, or starts with a bullet.
+  - `pdfGroupIntoParagraphs` was **deleted**. It was a wave-4 approximation —
+    median pitch plus an indent test — and the reference has no such
+    function: it breaks inline on `y_gap.abs() > para_threshold`. Keeping
+    both would have left two disagreeing paragraph rules.
+  - Deliberately not ported yet: the struct-tree roles (`Caption`, `LI`,
+    `BlockQuote`, `Code`) that can override the visual guess, band-split
+    column detection, and the wrapped-bold-run paragraph logic.
+
+### The classifier probe, and the grapheme trap
+
+`scripts/gen-classify-probe.py` extracts `classify.rs`, `has_dot_leaders` and
+`text_utils.rs`'s `is_bold_font`/`is_italic_font` **verbatim** into a Rust
+binary, generates ~22k probe strings, and writes the oracle's answers.
+`PdfClassifyProbeTests` compares all nine predicates when
+`ANYDOC_CLASSIFY_PROBE` points at the output; it skips otherwise. Both the
+corpus and the answers are deterministic across regeneration.
+
+```bash
+python3 scripts/gen-classify-probe.py /tmp/probe
+ANYDOC_CLASSIFY_PROBE=/tmp/probe swift test --filter PdfClassifyProbe
+```
+
+Hand-written unit tests covering the reference's own assertions passed 17/17
+on the first run. The probe then found **three real divergences**, all the
+same root cause and none reachable from the fixture:
+
+> **Swift `String` compares grapheme clusters where Rust `str` compares
+> bytes.** `•` followed by U+0301 is one Swift `Character` and two Rust
+> `char`s. So `hasPrefix`, `contains`, `first`, `hasSuffix` and iteration all
+> silently disagree with the reference on any text carrying combining marks.
+
+- `pdfFormatListItem` did not strip a bullet the reference strips.
+- `pdfIsMonospaceFont` missed `courier` inside `Courier` + U+0308 — and used
+  ASCII lowercasing where the reference uses full `to_lowercase`.
+- `pdfHasDotLeaders` missed `....` when the fourth dot carried a mark.
+
+Everything that matches a prefix, suffix or substring against a reference
+literal now goes through `scalarsHavePrefix` / `scalarsContain` /
+`droppingScalars`. The same fix was applied to `PdfFontStyle`'s name
+heuristics, which had the identical defect, and those two predicates were
+added to the probe. **This is a general hazard for the whole port, not a PDF
+one** — see §2's gotcha list.
+
+The probe's *harness* had the bug too: splitting rows on `Character` `|` and
+unescaping on `Character` `\` mangled 600 rows, which read as "malformed"
+rather than as failures. Worth remembering that a differential harness can
+hide divergences as noise.
+
+**Open, unverified:** three `asciiLowercased()` call sites outside PDF —
+[OdfTable.swift:388](Sources/AnyDoc/Formats/Odf/OdfTable.swift:388),
+[DocxStyles.swift:89](Sources/AnyDoc/Formats/Docx/DocxStyles.swift:89),
+[BlockStyle.swift:16](Sources/AnyDoc/Shared/BlockStyle.swift:16) — may share
+the defect if their reference sites use `to_lowercase()` rather than
+`to_ascii_lowercase()`. The `anydoc` crate is not vendored locally, so this
+needs a re-clone to settle. Not changed on speculation.
+
 ## Phase 6 status
 
 Working end to end: bytes → objects → xref → filters → content operations →
 ToUnicode-decoded text → exact positions and widths → lines, words,
-paragraphs → headings → Markdown. The document's structure and prose come out
-right; its *emphasis, lists, links and tables* do not yet.
+paragraphs → captions, headings, lists and code → Markdown. The document's
+structure, prose, emphasis and lists come out right; its *links, notes and
+tables* do not yet.
 
 Remaining, roughly by size: table detection (16.3k LOC, the largest single
-piece in the project), the rest of Markdown assembly (lists, emphasis, links,
-notes), the base14/TrueType/glyph-name encodings for fonts without a
-`ToUnicode` CMap, multi-column layout, and encryption.
+piece in the project), links and notes (superscripts, `<u>` annotations), the
+base14/TrueType/glyph-name encodings for fonts without a `ToUnicode` CMap,
+multi-column layout, and encryption.
 
 The one PDF fixture is a classic-xref PDF 1.7 using only FlateDecode, with 7
 embedded TrueType fonts carrying `ToUnicode` CMaps and a `StructTreeRoot` —

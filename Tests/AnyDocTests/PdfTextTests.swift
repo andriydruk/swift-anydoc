@@ -564,37 +564,6 @@ func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [P
         #expect(!pdfNeedsSpace(item("+13.", 0, 20), item("0", 21, 5), "+13."))
     }
 
-    /// Lines separated by more than the usual pitch start a paragraph.
-    @Test func paragraphsBreakOnVerticalGaps() {
-        func line(_ text: String, _ y: Float, x: Float = 100) -> PdfTextLine {
-            PdfTextLine(
-                items: [
-                    PdfLayoutItem(text: text, x: x, y: y, width: 50, fontSize: 10, fontName: "F")
-                ], y: y)
-        }
-        // A 12pt pitch, then a 40pt jump.
-        let paragraphs = pdfGroupIntoParagraphs([
-            line("a", 700), line("b", 688), line("c", 676), line("d", 636),
-        ])
-        #expect(paragraphs.count == 2)
-        #expect(paragraphs[0].count == 3)
-        #expect(paragraphs[1].count == 1)
-    }
-
-    /// A step in the left edge is a new block even at the usual pitch.
-    @Test func paragraphsBreakOnIndentChanges() {
-        func line(_ text: String, _ y: Float, _ x: Float) -> PdfTextLine {
-            PdfTextLine(
-                items: [
-                    PdfLayoutItem(text: text, x: x, y: y, width: 50, fontSize: 10, fontName: "F")
-                ], y: y)
-        }
-        let paragraphs = pdfGroupIntoParagraphs([
-            line("a", 700, 100), line("b", 688, 100), line("c", 676, 140),
-        ])
-        #expect(paragraphs.count == 2)
-        #expect(paragraphs[1][0].items[0].text == "c")
-    }
 }
 
 @Suite struct PdfFixtureLayoutTests {
@@ -646,16 +615,17 @@ func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [P
         #expect(clefAt.lowerBound < appearsAt.lowerBound, "the clef landed out of order: \(text)")
     }
 
-    /// Lines group into a plausible number of paragraphs, not one each.
+    /// The fixture's lines become a plausible number of blocks, not one
+    /// each — the paragraph threshold has to actually join wrapped lines.
     @Test func fixtureGroupsIntoParagraphs() throws {
         var document = try loadFixture()
         let pages = pdfPages(&document)
         let lines = pdfGroupIntoLines(pdfPageTextRuns(&document, pages[0]))
             .filter { !pdfLineText($0).isEmpty }
-        let paragraphs = pdfGroupIntoParagraphs(lines)
-        #expect(paragraphs.count > 1)
-        #expect(paragraphs.count < lines.count, "every line became its own paragraph")
-        print("pdf paragraphs: \(paragraphs.count) from \(lines.count) lines")
+        let blocks = pdfBuildBlocks(lines)
+        #expect(blocks.count > 1)
+        #expect(blocks.count < lines.count, "every line became its own block")
+        print("pdf blocks: \(blocks.count) from \(lines.count) lines")
     }
 }
 
