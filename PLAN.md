@@ -539,9 +539,31 @@ everything built in Phases 0-5 combined, so it is being taken in waves.
   - Verified on the real fixture as well as on spec examples: the trailer
     parses (`/Size 195`, `/Root 193 0 R`), and all **194** indirect object
     headers lex — 194 objects plus the free head is exactly the declared size.
-  - **Still to do in wave 1:** stream filters (FlateDecode over the existing
-    inflate, LZW, ASCIIHex/85, RunLength, predictors) and the xref layer
-    (classic tables, xref streams, object streams, object resolution).
+  - `PdfFilters.swift`: the filter chain. FlateDecode reuses the existing
+    inflate with zlib framing and the reference's raw-deflate fallback for
+    streams whose checksum is wrong; LZW (with `EarlyChange`), ASCII85, and
+    the PNG predictors. `ASCIIHexDecode` and `RunLengthDecode` are
+    deliberately **absent**: `lopdf` returns "unimplemented" for them, so a
+    stream using one is skipped rather than decoded differently from the
+    reference.
+  - `PdfDocument.swift`: the cross-reference layer — classic tables, PDF 1.5
+    cross-reference streams, `/Prev` chains with loop detection, `/XRefStm`
+    hybrids, object streams, and reference resolution with a depth cap.
+    Streams whose `/Length` is indirect defer resolution until asked.
+  - **Verified against `lopdf` itself.** `scratchpad/pdfprobe` is a small Rust
+    program built against lopdf 0.41.0 that dumps a PDF's object graph; its
+    output for the fixture is committed as
+    `Tests/Golden/pdf__text.pdf.objects.golden`, and the Swift reader
+    reproduces it exactly — all **194** objects with matching types and
+    dictionary keys, and all **22** streams with matching raw and decoded
+    byte counts (122,533 bytes decoded). The page tree resolves to the same
+    two pages.
+  - One upstream bug is **reproduced deliberately**: lopdf's PNG `Average`
+    predictor decoder computes `left + above/2` where the specification (and
+    lopdf's own encoder) use `(left + above)/2`. Byte parity is the contract,
+    so the bug is reproduced and documented at the call site rather than
+    corrected, which would silently change output for every stream using
+    Predictor 13.
 - **Later waves:** encryption (RC4/MD5/AES-CBC); fonts and text mapping
   (`ToUnicode` CMaps, base14, TrueType `cmap`, glyph names); the content-stream
   interpreter; layout and reading order; table detection (16.3k LOC in the
