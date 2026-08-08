@@ -19,6 +19,10 @@ struct PdfLayoutItem {
     var width: Float
     var fontSize: Float
     var fontName: String
+    /// Set by geometric detection, not by anything the font declares: a PDF
+    /// draws an underline as a separate path. See `PdfUnderline.swift`.
+    var isUnderline = false
+    var isStrikeout = false
 }
 
 /// Runs that share a baseline, ordered left to right.

@@ -82,3 +82,74 @@ import Testing
         #expect(mismatches.isEmpty, "\(mismatches.count) graphics divergences:\n\(report)")
     }
 }
+
+/// Differential check of geometric underline and strikeout detection.
+///
+/// The reference marks these inside its extraction pass, so the items come
+/// back already decorated and the probe just dumps the flags. This is also
+/// the only end-to-end check of `paintedRectangles`, which the graphics probe
+/// cannot see.
+///
+///   for f in <corpus>/*.pdf; do
+///     graphicsprobe --underline "$f" > "$f.underline"
+///   done
+@Suite struct PdfUnderlineProbeTests {
+    /// One corpus file diverges for a reason that has nothing to do with
+    /// underlines: `cid-font.pdf` maps a code to a two-unit destination in a
+    /// `bfrange` (`<0004> <0004> <00660066>`), which this port decodes as
+    /// `ff` and the reference decodes as nothing, so the item lists differ in
+    /// length before any rule is considered. Excluded here by name rather
+    /// than papered over; tracked as an open ToUnicode divergence in PLAN.md.
+    private let knownTextDivergences: Set<String> = ["cid-font.pdf"]
+
+    @Test func underlineFlagsMatchTheReference() throws {
+        guard let path = ProcessInfo.processInfo.environment["ANYDOC_PDF_CORPUS"], !path.isEmpty
+        else { return }
+        let directory = URL(fileURLWithPath: path)
+
+        var compared = 0
+        var mismatches: [String] = []
+        for file in walkFiles(directory).filter({ $0.pathExtension == "pdf" }).sorted(by: {
+            $0.path < $1.path
+        }) {
+            if knownTextDivergences.contains(file.lastPathComponent) { continue }
+            let dumpPath = file.appendingPathExtension("underline")
+            guard let expected = try? String(contentsOf: dumpPath, encoding: .utf8),
+                expected.hasPrefix("#PAGE")
+            else { continue }
+            guard var document = try? PdfDocument(bytes: [UInt8](try Data(contentsOf: file)))
+            else { continue }
+
+            var ours: [String] = []
+            for (index, page) in pdfPages(&document).enumerated() {
+                let operations = pdfPageOperations(&document, page)
+                let graphics = pdfExtractGraphics(operations)
+                var items = pdfGroupIntoLines(pdfPageTextRuns(&document, page))
+                    .flatMap(\.items)
+                pdfMarkUnderlines(
+                    &items, rectangles: pdfUnderlineInk(graphics), lines: graphics.lines)
+                ours.append("#PAGE \(index + 1)")
+                for item in items {
+                    let text = item.text.rustTrim()
+                    ours.append(
+                        "item \(item.isUnderline ? 1 : 0) \(item.isStrikeout ? 1 : 0) \(text)")
+                }
+            }
+
+            let theirs = expected.split(separator: "\n").map(String.init)
+            if ours != theirs {
+                var diff: [String] = []
+                for index in 0..<max(ours.count, theirs.count) {
+                    let a = index < ours.count ? ours[index] : "<none>"
+                    let b = index < theirs.count ? theirs[index] : "<none>"
+                    if a != b { diff.append("    ours:  \(a)\n    rust:  \(b)") }
+                }
+                mismatches.append("\(file.lastPathComponent)\n\(diff.joined(separator: "\n"))")
+            }
+            compared += 1
+        }
+        print("pdf underline probe: \(compared) files compared")
+        let report = mismatches.prefix(6).joined(separator: "\n")
+        #expect(mismatches.isEmpty, "\(mismatches.count) underline divergences:\n\(report)")
+    }
+}

@@ -58,9 +58,15 @@ private struct PdfSavedState {
 ///
 /// `decode` maps a shown string's bytes to text using the font in effect;
 /// it is the caller's hook into the font tables.
+/// - Parameter includeInvisible: whether text drawn in rendering mode 3 is
+///   returned. It is not, by default, matching the reference's own Markdown
+///   path: mode 3 is how an OCR layer hides itself behind a scanned image,
+///   and emitting it duplicates every word on the page. The advance still
+///   happens, so the text that *is* visible stays in place.
 func pdfExtractTextRuns(
     _ operations: [PdfOperation],
     initialCtm: PdfMatrix = identityMatrix,
+    includeInvisible: Bool = false,
     metrics: (String) -> PdfFontWidths? = { _ in nil },
     decode: (String, [UInt8]) -> String
 ) -> [PdfTextRun] {
@@ -102,7 +108,7 @@ func pdfExtractTextRuns(
         let advance = textWidth * (horizontalScale / 100)
 
         let text = decode(fontName, bytes)
-        if !text.isEmpty {
+        if !text.isEmpty, includeInvisible || renderingMode != 3 {
             // The run's origin is the text-space origin mapped through the
             // text matrix and then the CTM, with the rise applied along y.
             let risen: PdfMatrix = (1, 0, 0, 1, 0, rise)
@@ -215,11 +221,17 @@ func pdfExtractTextRuns(
             nextLine()
             if let bytes = operands.first?.asStringBytes { show(bytes) }
         case "\"":
-            // aw ac string ": set spacings, next line, then show.
+            // `aw ac string "`: set both spacings, move to the next line,
+            // then show the string.
+            //
+            // The reference has no arm for this operator at all, so the text
+            // it shows is silently dropped and only the state changes and the
+            // line move survive. That is an upstream bug — the glyphs are on
+            // the page — but output has to match, so it is reproduced here
+            // and the string is not shown. See PLAN.md.
             wordSpacing = number(operands, 0, default: wordSpacing)
             charSpacing = number(operands, 1, default: charSpacing)
             nextLine()
-            if operands.count >= 3, let bytes = operands[2].asStringBytes { show(bytes) }
         case "TJ":
             guard let array = operands.first?.asArray else { break }
             // A TJ array is one run, not one run per string: the writer
@@ -260,6 +272,7 @@ func pdfExtractTextRuns(
                     origin.e + segmentStart * origin.a,
                     origin.f + segmentStart * origin.b
                 )
+                guard includeInvisible || renderingMode != 3 else { return }
                 let placed = pdfMultiply(pdfMultiply(risen, at), ctm)
                 let deviceScale = (origin.a * ctm.a + origin.b * ctm.c).magnitude
                 runs.append(

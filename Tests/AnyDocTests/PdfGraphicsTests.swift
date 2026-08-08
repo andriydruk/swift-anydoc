@@ -38,7 +38,7 @@ import Testing
     @Test func strokedSegmentsBecomeLines() {
         let result = graphics("2 w 10 10 m 110 10 l S")
         #expect(result.lines.count == 1)
-        let line = try! #require(result.lines.first)
+        let line = result.lines[0]
         #expect(line.x1 == 10)
         #expect(line.x2 == 110)
         #expect(line.strokeWidth == 2)
@@ -49,8 +49,8 @@ import Testing
     @Test func strokeWidthFollowsThePerpendicular() {
         let horizontal = graphics("q 1 0 0 3 0 0 cm 2 w 0 0 m 100 0 l S Q")
         let vertical = graphics("q 1 0 0 3 0 0 cm 2 w 0 0 m 0 100 l S Q")
-        #expect(try! #require(horizontal.lines.first).strokeWidth == 6)
-        #expect(try! #require(vertical.lines.first).strokeWidth == 2)
+        #expect(horizontal.lines.first?.strokeWidth == 6)
+        #expect(vertical.lines.first?.strokeWidth == 2)
     }
 
     /// `h` moves the closed subpath aside and `S` then drains an empty

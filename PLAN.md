@@ -824,6 +824,54 @@ and clears the pending list, so the `S` that follows drains nothing — **a
 closed stroked subpath emits no lines at all**. Confirmed against the
 reference and reproduced, with a test saying so.
 
+- **Wave 10 — underlines and strikeouts.** `PdfUnderline.swift` ports
+  `extractor/underline.rs`. PDF has no underline flag: an underline is a
+  separate path drawn near a baseline, so it is recovered by correlating the
+  page's graphics with its text.
+  - Most of the file is not the correlation, which is simple, but telling an
+    underline from a table ruling. Five overlapping heuristics, ported as
+    written because the thresholds are empirical: repeated same-span rules
+    down the page, snug ownership by one text line (which *rescues* documents
+    that underline many full-width lines), segmented per-column row rules,
+    flanking verticals and grid-evidence boxes, tabular rules spanning
+    column-sized gaps, and maths fraction bars.
+  - Reads only ink the page actually laid down — confirmed `re` rectangles
+    plus filled subpaths, never clip-only rectangles. This closes wave 9's
+    `paintedRectangles` coverage gap end to end.
+  - `PdfLayoutItem` gains `isUnderline`/`isStrikeout`. Rendering them as
+    `<u>` runs is *not* done yet: that belongs with the emphasis writer.
+
+The oracle grew a `--underline` mode dumping the flags the reference marked,
+and the corpus grew four files, one per branch: `underline-basic`,
+`underline-table`, `underline-segmented`, `underline-fraction`.
+
+### Three text-extraction divergences the underline probe surfaced
+
+None is about underlines; all three predate this wave and were invisible
+until an oracle compared item lists.
+
+1. **Invisible text was being emitted — fixed.** The reference's Markdown path
+   passes `include_invisible: false`, so text in rendering mode 3 is skipped
+   while the text matrix still advances. This port emitted it, which would
+   duplicate every word of a scanned page carrying an OCR layer.
+   `pdfExtractTextRuns` now takes `includeInvisible` (default `false`).
+2. **The `"` operator's text is dropped upstream — reproduced.** The
+   reference's content-stream walker has arms for `Tj`, `TJ` and `'` but
+   **none for `"`**, so `aw ac string "` applies both spacings and the line
+   move and then silently discards the glyphs. An upstream bug; output has to
+   match, so this port now drops the string too and says why at the call site.
+3. **A `bfrange` with a multi-unit destination — open.**
+   `<0004> <0004> <00660066>` maps one code to `ff` in this port and to
+   nothing in the reference, so `cid-font.pdf`'s item lists differ in length.
+   Not yet diagnosed; `cid-font.pdf` is excluded **by name, with the reason
+   stated in the test**, from the underline probe only.
+
+**Also noticed, not acted on:** the reference has no `Tz` arm either, so it
+ignores horizontal scaling where this port applies it to run width. That
+would diverge widths on any page using `Tz` — and width feeds underline
+overlap. Recorded rather than changed, because unlike `"` it needs a
+measurement to confirm which way the divergence runs.
+
 ## Phase 6 status
 
 Working end to end: bytes → objects → xref → filters → content operations →
@@ -834,9 +882,8 @@ form fields are recovered; its *tables* are not.
 
 Graphics paths are now extracted, which unblocks the two largest remaining
 pieces. Remaining, roughly by size: table detection (16.3k LOC, the largest
-single piece in the project), geometric underline detection
-(`extractor/underline.rs`, 844 LOC) and the `<u>` runs and superscripts that
-depend on it, the base14/TrueType/glyph-name encodings for fonts without a
+single piece in the project), `<u>` run rendering and superscripts on top of
+the underline flags, the base14/TrueType/glyph-name encodings for fonts without a
 `ToUnicode` CMap, multi-column layout, and encryption. Link items are
 extracted but not yet *merged into the text* they sit over — that needs the
 layout to consume positioned annotations alongside text runs.
@@ -847,7 +894,7 @@ a narrow slice, which is why the generated corpus below exists.
 
 ### Generated adversarial corpus
 
-`scripts/gen-pdf-corpus.py` writes 24 PDFs byte by byte, each aimed at a path
+`scripts/gen-pdf-corpus.py` writes 28 PDFs byte by byte, each aimed at a path
 the fixture cannot reach. It is deterministic: regenerating produces
 identical bytes, so the oracle dumps stay valid.
 
@@ -860,14 +907,15 @@ identical bytes, so the oracle dumps stay valid.
 | Malformed | `bad-xref-offsets`, `truncated`, `no-startxref`, `garbage-header` |
 | Annotations | `annotations` (links, reversed rect, AcroForm field tree) |
 | Graphics | `graphics-rects`, `graphics-fills`, `graphics-clips` |
+| Underlines | `underline-basic`, `underline-table`, `underline-segmented`, `underline-fraction` |
 
 `Tests/AnyDocTests/PdfCorpusTests.swift` runs against it when
 `ANYDOC_PDF_CORPUS` points at the generated directory, and skips otherwise —
 the corpus is a build product, not a committed artifact. Two assertions: the
 object graph must match a dump from the `pdfprobe` lopdf oracle, and every
 file must reach the end of the pipeline without crashing or hanging. Current
-result: **21 graphs compared identical, 3 rejections agreed** (lopdf and this
-port reject the same three malformed files), **20 rendered to Markdown**.
+result: **25 graphs compared identical, 3 rejections agreed** (lopdf and this
+port reject the same three malformed files), **24 rendered to Markdown**.
 
 The corpus found one real divergence, now fixed. A stream whose direct
 `/Length` overruns the file was being recovered by scanning forward for

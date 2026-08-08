@@ -120,15 +120,60 @@ pub fn probe_graphics(bytes: &[u8]) -> String {
     }
     out
 }
+
+/// Dump the underline and strikeout flags the reference marked on each text
+/// item. `mark_underlined_items` runs inside `extract_page_text_items`, so
+/// the items come back already decorated.
+pub fn probe_underline(bytes: &[u8]) -> String {
+    use crate::tounicode::FontCMaps;
+    let mut out = String::new();
+    let doc = match lopdf::Document::load_mem(bytes) {
+        Ok(d) => d,
+        Err(e) => return format!("#ERROR {e:?}\n"),
+    };
+    let pages = doc.get_pages();
+    let mut numbers: Vec<u32> = pages.keys().copied().collect();
+    numbers.sort();
+    let cmaps = FontCMaps::from_doc_pages_fast(&doc, None);
+    for n in numbers {
+        let page_id = pages[&n];
+        let mut cache = FontStyleCache::default();
+        if let Ok(((items, _, _), _, _)) =
+            extract_page_text_items(&doc, page_id, n, &cmaps, false, &mut cache)
+        {
+            out.push_str(&format!("#PAGE {n}\n"));
+            for i in &items {
+                out.push_str(&format!(
+                    "item {} {} {}\n",
+                    i.is_underline as u8,
+                    i.is_strikeout as u8,
+                    i.text.trim()
+                ));
+            }
+        }
+    }
+    out
+}
 RUSTEOF
 
 mkdir -p "$crate/src/bin"
 cat > "$crate/src/bin/graphicsprobe.rs" <<'RUSTEOF'
 // Dumps the reference's path-extraction output for one PDF.
 fn main() {
-    let path = std::env::args().nth(1).expect("usage: graphicsprobe <file.pdf>");
+    let mut args = std::env::args().skip(1);
+    let path = args.next().expect("usage: graphicsprobe [--underline] <file.pdf>");
+    let (underline, path) = if path == "--underline" {
+        (true, args.next().expect("usage: graphicsprobe --underline <file.pdf>"))
+    } else {
+        (false, path)
+    };
     let bytes = std::fs::read(&path).expect("read");
-    print!("{}", pdf_inspector::extractor::content_stream::probe_graphics(&bytes));
+    let dump = if underline {
+        pdf_inspector::extractor::content_stream::probe_underline(&bytes)
+    } else {
+        pdf_inspector::extractor::content_stream::probe_graphics(&bytes)
+    };
+    print!("{dump}");
 }
 RUSTEOF
 

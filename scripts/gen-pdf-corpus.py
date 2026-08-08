@@ -564,4 +564,67 @@ b = Builder()
 write("graphics-clips", classic_trailer(b, base_document(b, content=GRAPHICS_CLIPS)))
 
 
+# --- underlines and rulings -----------------------------------------------
+#
+# Telling an underline from a table ruling is most of underline.rs, so the
+# corpus needs one file per branch of that decision.
+
+# A stroked rule just under a baseline underlines; a rule through the glyphs
+# strikes out; a thin filled rect underlines the same way a stroke does; text
+# with no rule near it is left alone.
+UNDERLINE_BASIC = b"""q 0.5 w
+BT /F1 12 Tf 100 700 Td (underlined by a stroke) Tj ET
+100 697 m 220 697 l S
+BT /F1 12 Tf 100 660 Td (struck through) Tj ET
+100 664 m 180 664 l S
+BT /F1 12 Tf 100 620 Td (underlined by a rect) Tj ET
+100 616 110 1 re f
+BT /F1 12 Tf 100 580 Td (plain text) Tj ET
+Q
+"""
+b = Builder()
+write("underline-basic", classic_trailer(b, base_document(b, content=UNDERLINE_BASIC)))
+
+# Full-width rules repeating down the page under short cell labels are table
+# rulings — the repetition check must discard every one of them.
+UNDERLINE_TABLE = b"""q 0.5 w
+BT /F1 12 Tf 100 700 Td (row one) Tj ET
+100 694 m 500 694 l S
+BT /F1 12 Tf 100 660 Td (row two) Tj ET
+100 654 m 500 654 l S
+BT /F1 12 Tf 100 620 Td (row three) Tj ET
+100 614 m 500 614 l S
+BT /F1 12 Tf 100 580 Td (row four) Tj ET
+100 574 m 500 574 l S
+Q
+"""
+b = Builder()
+write("underline-table", classic_trailer(b, base_document(b, content=UNDERLINE_TABLE)))
+
+# Separated segments on one row are per-column header separators, whatever
+# their snugness.
+UNDERLINE_SEGMENTED = b"""q 0.5 w
+BT /F1 12 Tf 100 700 Td (alpha) Tj ET
+BT /F1 12 Tf 200 700 Td (beta) Tj ET
+BT /F1 12 Tf 300 700 Td (gamma) Tj ET
+100 694 m 140 694 l S
+200 694 m 230 694 l S
+300 694 m 345 694 l S
+Q
+"""
+b = Builder()
+write("underline-segmented", classic_trailer(b, base_document(b, content=UNDERLINE_SEGMENTED)))
+
+# A short bar with a numerator above and a denominator hugging it below is a
+# fraction, not an underline.
+UNDERLINE_FRACTION = b"""q 0.5 w
+BT /F1 12 Tf 100 700 Td (12) Tj ET
+100 696 m 118 696 l S
+BT /F1 12 Tf 100 683 Td (34) Tj ET
+Q
+"""
+b = Builder()
+write("underline-fraction", classic_trailer(b, base_document(b, content=UNDERLINE_FRACTION)))
+
+
 print("generated %d pdfs in %s" % (len([f for f in os.listdir(OUT) if f.endswith(".pdf")]), OUT))
