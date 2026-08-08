@@ -450,6 +450,16 @@ reference (which the MIT license permits, with attribution), not clean-room reim
     through calamine's own permissive compound-file reader while `Package`/`Cfb` here
     mirrors the stricter `cfb` crate anydoc uses for `.doc`/`.ppt`. Corrupt-container
     inputs only; whenever both implementations accept a file they agree byte-for-byte.
-- **Next: Phase 5 waves 2-3** — PPT (record stream, `StyleTextPropAtom`), then the CJK
-  code pages and DOC (FIB, piece table, SPRMs, STSH, list tables). Then CI (Linux +
-  macOS) once there is a remote to attach it to.
+- **Phase 5 wave 2 — done.** PPT: the UserEditAtom chain resolved into the persist
+  directory, slide/notes/master lists off the DocumentContainer, a bounded iterative
+  record walk (`maxRecordDepth`/`maxRecords`), `TextHeaderAtom` +
+  `TextCharsAtom`/`TextBytesAtom` text, and the `StyleTextPropAtom` /
+  `TxMasterStyleAtom` cascade. Notes pair to slides by stored slide id rather than list
+  position. Raw stream-order scanning stays the explicitly labelled recovery path.
+  - Validated: all 3 ppt snapshots plus `brokenpersist--recovers.ppt` byte-identical,
+    26 hand-built adversarial decks byte-identical (OLE container and PowerPoint records
+    written directly, covering the persist chain, master cascade, mask layouts, notes
+    pairing and the recovery path), and 725 corruption mutants with zero divergences of
+    any kind.
+- **Next: Phase 5 wave 3** — the CJK code pages and DOC (FIB, piece table, SPRMs, STSH,
+  list tables). Then CI (Linux + macOS) once there is a remote to attach it to.

@@ -14,7 +14,7 @@ import Testing
 
 /// Formats the Swift port implements so far. Grows phase by phase; a format
 /// listed here has every one of its fixtures compared byte-for-byte.
-let implementedFormats: Set<Format> = [.csv, .docx, .epub, .pptx, .odt, .ods, .odp, .excel, .rtf]
+let implementedFormats: Set<Format> = [.csv, .docx, .epub, .pptx, .odt, .ods, .odp, .excel, .rtf, .ppt]
 
 /// Extensions still awaiting a parser inside an otherwise implemented
 /// format. `Format.excel` covers both the SpreadsheetML package and the
