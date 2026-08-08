@@ -43,11 +43,13 @@ public enum AnyDoc {
             return try parseDocx(bytes)
         case .pptx:
             return try parsePptx(bytes)
+        case .odt, .ods, .odp:
+            return try parseOdf(bytes)
         case .pdf:
             throw ConvertError.unsupported("PDF has no document-model form")
         case .epub:
             return try parseEpub(bytes)
-        case .doc, .odt, .ppt, .rtf, .excel, .ods, .odp:
+        case .doc, .ppt, .rtf, .excel:
             throw ConvertError.unsupported(
                 "format \(format) is not implemented yet in swift-anydoc")
         }
