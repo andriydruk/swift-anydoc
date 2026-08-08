@@ -51,7 +51,9 @@ public enum AnyDoc {
             return try parseEpub(bytes)
         case .excel:
             return try parseSheet(bytes)
-        case .doc, .ppt, .rtf:
+        case .rtf:
+            return try parseRtf(bytes)
+        case .doc, .ppt:
             throw ConvertError.unsupported(
                 "format \(format) is not implemented yet in swift-anydoc")
         }

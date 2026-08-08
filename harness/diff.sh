@@ -9,7 +9,7 @@ set -u
 
 RUST_BIN="$1"; shift
 SWIFT_BIN="$(dirname "$0")/../.build/debug/anydoc-cli"
-IMPLEMENTED="csv docx epub pptx pptm ppsx ppsm odt ods odp xlsx xlsm"
+IMPLEMENTED="csv docx epub pptx pptm ppsx ppsm odt ods odp xlsx xlsm rtf"
 
 identical=0 divergent=0 errors_matched=0 errors_diverged=0
 
