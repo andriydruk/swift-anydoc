@@ -4,29 +4,110 @@ on:
   push:
     branches: [master]
   pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch supersedes the run in flight.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  # Linux is the primary target: Apple closed-source frameworks do not exist
-  # there, so a green build is structural proof of the zero-dependency claim.
-  linux:
+  # The purity gate is its own job so it reports independently of any
+  # compiler failure: "we accidentally took a dependency" and "the code does
+  # not build" are different problems and should not share one red X.
+  purity:
+    name: Purity gate
     runs-on: ubuntu-latest
-    container: swift:6.0
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Purity lint
+      - name: Banned imports, escape hatches, and dependencies
         run: bash scripts/lint-purity.sh
-      - name: Build
-        run: swift build
-      - name: Test
-        run: swift test
 
-  macos:
-    runs-on: macos-15
+  # Linux is the primary target. Apple's closed-source frameworks do not
+  # exist here, so a green build is structural proof of the zero-dependency
+  # claim rather than a promise — which is why this matrix, not macOS, is
+  # what gates a merge.
+  linux:
+    name: Linux (Swift ${{ matrix.swift }}, ${{ matrix.configuration }})
+    runs-on: ubuntu-latest
+    container: swift:${{ matrix.swift }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        swift: ["6.0", "6.1"]
+        configuration: [debug, release]
     steps:
       - uses: actions/checkout@v4
-      - name: Purity lint
-        run: bash scripts/lint-purity.sh
       - name: Build
-        run: swift build
+        run: swift build -c ${{ matrix.configuration }}
       - name: Test
-        run: swift test
+        run: swift test -c ${{ matrix.configuration }}
+
+  # macOS proves the library is usable on Apple platforms; it is not the
+  # portability gate.
+  macos:
+    name: macOS (${{ matrix.configuration }})
+    runs-on: macos-15
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [debug, release]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: swift build -c ${{ matrix.configuration }}
+      - name: Test
+        run: swift test -c ${{ matrix.configuration }}
+
+  # The library is meant to be embeddable on iOS, which SwiftPM alone will
+  # not cross-compile for; xcodebuild is what actually exercises the iOS SDK
+  # and would catch an API that only exists on macOS.
+  ios:
+    name: iOS Simulator build
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build for iOS Simulator
+        run: |
+          xcodebuild build \
+            -scheme AnyDoc \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath .build/ios \
+            -quiet
+      - name: Confirm the artifact really targets iOS
+        # xcodebuild exits 0 for a scheme that resolved to no platform, so
+        # the exit code alone does not prove an iOS build happened.
+        run: |
+          module=.build/ios/Build/Products/Debug-iphonesimulator/AnyDoc.swiftmodule
+          test -d "$module" || { echo "no iphonesimulator module produced" >&2; exit 1; }
+          ls "$module"
+
+  # ASan guards the one place the library leaves Swift's safety net: the
+  # libc `read()` in FileBytes.swift. Everything else parses through
+  # bounds-checked `[UInt8]`, where an overrun traps rather than corrupts, so
+  # the sanitizer's marginal value is narrow — but that one call is reached
+  # by every fixture the suite loads, and a wrong length there is a real
+  # overflow.
+  #
+  # Not on pull requests: a sanitizer build is a full rebuild and costs far
+  # more than it returns per-PR, when the mutation sweeps already exercise
+  # the parsers much harder. It gates master and can be dispatched by hand.
+  sanitizers:
+    name: Address sanitizer
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    container: swift:6.1
+    # A hung sanitizer must fail loudly, not eat the 6-hour job limit: on
+    # macOS this exact command deadlocks inside ASan's own initialization
+    # (its malloc interceptor re-enters init via dyld and spins forever).
+    # Linux ships a different ASan runtime and is expected to be fine, but
+    # that is untested here — hence the cap.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test under ASan
+        run: swift test --sanitize=address

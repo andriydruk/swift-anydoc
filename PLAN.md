@@ -492,6 +492,29 @@ Known gaps, all documented above: `.xlsb` (a distinct record stream), the gbk / 
 big5 code pages (no fixture exercises them), and the `.xls` container-layer strictness
 difference on corrupt compound files.
 
+## CI (pulled forward from Phase 7)
+
+`.github/workflows/ci.yml` runs nine jobs, all of them **offline** — the package
+declares no dependencies, so nothing in CI ever needs the network:
+
+| Job | What it is for |
+|---|---|
+| `purity` | The §5.7 gate, on its own so a stray dependency reports separately from a build failure |
+| `linux` (Swift 6.0/6.1 × debug/release) | The portability gate: Apple's closed frameworks do not exist here, so green is structural proof |
+| `macos` (debug/release) | Apple-platform usability |
+| `ios` | `xcodebuild` against the iOS SDK, with an explicit check that an `iphonesimulator` module was really produced — `xcodebuild` exits 0 for a scheme that resolved to no platform |
+| `sanitizers` | ASan on Linux. The port has no panic barrier, so this is what proves the byte-level readers stay in bounds; debug builds also keep Swift's overflow traps on |
+
+The **differential harness is deliberately not a CI job.** It is the project's
+definition of correct, but it needs a Rust toolchain and a build of the reference
+(which pulls `pdf-inspector`), which would make CI slow, network-dependent and flaky.
+It stays a local/manual gate — `harness/diff.sh <reference-binary> <path>` — run before
+every format lands, exactly as it has been. §5.3's scheduled large-corpus run is still
+future work and would carry the same requirement.
+
+The abuse corpus is now asserted as a whole (`Tests/AnyDocTests/AbuseTests.swift`):
+every fixture must fail with `ResourceLimit` *and* fail fast, so a limit that stops
+bounding work fails the build rather than merely taking longer. The `Limits` constants
+are pinned by a test so a change to one is deliberate.
+
 - **Next: Phase 6** — PDF, which is comparable in size to everything above combined.
-  Before that, Phase 7's CI (Linux + macOS) is worth standing up once there is a remote
-  to attach it to, since it is what proves the purity constraint structurally.

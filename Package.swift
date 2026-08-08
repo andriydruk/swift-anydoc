@@ -13,6 +13,9 @@ let package = Package(
         // stdlib and (for file reads only) the platform libc are the world.
         .target(name: "AnyDoc", path: "Sources/AnyDoc"),
         .executableTarget(name: "anydoc-cli", dependencies: ["AnyDoc"], path: "Sources/anydoc-cli"),
-        .testTarget(name: "AnyDocTests", dependencies: ["AnyDoc"], path: "Tests/AnyDocTests"),
+        .testTarget(
+            name: "AnyDocTests", dependencies: ["AnyDoc"], path: "Tests/AnyDocTests",
+            // Binary payloads the tests feed to parsers directly.
+            resources: [.copy("Resources")]),
     ]
 )
