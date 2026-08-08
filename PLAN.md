@@ -435,5 +435,21 @@ reference (which the MIT license permits, with attribution), not clean-room reim
   - **Known gap:** the multi-byte CJK code pages (shift_jis, gbk, euc-kr, big5) are not
     ported. A document selecting one decodes as windows-1252 with a logged warning. They
     land in Phase 5, which needs the same decoders for binary `.doc`.
-- **Next: Phase 5** — legacy binary DOC, PPT, XLS/XLSB over the existing CFB reader, plus
-  the CJK code pages above. Then CI (Linux + macOS) once there is a remote to attach it to.
+- **Phase 5 wave 1 — done.** XLS (BIFF8) over the existing CFB reader, replacing calamine's
+  `xls.rs` slice: the record stream with `CONTINUE` folding, `BoundSheet8`/`SST`/`XF`/
+  `Format` globals, and the `Number`/`RK`/`MulRk`/`Label`/`LabelSst`/`BoolErr`/`Formula`/
+  `MergeCells` cell records. Formula *token* parsing is deliberately absent — anydoc only
+  ever reads the cached values. `Format.excel` is now complete for `.xls` and `.xlsx`;
+  `.xlsb` (a different record stream) remains unported and gated out.
+  - Validated: `xls__sheet.xls` byte-identical, 26 hand-built adversarial workbooks
+    byte-identical (built by writing the OLE container and BIFF records directly, since
+    no converter is installed), and 650 corruption mutants confined to the BIFF stream
+    with **zero divergences of any kind**.
+  - Known container-layer divergence: mutating the *CFB* header/FAT/directory produces
+    error-class divergences (~18% of whole-file mutants), because anydoc reaches `.xls`
+    through calamine's own permissive compound-file reader while `Package`/`Cfb` here
+    mirrors the stricter `cfb` crate anydoc uses for `.doc`/`.ppt`. Corrupt-container
+    inputs only; whenever both implementations accept a file they agree byte-for-byte.
+- **Next: Phase 5 waves 2-3** — PPT (record stream, `StyleTextPropAtom`), then the CJK
+  code pages and DOC (FIB, piece table, SPRMs, STSH, list tables). Then CI (Linux +
+  macOS) once there is a remote to attach it to.

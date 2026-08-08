@@ -78,6 +78,16 @@ private func eqIgnoreAsciiCaseScalar(_ a: Unicode.Scalar, _ b: Unicode.Scalar) -
     return asciiLower(UInt8(a.value)) == asciiLower(UInt8(b.value))
 }
 
+/// Classify a reserved format id given as a number — the binary workbook
+/// formats store the id rather than its text.
+func builtinFormatByCode(_ code: UInt16) -> CellFormat {
+    switch code {
+    case 14...22, 45, 47: return .dateTime
+    case 46: return .timeDelta
+    default: return .other
+    }
+}
+
 /// Classify one of Excel's reserved (built-in) format ids. The id is matched
 /// as written in the file, so `"014"` is not id 14 — the reference compares
 /// the raw attribute bytes.

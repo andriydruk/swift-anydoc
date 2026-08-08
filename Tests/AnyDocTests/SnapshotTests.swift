@@ -19,7 +19,7 @@ let implementedFormats: Set<Format> = [.csv, .docx, .epub, .pptx, .odt, .ods, .o
 /// Extensions still awaiting a parser inside an otherwise implemented
 /// format. `Format.excel` covers both the SpreadsheetML package and the
 /// legacy binary workbook; only the former is ported.
-let unimplementedExtensions: Set<String> = ["xls", "xlsb"]
+let unimplementedExtensions: Set<String> = ["xlsb"]
 
 private let testsDir = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent()  // AnyDocTests

@@ -14,6 +14,9 @@ enum SheetValue {
     case empty
     case string(String)
     case float(Double)
+    /// A whole number that stayed whole: the packed RK encoding in binary
+    /// workbooks distinguishes integers, and they print without a point.
+    case int(Int64)
     case bool(Bool)
     /// The reference prints the error's variant name, not its display form.
     case error(String)
@@ -513,5 +516,19 @@ extension Array {
     /// Rust's `slice::get`: `nil` rather than a trap for an out-of-range index.
     subscript(safe index: Int) -> Element? {
         index >= 0 && index < count ? self[index] : nil
+    }
+}
+
+extension XlsxWorkbook: SheetSource {
+    var sheetNames: [String] { sheets.map(\.name) }
+
+    func cells(ofSheet index: Int) throws -> [SheetCell] {
+        guard let path = sheets[safe: index]?.path else { return [] }
+        return try cells(ofSheetAt: path)
+    }
+
+    func mergedRegions(ofSheet index: Int) throws -> [SheetRegion] {
+        guard let path = sheets[safe: index]?.path else { return [] }
+        return try mergedRegions(ofSheetAt: path)
     }
 }

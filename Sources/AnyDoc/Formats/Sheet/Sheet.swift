@@ -5,19 +5,29 @@
 /// sheet, a level-2 heading naming each sheet when there is more than one,
 /// and the shape of the data deciding which rows are headers.
 
+/// A workbook the sheet mapper can walk, whatever container it came in.
+protocol SheetSource {
+    /// Sheet names in workbook order.
+    var sheetNames: [String] { get }
+    /// Every cell of a sheet that carries a value.
+    func cells(ofSheet index: Int) throws -> [SheetCell]
+    /// The merged regions a sheet declares.
+    func mergedRegions(ofSheet index: Int) throws -> [SheetRegion]
+}
+
 func parseSheet(_ bytes: [UInt8]) throws -> Document {
     let workbook = try openWorkbook(bytes)
-    let sheetNames = workbook.sheets
+    let sheetNames = workbook.sheetNames
     let multiSheet = sheetNames.count > 1
 
     var doc = Document()
     var failed = 0
-    for sheet in sheetNames {
+    for (index, sheetName) in sheetNames.enumerated() {
         let cells: [SheetCell]
         do {
-            cells = try workbook.cells(ofSheetAt: sheet.path)
+            cells = try workbook.cells(ofSheet: index)
         } catch let e as ConvertError where !e.isFatal {
-            Log.warn("skipping unreadable sheet \(rustDebugString(sheet.name)): \(e.message)")
+            Log.warn("skipping unreadable sheet \(rustDebugString(sheetName)): \(e.message)")
             failed += 1
             continue
         }
@@ -28,10 +38,10 @@ func parseSheet(_ bytes: [UInt8]) throws -> Document {
         // Merged regions are advisory: a sheet without them still renders.
         var regions: [SheetRegion] = []
         do {
-            regions = try workbook.mergedRegions(ofSheetAt: sheet.path)
+            regions = try workbook.mergedRegions(ofSheet: index)
         } catch let e as ConvertError where !e.isFatal {
             Log.warn(
-                "skipping unreadable merged-region list for \(rustDebugString(sheet.name)): "
+                "skipping unreadable merged-region list for \(rustDebugString(sheetName)): "
                     + e.message)
         }
 
@@ -41,7 +51,7 @@ func parseSheet(_ bytes: [UInt8]) throws -> Document {
         // A spreadsheet marks no header row, so the shape of the data decides.
         table.headerRows = resolveHeaderRows(table, declared: 0)
         if multiSheet {
-            doc.blocks.append(.heading(2, [.plain(sheet.name)]))
+            doc.blocks.append(.heading(2, [.plain(sheetName)]))
         }
         doc.blocks.append(.table(table))
     }
@@ -52,14 +62,14 @@ func parseSheet(_ bytes: [UInt8]) throws -> Document {
 }
 
 /// Open a workbook, choosing the reader by content the way the reference's
-/// auto-detection does.
-private func openWorkbook(_ bytes: [UInt8]) throws -> XlsxWorkbook {
-    // The legacy binary workbook (.xls, and the .xlsb record stream) shares
-    // the OLE compound container with .doc and .ppt and lands with them.
+/// auto-detection does: the OLE compound container holds a binary workbook,
+/// a ZIP package holds SpreadsheetML.
+private func openWorkbook(_ bytes: [UInt8]) throws -> any SheetSource {
     if let ole = probeOle(bytes) {
+        // An encrypted package is not a workbook this reader can open; a
+        // plain compound file is a legacy binary workbook.
         if case .encrypted = ole { throw ole }
-        throw ConvertError.unsupported(
-            "legacy binary workbooks are not implemented yet in swift-anydoc")
+        return try XlsWorkbook(bytes: bytes)
     }
     return try XlsxWorkbook(bytes: bytes)
 }
@@ -178,6 +188,8 @@ func formatSheetValue(_ value: SheetValue) -> String {
         return cleanText(s)
     case .float(let f):
         return formatSheetFloat(f)
+    case .int(let i):
+        return String(i)
     case .bool(let b):
         return b ? "TRUE" : "FALSE"
     case .error(let name):
