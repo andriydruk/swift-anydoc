@@ -222,18 +222,81 @@ func pdfExtractTextRuns(
             if operands.count >= 3, let bytes = operands[2].asStringBytes { show(bytes) }
         case "TJ":
             guard let array = operands.first?.asArray else { break }
-            // Each element is either a string to show or a displacement in
-            // thousandths of an em, subtracted from the position.
+            // A TJ array is one run, not one run per string: the writer
+            // splits a line into fragments and positions them with
+            // displacements, and a displacement wide enough to be a space
+            // *is* the space. Emitting each fragment separately and hoping
+            // the gap heuristic recovers the word boundaries loses them,
+            // because the fragments abut exactly.
+            let font = metrics(fontName)
+            // The threshold is four tenths of the font's own space, in the
+            // thousandths TJ counts in, with a floor for fonts that report
+            // an implausibly narrow space.
+            let spaceThreshold: Float =
+                font.map { max(Float($0.spaceWidth) * $0.unitsScale * 1000 * 0.4, 80) } ?? 120
+
+            // A gap several spaces wide is not a word break but a hole the
+            // writer left — for a glyph placed separately, or a column
+            // boundary. The array splits there, so a run never spans a slot
+            // that something else occupies.
+            let columnGapThreshold = spaceThreshold * 4
+
+            let origin = textMatrix
+            var pieces = ""
+            var advance: Float = 0
+            // Where the segment being accumulated began, as an advance from
+            // the array's origin.
+            var segmentStart: Float = 0
+
+            func flushSegment() {
+                defer {
+                    pieces = ""
+                    segmentStart = advance
+                }
+                guard inText, !pieces.isEmpty else { return }
+                let risen: PdfMatrix = (1, 0, 0, 1, 0, rise)
+                let at: PdfMatrix = (
+                    origin.a, origin.b, origin.c, origin.d,
+                    origin.e + segmentStart * origin.a,
+                    origin.f + segmentStart * origin.b
+                )
+                let placed = pdfMultiply(pdfMultiply(risen, at), ctm)
+                let deviceScale = (origin.a * ctm.a + origin.b * ctm.c).magnitude
+                runs.append(
+                    PdfTextRun(
+                        text: pieces, x: placed.e, y: placed.f,
+                        fontSize: fontSize * abs(placed.d),
+                        width: (advance - segmentStart) * deviceScale,
+                        fontName: fontName, renderingMode: renderingMode))
+            }
+
             for element in array {
                 if let bytes = element.asStringBytes {
-                    show(bytes)
+                    pieces += decode(fontName, bytes)
+                    advance +=
+                        (font.map {
+                            pdfStringWidth(
+                                bytes, $0, fontSize: fontSize, charSpacing: charSpacing,
+                                wordSpacing: wordSpacing)
+                        } ?? 0) * (horizontalScale / 100)
                     continue
                 }
                 guard let adjustment = element.asNumber else { continue }
-                let shift = Float(-adjustment) / 1000 * fontSize * (horizontalScale / 100)
-                textMatrix.e += shift * textMatrix.a
-                textMatrix.f += shift * textMatrix.b
+                let value = Float(adjustment)
+                if value < -columnGapThreshold, !pieces.isEmpty {
+                    flushSegment()
+                    advance += -value / 1000 * fontSize * (horizontalScale / 100)
+                    segmentStart = advance
+                    continue
+                }
+                if value < -spaceThreshold, !pieces.isEmpty, !pieces.hasSuffix(" ") {
+                    pieces += " "
+                }
+                advance += -value / 1000 * fontSize * (horizontalScale / 100)
             }
+            flushSegment()
+            textMatrix.e = origin.e + advance * origin.a
+            textMatrix.f = origin.f + advance * origin.b
         default:
             break
         }

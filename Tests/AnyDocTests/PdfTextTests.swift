@@ -405,40 +405,68 @@ func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [P
         print("pdf widths: \(measured.count)/\(runs.count) runs measured")
     }
 
-    /// With widths applied, a run's advance must land where the next run
-    /// actually starts. This is the real check on the width math: if the
-    /// glyph widths were wrong, the predicted end of one run would drift
-    /// from the observed start of the next.
-    ///
-    /// Content order is *not* visual order — a writer may jump backwards to
-    /// place a glyph from another font, which the fixture does twice — so
-    /// only forward-advancing pairs are measured, and reordering is the
-    /// layout wave's problem rather than a defect here.
-    @Test func runAdvanceLandsWhereTheNextRunStarts() throws {
-        var document = try loadFixture()
-        let pages = pdfPages(&document)
-        let runs = pdfPageTextRuns(&document, pages[0])
-        var byLine: [Int: [PdfTextRun]] = [:]
-        for run in runs { byLine[Int(run.y.rounded()), default: []].append(run) }
+    /// The advance is checked exactly, on a stream whose every quantity is
+    /// known, rather than statistically across the fixture. With a space
+    /// width of 250/1000, the space threshold is 100 and the column-gap
+    /// threshold 400, both in the thousandths TJ counts in.
+    @Test func tjAdvanceIsExact() {
+        var font = PdfFontWidths()
+        font.widths = [65: 500, 66: 500]
+        font.unitsScale = 0.001
+        font.spaceWidth = 250
 
-        var measured = 0
-        var accurate = 0
-        for (_, lineRuns) in byLine where lineRuns.count > 1 {
-            for (previous, next) in zip(lineRuns, lineRuns.dropFirst()) {
-                // Only pairs the writer emitted left to right are comparable.
-                guard next.x > previous.x, previous.width > 0 else { continue }
-                measured += 1
-                // The gap past the predicted end is the writer's own
-                // kerning/positioning, which is small; a wrong width would
-                // show up as a large, systematic drift.
-                let predictedEnd = previous.x + previous.width
-                if abs(next.x - predictedEnd) < 2.0 { accurate += 1 }
-            }
-        }
-        #expect(measured > 100, "too few adjacent pairs to judge: \(measured)")
-        let ratio = Double(accurate) / Double(max(measured, 1))
-        #expect(ratio > 0.9, "only \(accurate)/\(measured) advances land within 2pt")
-        print("pdf advance: \(accurate)/\(measured) within 2pt")
+        // A -200 displacement is wider than a space but narrower than a
+        // column gap: one run, with a space in it.
+        // "AB" = 10.0, the gap = 2.0, "AB" = 10.0, so the advance is 22.0.
+        let source = "BT /F1 10 Tf 100 700 Td [(AB) -200 (AB)] TJ (AB) Tj ET"
+        let runs = pdfExtractTextRuns(
+            pdfParseContentStream(Array(source.utf8)), metrics: { _ in font }
+        ) { _, bytes in String(decoding: bytes, as: UTF8.self) }
+
+        #expect(runs.count == 2)
+        #expect(runs[0].text == "AB AB")
+        #expect(abs(runs[0].x - 100) < 1e-4)
+        #expect(abs(runs[0].width - 22) < 1e-4)
+        // The following Tj starts exactly where the array ended.
+        #expect(abs(runs[1].x - 122) < 1e-4, "the next run began at \(runs[1].x), expected 122")
+        #expect(abs(runs[1].width - 10) < 1e-4)
+    }
+
+    /// A column-scale displacement splits the array instead, so a run never
+    /// spans a slot another glyph occupies.
+    @Test func columnGapsSplitTheArray() {
+        var font = PdfFontWidths()
+        font.widths = [65: 500, 66: 500]
+        font.unitsScale = 0.001
+        font.spaceWidth = 250
+
+        // -1000 is past the column-gap threshold: two runs, 10.0 of text,
+        // then a 10.0 hole, then 10.0 of text.
+        let source = "BT /F1 10 Tf 100 700 Td [(AB) -1000 (AB)] TJ ET"
+        let runs = pdfExtractTextRuns(
+            pdfParseContentStream(Array(source.utf8)), metrics: { _ in font }
+        ) { _, bytes in String(decoding: bytes, as: UTF8.self) }
+
+        #expect(runs.count == 2)
+        #expect(runs[0].text == "AB")
+        #expect(runs[1].text == "AB")
+        #expect(abs(runs[0].x - 100) < 1e-4)
+        #expect(abs(runs[0].width - 10) < 1e-4)
+        // The second segment starts past the hole, not at the first's end.
+        #expect(abs(runs[1].x - 120) < 1e-4, "the second segment began at \(runs[1].x)")
+    }
+
+    /// A displacement too small to be a space does not become one.
+    @Test func smallDisplacementsDoNotBecomeSpaces() {
+        var font = PdfFontWidths()
+        font.widths = [65: 500]
+        font.unitsScale = 0.001
+        font.spaceWidth = 250
+        let source = "BT /F1 10 Tf [(A) -50 (A)] TJ ET"
+        let runs = pdfExtractTextRuns(
+            pdfParseContentStream(Array(source.utf8)), metrics: { _ in font }
+        ) { _, bytes in String(decoding: bytes, as: UTF8.self) }
+        #expect(runs.first?.text == "AA")
     }
 
     /// Runs must not pile up at one x, which is what a missing advance
@@ -449,5 +477,168 @@ func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [P
         let runs = pdfPageTextRuns(&document, pages[0])
         let distinctX = Set(runs.map { Int($0.x.rounded()) })
         #expect(distinctX.count > runs.count / 4, "runs cluster at too few positions")
+    }
+}
+
+@Suite struct PdfLayoutTests {
+    private func run(_ text: String, _ x: Float, _ y: Float, width: Float = 20) -> PdfTextRun {
+        PdfTextRun(
+            text: text, x: x, y: y, fontSize: 10, width: width, fontName: "F1", renderingMode: 0)
+    }
+
+    /// Runs group by baseline, and a writer's back-jump joins the line it
+    /// belongs to instead of starting a new one.
+    @Test func runsGroupByBaseline() {
+        let runs = [
+            run("one", 100, 700), run("two", 130, 700),
+            // Emitted last, positioned first, and half a point off the
+            // baseline — exactly the shape the fixture produces.
+            run("back", 10, 700.5),
+            run("next", 100, 680),
+        ]
+        let lines = pdfGroupIntoLines(runs)
+        #expect(lines.count == 2)
+        #expect(lines[0].items.map(\.text) == ["back", "one", "two"])
+        #expect(lines[1].items.map(\.text) == ["next"])
+    }
+
+    /// Lines come out top to bottom, which is descending y in PDF space.
+    @Test func linesAreOrderedTopToBottom() {
+        let runs = [run("bottom", 0, 100), run("top", 0, 700), run("middle", 0, 400)]
+        #expect(pdfGroupIntoLines(runs).map { $0.items[0].text } == ["top", "middle", "bottom"])
+    }
+
+    /// The horizontal gap decides whether two runs are one word or two.
+    @Test func gapsBecomeWordBoundaries() {
+        func item(_ text: String, _ x: Float, _ width: Float) -> PdfLayoutItem {
+            PdfLayoutItem(text: text, x: x, y: 0, width: width, fontSize: 10, fontName: "F")
+        }
+        // Touching runs are one word.
+        #expect(!pdfNeedsSpace(item("Hel", 0, 15), item("lo", 15, 10), "Hel"))
+        // A gap of a third of an em is a word boundary.
+        #expect(pdfNeedsSpace(item("Hello", 0, 25), item("World", 28, 25), "Hello"))
+        // Punctuation follows without a space.
+        #expect(!pdfNeedsSpace(item("www", 0, 15), item(".com", 20, 20), "www"))
+        // A colon before a value takes one.
+        #expect(pdfNeedsSpace(item("Key:", 0, 20), item("value", 21, 25), "Key:"))
+        // A hyphen binds the words it joins.
+        #expect(!pdfNeedsSpace(item("well-", 0, 25), item("known", 30, 25), "well-"))
+        // A column-scale void always separates.
+        #expect(pdfNeedsSpace(item("left", 0, 20), item("right", 300, 25), "left"))
+    }
+
+    /// An explicit space in a run is a word boundary. The runs are trimmed
+    /// before joining, so this is the case most easily lost.
+    @Test func explicitSpacesSurviveTrimming() {
+        func item(_ text: String, _ x: Float, _ width: Float) -> PdfLayoutItem {
+            PdfLayoutItem(text: text, x: x, y: 0, width: width, fontSize: 10, fontName: "F")
+        }
+        // Abutting runs that would otherwise join, but the writer stated the
+        // boundary outright.
+        #expect(pdfNeedsSpace(item("with ", 0, 25), item("bold", 25, 20), "with"))
+        #expect(pdfNeedsSpace(item("and", 0, 15), item(" struck", 15, 30), "and"))
+    }
+
+    /// Digits and their separators stay one number across small gaps.
+    @Test func numbersStayJoined() {
+        func item(_ text: String, _ x: Float, _ width: Float) -> PdfLayoutItem {
+            PdfLayoutItem(text: text, x: x, y: 0, width: width, fontSize: 10, fontName: "F")
+        }
+        #expect(!pdfNeedsSpace(item("34,", 0, 15), item("208", 16, 15), "34,"))
+        #expect(!pdfNeedsSpace(item("+13.", 0, 20), item("0", 21, 5), "+13."))
+    }
+
+    /// Lines separated by more than the usual pitch start a paragraph.
+    @Test func paragraphsBreakOnVerticalGaps() {
+        func line(_ text: String, _ y: Float, x: Float = 100) -> PdfTextLine {
+            PdfTextLine(
+                items: [
+                    PdfLayoutItem(text: text, x: x, y: y, width: 50, fontSize: 10, fontName: "F")
+                ], y: y)
+        }
+        // A 12pt pitch, then a 40pt jump.
+        let paragraphs = pdfGroupIntoParagraphs([
+            line("a", 700), line("b", 688), line("c", 676), line("d", 636),
+        ])
+        #expect(paragraphs.count == 2)
+        #expect(paragraphs[0].count == 3)
+        #expect(paragraphs[1].count == 1)
+    }
+
+    /// A step in the left edge is a new block even at the usual pitch.
+    @Test func paragraphsBreakOnIndentChanges() {
+        func line(_ text: String, _ y: Float, _ x: Float) -> PdfTextLine {
+            PdfTextLine(
+                items: [
+                    PdfLayoutItem(text: text, x: x, y: y, width: 50, fontSize: 10, fontName: "F")
+                ], y: y)
+        }
+        let paragraphs = pdfGroupIntoParagraphs([
+            line("a", 700, 100), line("b", 688, 100), line("c", 676, 140),
+        ])
+        #expect(paragraphs.count == 2)
+        #expect(paragraphs[1][0].items[0].text == "c")
+    }
+}
+
+@Suite struct PdfFixtureLayoutTests {
+    /// The fixture laid out must read as prose, in document order.
+    @Test func fixtureLaysOutIntoReadableLines() throws {
+        var document = try loadFixture()
+        let pages = pdfPages(&document)
+        var allLines: [String] = []
+        for page in pages {
+            for line in pdfGroupIntoLines(pdfPageTextRuns(&document, page)) {
+                let text = pdfLineText(line)
+                if !text.isEmpty { allLines.append(text) }
+            }
+        }
+        print("pdf layout: \(allLines.count) lines")
+
+        // These are the golden's own sentences, with the emphasis markers
+        // dropped — the plain text a correct layout must produce.
+        #expect(allLines.contains { $0 == "Fixture Document" })
+        #expect(
+            allLines.contains { $0 == "Plain paragraph with bold, italic, and struck runs." },
+            "the opening paragraph did not lay out as prose")
+        #expect(
+            allLines.contains { $0 == "Style-bold paragraph with a NotBold-styled span inside." })
+        // List markers abut their text in the reference's output too.
+        #expect(allLines.contains { $0 == "1.First numbered" })
+        #expect(allLines.contains { $0 == "a)Alpha sub one" })
+
+        // Document order.
+        let titleAt = try #require(allLines.firstIndex { $0.contains("Fixture Document") })
+        let listsAt = try #require(allLines.firstIndex { $0 == "Lists" })
+        let notesAt = try #require(allLines.firstIndex { $0.contains("Notes and special text") })
+        #expect(titleAt < listsAt)
+        #expect(listsAt < notesAt)
+    }
+
+    /// The back-jumped glyphs land in their line, in the right place.
+    @Test func backJumpedGlyphsJoinTheirLine() throws {
+        var document = try loadFixture()
+        let pages = pdfPages(&document)
+        let lines = pdfGroupIntoLines(pdfPageTextRuns(&document, pages[0]))
+        let clefLine = try #require(
+            lines.first { line in line.items.contains { $0.text.contains("\u{1D11E}") } },
+            "the clef run vanished")
+        let text = pdfLineText(clefLine)
+        #expect(text.contains("Music"))
+        let clefAt = try #require(text.range(of: "\u{1D11E}"))
+        let appearsAt = try #require(text.range(of: "appears"))
+        #expect(clefAt.lowerBound < appearsAt.lowerBound, "the clef landed out of order: \(text)")
+    }
+
+    /// Lines group into a plausible number of paragraphs, not one each.
+    @Test func fixtureGroupsIntoParagraphs() throws {
+        var document = try loadFixture()
+        let pages = pdfPages(&document)
+        let lines = pdfGroupIntoLines(pdfPageTextRuns(&document, pages[0]))
+            .filter { !pdfLineText($0).isEmpty }
+        let paragraphs = pdfGroupIntoParagraphs(lines)
+        #expect(paragraphs.count > 1)
+        #expect(paragraphs.count < lines.count, "every line became its own paragraph")
+        print("pdf paragraphs: \(paragraphs.count) from \(lines.count) lines")
     }
 }

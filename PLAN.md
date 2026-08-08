@@ -596,10 +596,33 @@ everything built in Phases 0-5 combined, so it is being taken in waves.
     not visual order.** The fixture twice jumps backwards to place a glyph
     from another font (the U+1D11E clef, the family emoji) after later text
     on the same line. That is the problem `reading_order.rs` exists to solve.
+- **Wave 4 — layout.** `PdfLayout.swift`: runs grouped into lines by baseline,
+  ordered top-to-bottom then left-to-right, joined into text by the gap rules
+  (punctuation, hyphens, colons, numeric continuity, sub/superscript, and the
+  em-relative thresholds), and grouped into paragraphs by line pitch and
+  indent steps.
+  - Sorting rather than trusting content order is what places a writer's
+    back-jumped glyph correctly, which the fixture requires.
+  - Two corrections the fixture forced, both in the extractor:
+    a **TJ array is one run, not one per string** — the displacement wide
+    enough to be a space *is* the space, and emitting fragments separately
+    lost every such boundary; and a displacement at **column scale splits the
+    array**, so a run never spans a slot another glyph occupies (the fixture
+    leaves exactly such a slot for its U+1D11E clef).
+  - A third was in the joiner: runs are trimmed before joining, so an
+    explicit trailing or leading space had to be *restored* as a boundary
+    rather than read as "a space is already there".
+  - Result on the fixture: 41 lines, 10 paragraphs, reading as the golden's
+    prose — `Plain paragraph with bold, italic, and struck runs.`,
+    `1.First numbered`, `a)Alpha sub one` — with the clef between `clef` and
+    `appears`.
+  - **Not ported:** multi-column detection, newspaper layout, XY-cut region
+    splitting, per-producer letter-spacing calibration. A single-column page
+    does not reach them.
 - **Later waves:** the base14/TrueType/glyph-name encodings for fonts without
-  a `ToUnicode` CMap; encryption (RC4/MD5/AES-CBC); layout and reading order;
-  table detection (16.3k LOC in the reference, the largest single piece);
-  Markdown assembly.
+  a `ToUnicode` CMap; encryption (RC4/MD5/AES-CBC); heading and list
+  detection; table detection (16.3k LOC in the reference, the largest single
+  piece); Markdown assembly.
 
 The one PDF fixture is a classic-xref PDF 1.7 using only FlateDecode, with 7
 embedded TrueType fonts carrying `ToUnicode` CMaps and a `StructTreeRoot`, so
