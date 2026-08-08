@@ -1,0 +1,143 @@
+// Adversarial PDF corpus, compared against lopdf.
+//
+// The committed fixture is one narrow shape; whole branches of the reader
+// (cross-reference streams, object streams, CID fonts, the other filters,
+// the PNG predictors, incremental updates) are written but never exercised
+// by it. `scripts/gen-pdf-corpus.py` builds files that do exercise them.
+//
+// The corpus is not committed — it is generated. Point ANYDOC_PDF_CORPUS at
+// the output directory to run this suite; without it the tests skip, so a
+// checkout without the corpus still passes.
+//
+//   scripts/gen-pdf-corpus.py /tmp/pdfcorpus
+//   for f in /tmp/pdfcorpus/*.pdf; do
+//     scratchpad/pdfprobe/target/release/pdfprobe "$f" > "$f.expected" 2>/dev/null
+//   done
+//   ANYDOC_PDF_CORPUS=/tmp/pdfcorpus swift test --filter PdfCorpus
+import Foundation
+import Testing
+
+@testable import AnyDoc
+
+private var corpusDirectory: URL? {
+    guard let path = ProcessInfo.processInfo.environment["ANYDOC_PDF_CORPUS"],
+        !path.isEmpty
+    else { return nil }
+    return URL(fileURLWithPath: path)
+}
+
+/// lopdf decompresses an object stream *in place* while loading it, so by
+/// the time the probe reports a stream's raw length it may already be the
+/// decoded one. That is an artifact of the oracle mutating what it read, not
+/// a parsing difference — the decoded lengths still have to agree — so a
+/// stream the oracle reports as `raw == decoded` is compared on its decoded
+/// length alone.
+func normalizeOracleArtifacts(_ dump: String, against expected: String) -> String {
+    var expectedRawEqualsDecoded: Set<String> = []
+    for line in expected.split(separator: "\n") {
+        let fields = line.split(separator: " ")
+        guard fields.count >= 5, fields[2] == "stream",
+            let raw = fields.first(where: { $0.hasPrefix("raw=") }),
+            let decoded = fields.first(where: { $0.hasPrefix("decoded=") }),
+            raw.dropFirst(4) == decoded.dropFirst(8)
+        else { continue }
+        expectedRawEqualsDecoded.insert(String(fields[0]))
+    }
+    guard !expectedRawEqualsDecoded.isEmpty else { return dump }
+    return dump.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
+        let fields = line.split(separator: " ")
+        guard fields.count >= 5, fields[2] == "stream",
+            expectedRawEqualsDecoded.contains(String(fields[0])),
+            let decoded = fields.first(where: { $0.hasPrefix("decoded=") })
+        else { return String(line) }
+        return fields.map { field -> String in
+            field.hasPrefix("raw=") ? "raw=" + decoded.dropFirst(8) : String(field)
+        }.joined(separator: " ")
+    }.joined(separator: "\n")
+}
+
+@Suite struct PdfCorpusTests {
+    /// Every file the oracle accepts must yield the same object graph here,
+    /// and every file it rejects must not silently produce one.
+    @Test func objectGraphsMatchTheOracle() throws {
+        guard let directory = corpusDirectory else { return }
+        let files = walkFiles(directory).filter { $0.pathExtension == "pdf" }.sorted {
+            $0.path < $1.path
+        }
+        #expect(!files.isEmpty, "ANYDOC_PDF_CORPUS is set but holds no PDFs")
+
+        var compared = 0
+        var agreedRejections = 0
+        for file in files {
+            let name = file.lastPathComponent
+            let expectedPath = file.appendingPathExtension("expected")
+            let expected = try? String(contentsOf: expectedPath, encoding: .utf8)
+            let bytes = [UInt8](try Data(contentsOf: file))
+
+            guard let expected, expected.hasPrefix("#OBJECTS") else {
+                // The oracle rejected it, so the reader must too — or at
+                // least must not invent a document.
+                if let document = try? PdfDocument(bytes: bytes) {
+                    var copy = document
+                    let resolved = copy.xref.entries.keys.filter {
+                        !copy.object(PdfObjectId(number: $0, generation: 0)).isNull
+                    }
+                    let detail =
+                        "\(name): the oracle rejects this but the reader resolved "
+                        + "\(resolved.count) objects"
+                    #expect(resolved.isEmpty, "\(detail)")
+                } else {
+                    agreedRejections += 1
+                }
+                continue
+            }
+
+            var document = try PdfDocument(bytes: bytes)
+            let dump = normalizeOracleArtifacts(pdfObjectDump(&document), against: expected)
+            let expectedGraph = expected.split(separator: "\n", omittingEmptySubsequences: false)
+                .prefix { !$0.hasPrefix("#PAGES") }
+                .joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            // On a mismatch the useful thing is the diverging lines, not two
+            // whole graphs side by side.
+            var diff: [String] = []
+            let ours = dump.split(separator: "\n").map(String.init)
+            let theirs = expectedGraph.split(separator: "\n").map(String.init)
+            for i in 0..<max(ours.count, theirs.count) {
+                let a = i < ours.count ? ours[i] : "<none>"
+                let b = i < theirs.count ? theirs[i] : "<none>"
+                if a != b { diff.append("  ours:  \(a)\n  lopdf: \(b)") }
+            }
+            #expect(
+                dump == expectedGraph,
+                "\(name): object graph diverges from lopdf\n\(diff.joined(separator: "\n"))")
+            compared += 1
+        }
+        print("pdf corpus: \(compared) graphs compared, \(agreedRejections) rejections agreed")
+    }
+
+    /// Whatever the file, the reader must not crash or hang, and must reach
+    /// the end of the pipeline.
+    @Test func everyFileSurvivesTheWholePipeline() throws {
+        guard let directory = corpusDirectory else { return }
+        var rendered = 0
+        for file in walkFiles(directory).filter({ $0.pathExtension == "pdf" }).sorted(by: {
+            $0.path < $1.path
+        }) {
+            let bytes = [UInt8](try Data(contentsOf: file))
+            guard var document = try? PdfDocument(bytes: bytes) else { continue }
+            var lines: [PdfTextLine] = []
+            var styles: [String: PdfFontStyle] = [:]
+            for page in pdfPages(&document) {
+                lines += pdfGroupIntoLines(pdfPageTextRuns(&document, page))
+                for (name, style) in pdfPageFontStyles(&document, page) { styles[name] = style }
+            }
+            let markdown = pdfRenderMarkdown(pdfBuildBlocks(lines, styles: styles))
+            if !markdown.isEmpty {
+                #expect(markdown.hasSuffix("\n"), "\(file.lastPathComponent): no trailing newline")
+                rendered += 1
+            }
+        }
+        print("pdf corpus: \(rendered) files rendered to markdown")
+    }
+}

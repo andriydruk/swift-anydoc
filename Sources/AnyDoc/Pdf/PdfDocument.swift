@@ -366,16 +366,23 @@ struct PdfDocument {
         let dataStart = lexer.pos
         // A direct /Length can be trusted enough to slice with; an indirect
         // one is left for `decodedStream` to resolve against the document.
-        if let length = dict["Length"]?.asInteger.map(Int.init), length >= 0,
-            dataStart + length <= bytes.count
-        {
+        if let length = dict["Length"]?.asInteger.map(Int.init) {
+            guard length >= 0, dataStart + length <= bytes.count else {
+                // A /Length that overruns the file fails the stream parse in
+                // the reference, leaving the dictionary alone — the data is
+                // not recovered by scanning. Scanning instead would resurrect
+                // content the reference drops, so the object stays a
+                // dictionary here too.
+                return (id, object)
+            }
             let content = Array(bytes[dataStart..<(dataStart + length)])
             return (id, .stream(PdfStream(dict: dict, content: content)))
         }
         if dict["Length"]?.asReference != nil {
             return (id, .stream(PdfStream(dict: dict, content: [], startPosition: dataStart)))
         }
-        // No usable /Length: recover by scanning for `endstream`.
+        // No /Length at all: recover by scanning for `endstream`, which is
+        // what the reference's position-based fallback amounts to.
         guard let end = findKeyword(bytes, Array("endstream".utf8), from: dataStart) else {
             return (id, object)
         }

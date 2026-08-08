@@ -657,13 +657,45 @@ piece in the project), the rest of Markdown assembly (lists, emphasis, links,
 notes), the base14/TrueType/glyph-name encodings for fonts without a
 `ToUnicode` CMap, multi-column layout, and encryption.
 
-**The corpus gap is now the dominant risk.** One narrow fixture — single
-column, classic xref, FlateDecode, seven TrueType fonts with `ToUnicode` —
-cannot exercise the xref-stream, object-stream, CID-font, encryption or
-multi-column paths that are already written. Phase 6 cannot claim parity
-without a real corpus, and the differential harness is a local/manual step.
-
 The one PDF fixture is a classic-xref PDF 1.7 using only FlateDecode, with 7
-embedded TrueType fonts carrying `ToUnicode` CMaps and a `StructTreeRoot`, so
-it exercises a narrow slice — a real corpus will be needed before this phase
-can claim parity.
+embedded TrueType fonts carrying `ToUnicode` CMaps and a `StructTreeRoot` —
+a narrow slice, which is why the generated corpus below exists.
+
+### Generated adversarial corpus
+
+`scripts/gen-pdf-corpus.py` writes 20 PDFs byte by byte, each aimed at a path
+the fixture cannot reach. It is deterministic: regenerating produces
+identical bytes, so the oracle dumps stay valid.
+
+| Group | Files |
+| --- | --- |
+| Cross-reference | `classic-xref`, `xref-stream`, `xref-stream-predictor`, `xref-stream-narrow-w`, `object-stream`, `incremental-update` |
+| Filters | `filter-lzw`, `filter-ascii85`, `filter-chained`, `filter-none` |
+| Streams | `indirect-length`, `lying-length` |
+| Fonts and content | `cid-font`, `content-shapes`, `content-array`, `two-column` |
+| Malformed | `bad-xref-offsets`, `truncated`, `no-startxref`, `garbage-header` |
+
+`Tests/AnyDocTests/PdfCorpusTests.swift` runs against it when
+`ANYDOC_PDF_CORPUS` points at the generated directory, and skips otherwise —
+the corpus is a build product, not a committed artifact. Two assertions: the
+object graph must match a dump from the `pdfprobe` lopdf oracle, and every
+file must reach the end of the pipeline without crashing or hanging. Current
+result: **17 graphs compared identical, 3 rejections agreed** (lopdf and this
+port reject the same three malformed files), **16 rendered to Markdown**.
+
+The corpus found one real divergence, now fixed. A stream whose direct
+`/Length` overruns the file was being recovered by scanning forward for
+`endstream`; lopdf's `take(length)` simply fails there and yields the
+dictionary alone, so scanning resurrected content the reference drops.
+Recovery by scanning is now reserved for a stream with *no* `/Length` at all
+(`PdfDocument.swift`, `readIndirectObject`).
+
+One apparent divergence is an oracle artifact rather than a reader bug: lopdf
+decompresses an object stream *in place* while loading it, so the probe
+reports its raw length as the decoded one. The decoded lengths agree;
+`normalizeOracleArtifacts` compares such streams on the decoded length alone.
+
+**The real-document corpus gap remains.** Generated files exercise the code
+paths but not the malformations real producers emit, and encryption is
+neither generated nor implemented. Phase 6 still cannot claim parity without
+§5.3's external corpus, and the differential harness is a local/manual step.
