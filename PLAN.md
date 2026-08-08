@@ -113,7 +113,17 @@ Plus a lint step that greps for banned imports.
    per-build HashMap). Grep-able rule: no `for (k, v) in dict` in render paths.
 4. **String/Unicode.** Keep parsing on `[UInt8]`, decode once at run boundaries (same as
    the Rust code). Avoid `String.Index` arithmetic in hot paths.
-5. **Error mapping.** Mirror `ConvertError` variant-for-variant including the stable
+5. **Grapheme clusters vs. bytes.** *Swift `String` compares grapheme clusters; Rust `str`
+   compares bytes.* `hasPrefix`, `contains`, `hasSuffix`, `first`, `count` and `for c in s`
+   all silently disagree with their Rust spelling on any text carrying a combining mark:
+   `"•" + U+0301` is **one** Swift `Character` and **two** Rust `char`s, so a bullet the
+   reference strips is a bullet Swift does not see. This is invisible in ASCII fixtures and
+   was only caught by a 22k-string differential probe (PDF wave 7 — three real bugs, plus
+   the same bug in the probe's own harness). **Rule:** any prefix/suffix/substring test
+   against a literal taken from the Rust must run on `unicodeScalars`; helpers
+   `scalarsHavePrefix` / `scalarsContain` / `droppingScalars` exist for this. Likewise
+   `to_lowercase()` is `rustLowercased()`, never `asciiLowercased()`.
+6. **Error mapping.** Mirror `ConvertError` variant-for-variant including the stable
    `code` strings (`"unsupported"`, `"malformed"`, …) so error-class parity is testable.
 
 ---
