@@ -517,4 +517,37 @@ every fixture must fail with `ResourceLimit` *and* fail fast, so a limit that st
 bounding work fails the build rather than merely taking longer. The `Limits` constants
 are pinned by a test so a change to one is deliberate.
 
-- **Next: Phase 6** — PDF, which is comparable in size to everything above combined.
+## Phase 6 — PDF (in progress)
+
+Measured scope, not the estimate in §6: `pdf-inspector` 0.1.7 is **75,119 LOC**
+of Rust (of which ~21.7k are the generated `adobe_korea1` and `glyph_names`
+tables), plus **`lopdf` 19,473 LOC** for the object layer, plus a `ttf-parser`
+subset and **1.6 MB** of bundled binary CMaps. That is more than double
+everything built in Phases 0-5 combined, so it is being taken in waves.
+
+- **Wave 1 (started) — object layer.** `Sources/AnyDoc/Pdf/`:
+  - `PdfObject.swift`: the object model. Reals are `Float`, matching `lopdf`'s
+    `f32`, because the coordinates that reach layout inherit that precision —
+    widening would move the boundaries the layout heuristics compare against.
+    Dictionaries preserve insertion order (PLAN §2, gotcha 3).
+  - `PdfLexer.swift`: the object syntax (§7.2-7.3) ported from `lopdf`'s
+    parser — names with `#` escapes, literal strings with nesting/escapes/line
+    continuations, hex strings, numbers, arrays, dictionaries, and the `N G R`
+    reference form with backtracking. Bracket nesting is capped at 100 as in
+    the reference, so a crafted file cannot recurse off the stack. Every entry
+    point is total.
+  - Verified on the real fixture as well as on spec examples: the trailer
+    parses (`/Size 195`, `/Root 193 0 R`), and all **194** indirect object
+    headers lex — 194 objects plus the free head is exactly the declared size.
+  - **Still to do in wave 1:** stream filters (FlateDecode over the existing
+    inflate, LZW, ASCIIHex/85, RunLength, predictors) and the xref layer
+    (classic tables, xref streams, object streams, object resolution).
+- **Later waves:** encryption (RC4/MD5/AES-CBC); fonts and text mapping
+  (`ToUnicode` CMaps, base14, TrueType `cmap`, glyph names); the content-stream
+  interpreter; layout and reading order; table detection (16.3k LOC in the
+  reference, the largest single piece); Markdown assembly.
+
+The one PDF fixture is a classic-xref PDF 1.7 using only FlateDecode, with 7
+embedded TrueType fonts carrying `ToUnicode` CMaps and a `StructTreeRoot`, so
+it exercises a narrow slice — a real corpus will be needed before this phase
+can claim parity.
