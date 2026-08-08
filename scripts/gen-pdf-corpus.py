@@ -510,4 +510,58 @@ write("lying-length", classic_trailer(b, root))
 b = Builder()
 write("annotations", classic_trailer(b, annotated_document(b)))
 
+# --- graphics paths -------------------------------------------------------
+#
+# The path machinery had nothing exercising it. The reference hands out one
+# `rects` list whose contents depend on what the page drew: `re` rectangles
+# when there are any, otherwise filled-subpath rects, otherwise clip rects.
+# These three files pick one branch each so all three are compared.
+
+# `re` rectangles — painted by fill and by stroke, plus one used only as a
+# clip path, which draws no ink. Also `m`/`l`/`h`/`S` strokes and a `cm` that
+# scales what follows.
+GRAPHICS_RECTS = b"""q
+2 w
+100 700 200 20 re f
+100 660 200 20 re S
+100 620 200 20 re W n
+150 600 m 350 600 l S
+150 580 m 350 580 l 350 560 l h S
+q 2 0 0 2 0 0 cm 50 250 100 10 re f Q
+Q
+BT /F1 12 Tf 100 500 Td (text beside the rules) Tj ET
+"""
+b = Builder()
+write("graphics-rects", classic_trailer(b, base_document(b, content=GRAPHICS_RECTS)))
+
+# No `re` at all, so the reference falls through to filled-subpath rects: a
+# four-segment closed subpath, a three-segment one whose closing edge is
+# implied, and a non-rectangular quadrilateral that must be rejected.
+GRAPHICS_FILLS = b"""q
+100 700 m 300 700 l 300 720 l 100 720 l h f
+100 660 m 300 660 l 300 680 l h f
+100 600 m 300 610 l 290 640 l 110 630 l h f
+Q
+BT /F1 12 Tf 100 500 Td (filled shapes) Tj ET
+"""
+b = Builder()
+write("graphics-fills", classic_trailer(b, base_document(b, content=GRAPHICS_FILLS)))
+
+# No `re` and no fills, so clip rectangles surface. Four of them, since the
+# reference wants at least four before it trusts them.
+GRAPHICS_CLIPS = b"""q
+100 700 m 300 700 l 300 720 l 100 720 l h W n
+Q q
+100 660 m 300 660 l 300 680 l 100 680 l h W n
+Q q
+100 620 m 300 620 l 300 640 l 100 640 l h W n
+Q q
+100 580 m 300 580 l 300 600 l 100 600 l h W n
+Q
+BT /F1 12 Tf 100 500 Td (clipped regions) Tj ET
+"""
+b = Builder()
+write("graphics-clips", classic_trailer(b, base_document(b, content=GRAPHICS_CLIPS)))
+
+
 print("generated %d pdfs in %s" % (len([f for f in os.listdir(OUT) if f.endswith(".pdf")]), OUT))

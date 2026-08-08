@@ -769,6 +769,61 @@ Both are now reproduced and pinned by test. The wave-7 lesson generalised:
 every pass that walks a string against reference literals is a candidate,
 and the probe is the only thing that finds them.
 
+- **Wave 9 — graphics paths.** `PdfGraphics.swift` ports the path operators
+  of `extractor/content_stream.rs`: `re`, `m`/`l`/`h`, the painting operators
+  `S`/`s`/`B`/`B*`/`b`/`b*`/`f`/`F`/`f*`, the clip operators `W`/`W*`, the
+  discard `n`, and `w`/`q`/`Q`/`cm` for stroke width and the transform.
+  Nothing in the port had touched graphics before; a PDF draws rules, cell
+  borders and underlines as paths, and both remaining big pieces — underline
+  detection and table detection — read them.
+  - Five outputs, kept separate because downstream wants different subsets:
+    every `re`, the `re`s a painting operator confirmed, rectangles recovered
+    from filled subpaths, rectangles used only as clip paths, and stroked
+    line segments with their transformed widths. A `re W n` draws no ink and
+    must never be read as a rule.
+  - `pdfSelectedRectangles` reproduces the reference's choice of which list
+    to publish — `re` outright, else fills when they outnumber clips
+    threefold, else four-or-more clips, else whatever is left — together with
+    `pdfDedupRectangles`, which sorts as it deduplicates, so the survivors
+    come back in coordinate rather than document order.
+  - Stroke width transforms through the path's *normal*, so an anisotropic
+    CTM widens a horizontal rule and a vertical one differently.
+  - Not ported: rotated-page correction (`correct_rotated_page`), curves
+    (`c`/`v`/`y`), and the image-XObject rectangles.
+
+### The graphics oracle
+
+The path walker sits inside a 1,300-line crate-private function with no route
+to it from the published API. `scripts/gen-graphics-oracle.sh` therefore
+vendors pdf-inspector 0.1.7 from the cargo registry, adds **one** additive
+`probe_graphics` function that only calls existing code, trims the manifest so
+it resolves offline, and builds a dumping binary. Nothing in the reference's
+own logic is edited. The script reproduces the build from scratch and its
+output is byte-identical to the hand-built one.
+
+```bash
+scripts/gen-graphics-oracle.sh /tmp/oracle
+```
+
+The reference does not publish its four rectangle lists separately — it hands
+out one `rects` whose provenance depends on what the page drew. The corpus
+therefore carries three new files, one per branch: `graphics-rects` (explicit
+`re`, painted and clip-only, plus strokes and a scaling `cm`),
+`graphics-fills` (no `re`, so filled subpaths surface, including a
+non-rectangular quadrilateral that must be rejected), and `graphics-clips`
+(no `re` and no fills, so four clip rectangles surface). `lines` is compared
+directly. `paintedRectangles` is not reachable through the oracle — the
+reference keeps it for underline detection — so unit tests pin it instead,
+and this is stated rather than glossed.
+
+The probe was checked for teeth by mutating an oracle dump: it reported
+exactly the one injected divergence.
+
+**A reference quirk the corpus exposed:** `h` moves the closed subpath aside
+and clears the pending list, so the `S` that follows drains nothing — **a
+closed stroked subpath emits no lines at all**. Confirmed against the
+reference and reproduced, with a test saying so.
+
 ## Phase 6 status
 
 Working end to end: bytes → objects → xref → filters → content operations →
@@ -777,13 +832,14 @@ paragraphs → captions, headings, lists and code → Markdown. The document's
 structure, prose, emphasis, lists and cleanup come out right, and links and
 form fields are recovered; its *tables* are not.
 
-Remaining, roughly by size: table detection (16.3k LOC, the largest single
-piece in the project), geometric underline detection (`extractor/underline.rs`)
-and the `<u>` runs and superscripts that depend on it, the
-base14/TrueType/glyph-name encodings for fonts without a `ToUnicode` CMap,
-multi-column layout, and encryption. Link items are extracted but not yet
-*merged into the text* they sit over — that needs the layout to consume
-positioned annotations alongside text runs.
+Graphics paths are now extracted, which unblocks the two largest remaining
+pieces. Remaining, roughly by size: table detection (16.3k LOC, the largest
+single piece in the project), geometric underline detection
+(`extractor/underline.rs`, 844 LOC) and the `<u>` runs and superscripts that
+depend on it, the base14/TrueType/glyph-name encodings for fonts without a
+`ToUnicode` CMap, multi-column layout, and encryption. Link items are
+extracted but not yet *merged into the text* they sit over — that needs the
+layout to consume positioned annotations alongside text runs.
 
 The one PDF fixture is a classic-xref PDF 1.7 using only FlateDecode, with 7
 embedded TrueType fonts carrying `ToUnicode` CMaps and a `StructTreeRoot` —
@@ -791,7 +847,7 @@ a narrow slice, which is why the generated corpus below exists.
 
 ### Generated adversarial corpus
 
-`scripts/gen-pdf-corpus.py` writes 21 PDFs byte by byte, each aimed at a path
+`scripts/gen-pdf-corpus.py` writes 24 PDFs byte by byte, each aimed at a path
 the fixture cannot reach. It is deterministic: regenerating produces
 identical bytes, so the oracle dumps stay valid.
 
@@ -803,14 +859,15 @@ identical bytes, so the oracle dumps stay valid.
 | Fonts and content | `cid-font`, `content-shapes`, `content-array`, `two-column` |
 | Malformed | `bad-xref-offsets`, `truncated`, `no-startxref`, `garbage-header` |
 | Annotations | `annotations` (links, reversed rect, AcroForm field tree) |
+| Graphics | `graphics-rects`, `graphics-fills`, `graphics-clips` |
 
 `Tests/AnyDocTests/PdfCorpusTests.swift` runs against it when
 `ANYDOC_PDF_CORPUS` points at the generated directory, and skips otherwise —
 the corpus is a build product, not a committed artifact. Two assertions: the
 object graph must match a dump from the `pdfprobe` lopdf oracle, and every
 file must reach the end of the pipeline without crashing or hanging. Current
-result: **18 graphs compared identical, 3 rejections agreed** (lopdf and this
-port reject the same three malformed files), **17 rendered to Markdown**.
+result: **21 graphs compared identical, 3 rejections agreed** (lopdf and this
+port reject the same three malformed files), **20 rendered to Markdown**.
 
 The corpus found one real divergence, now fixed. A stream whose direct
 `/Length` overruns the file was being recovered by scanning forward for

@@ -91,9 +91,8 @@ func pdfPageFontStyles(_ document: inout PdfDocument, _ page: PdfDictionary)
 }
 
 /// Every text run of a page, decoded through its fonts' ToUnicode CMaps.
-func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [PdfTextRun] {
-    let cmaps = pdfPageFontCMaps(&document, page)
-    let metrics = pdfPageFontMetrics(&document, page)
+/// A page's content operations, with `/Contents` arrays concatenated.
+func pdfPageOperations(_ document: inout PdfDocument, _ page: PdfDictionary) -> [PdfOperation] {
     var data: [UInt8] = []
     // /Contents is a stream or an array of streams that concatenate.
     if let single = document.value(page, "Contents")?.asStream {
@@ -107,7 +106,13 @@ func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [P
             data.append(0x0A)
         }
     }
-    let operations = pdfParseContentStream(data)
+    return pdfParseContentStream(data)
+}
+
+func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [PdfTextRun] {
+    let cmaps = pdfPageFontCMaps(&document, page)
+    let metrics = pdfPageFontMetrics(&document, page)
+    let operations = pdfPageOperations(&document, page)
     return pdfExtractTextRuns(operations, metrics: { metrics[$0] }) { fontName, bytes in
         guard let cmap = cmaps[fontName] else {
             // Without a CMap the bytes are their own code points, which is
