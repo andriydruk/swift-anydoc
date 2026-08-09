@@ -46,6 +46,15 @@ perl -pi -e 's/^pub\(crate\) mod content_stream;/pub mod content_stream;/' \
 perl -pi -e 's/^pub\(crate\) fn extract_page_text_items\(/pub fn extract_page_text_items(/' \
     "$crate/src/extractor/content_stream.rs"
 
+# Same for the table-grid geometry, which is otherwise unreachable.
+perl -pi -e 's/^pub\(crate\) mod grid;/pub mod grid;/; s/^mod grid;/pub mod grid;/' \
+    "$crate/src/tables/mod.rs"
+perl -pi -e 's/^pub\(crate\) mod tables;/pub mod tables;/' "$crate/src/lib.rs"
+perl -pi -e 's/^pub\(crate\) fn (find_column_boundaries|find_row_boundaries|find_column_index|find_row_index|join_cell_items)\(/pub fn $1(/' \
+    "$crate/src/tables/grid.rs"
+perl -pi -e 's/^pub\(crate\) enum TableDetectionMode/pub enum TableDetectionMode/' \
+    "$crate/src/tables/mod.rs"
+
 # Drop the python bindings: pyo3 is optional but its dev-dependencies still
 # have to resolve, and one of them is not vendored.
 rm -f "$crate/src/python.rs" "$crate/src/bin/pdf2md.rs" \
@@ -157,12 +166,90 @@ pub fn probe_underline(bytes: &[u8]) -> String {
 }
 RUSTEOF
 
+cat >> "$crate/src/tables/grid.rs" <<'RUSTEOF'
+
+// ── Differential probe (added for swift-anydoc; not part of the crate) ──
+/// Read `x y width font_size text` lines from a description and report the
+/// grid the reference derives: columns, rows, each item's cell, and the
+/// joined text of every cell.
+pub fn probe_grid(input: &str) -> String {
+    use crate::types::{ItemType, TextItem};
+    let mut items: Vec<TextItem> = Vec::new();
+    for line in input.lines() {
+        let line = line.trim_end();
+        if line.is_empty() {
+            continue;
+        }
+        let mut parts = line.splitn(5, ' ');
+        let x: f32 = parts.next().unwrap_or("0").parse().unwrap_or(0.0);
+        let y: f32 = parts.next().unwrap_or("0").parse().unwrap_or(0.0);
+        let w: f32 = parts.next().unwrap_or("0").parse().unwrap_or(0.0);
+        let fs: f32 = parts.next().unwrap_or("0").parse().unwrap_or(0.0);
+        let text = parts.next().unwrap_or("").to_string();
+        items.push(TextItem {
+            text,
+            x,
+            y,
+            width: w,
+            height: fs,
+            font: "F1".to_string(),
+            font_size: fs,
+            page: 1,
+            is_bold: false,
+            is_italic: false,
+            is_underline: false,
+            is_strikeout: false,
+            item_type: ItemType::Text,
+            mcid: None,
+        });
+    }
+    let indexed: Vec<(usize, &TextItem)> = items.iter().enumerate().collect();
+
+    let mut out = String::new();
+    for mode in [
+        super::TableDetectionMode::SmallFont,
+        super::TableDetectionMode::BodyFont,
+    ] {
+        let columns = find_column_boundaries(&indexed, mode);
+        out.push_str(&format!("columns{:?}", mode));
+        for c in &columns {
+            out.push_str(&format!(" {c:.3}"));
+        }
+        out.push('\n');
+    }
+    let columns = find_column_boundaries(&indexed, super::TableDetectionMode::SmallFont);
+    let rows = find_row_boundaries(&indexed);
+    out.push_str("rows");
+    for r in &rows {
+        out.push_str(&format!(" {r:.3}"));
+    }
+    out.push('\n');
+    for item in &items {
+        out.push_str(&format!(
+            "cell {:?} {:?}\n",
+            find_column_index(&columns, item.x),
+            find_row_index(&rows, item.y)
+        ));
+    }
+    let refs: Vec<&TextItem> = items.iter().collect();
+    out.push_str(&format!("join {}\n", join_cell_items(&refs)));
+    out
+}
+RUSTEOF
+
 mkdir -p "$crate/src/bin"
 cat > "$crate/src/bin/graphicsprobe.rs" <<'RUSTEOF'
 // Dumps the reference's path-extraction output for one PDF.
 fn main() {
     let mut args = std::env::args().skip(1);
     let path = args.next().expect("usage: graphicsprobe [--underline] <file.pdf>");
+    if path == "--grid" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::tables::grid::probe_grid(&input));
+        return;
+    }
     let (underline, path) = if path == "--underline" {
         (true, args.next().expect("usage: graphicsprobe --underline <file.pdf>"))
     } else {

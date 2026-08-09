@@ -941,6 +941,48 @@ The underline probe now applies the reference's full order: extract, mark
 decoration, merge fragments, absorb scripts. That makes it a check on the
 whole text pipeline rather than on decoration alone.
 
+- **Wave 13 — table grid geometry.** The first slice of table detection.
+  `PdfTableGrid.swift` ports `tables/grid.rs`: column and row boundaries,
+  cell assignment, and cell-fragment joining. All four detection strategies
+  stand on these, so they come first.
+  - Columns are the hard part, because the right clustering threshold depends
+    on the table. The reference reads the *distribution* of consecutive gaps
+    and takes one of three branches: the default average-gap threshold
+    clamped to 25–50pt; a lowered threshold when a strong bimodal signal
+    appears with few items; and edge-based rather than mean-based clustering
+    for genuinely dense tables (500+ items), where clustering around the mean
+    drifts and merges adjacent narrow columns. All three are ported.
+  - `merge_numeric_adjacent_clusters` pulls a wrapped header back onto the
+    numeric column beneath it. The body-font pass rejects a candidate where
+    one column holds more than three fifths of the items — that is a
+    paragraph, not a table.
+  - `pdfJoinCellItems` binds hyphens, brackets and sub/superscripts to their
+    token rather than spacing them.
+  - **Not ported yet:** `recover_header_row`, which needs the `Table` type
+    this wave does not introduce.
+
+### The grid probe
+
+`grid.rs` is crate-private too, so `scripts/gen-graphics-oracle.sh` gained a
+`--grid` mode with a second additive `probe_grid` function, reading
+`x y width font_size text` blocks and reporting the columns, rows, per-item
+cell and joined text the reference derives.
+`scripts/gen-grid-probe.py` generates cases aimed at each branch — a plain
+table, columns tighter than the 25pt floor, a strong bimodal signal, a
+wrapped header over a numeric column, prose at the left margin, a 576-item
+dense table that trips the edge-clustering branch, and joining shapes — plus
+a random tail.
+
+```bash
+scripts/gen-graphics-oracle.sh /tmp/oracle
+python3 scripts/gen-grid-probe.py /tmp/probe --oracle /tmp/oracle
+ANYDOC_GRID_PROBE=/tmp/probe swift test --filter PdfGridProbe
+```
+
+**2,509 cases agree.** Unlike the classifier and cleanup probes, this one
+found nothing — the geometry is arithmetic over floats rather than string
+walking, which is where this port's divergences have all lived.
+
 ## Phase 6 status
 
 Working end to end: bytes → objects → xref → filters → content operations →
@@ -950,8 +992,8 @@ structure, prose, emphasis, underlines, lists and cleanup come out right,
 and links and form fields are recovered; its *tables* are not.
 
 Graphics paths are now extracted, which unblocks the two largest remaining
-pieces. Remaining, roughly by size: table detection (16.3k LOC, the largest
-single piece in the project), the base14/TrueType/glyph-name encodings for fonts without a
+pieces. Remaining, roughly by size: the rest of table detection (15.4k LOC of the
+16.3k, now that the grid is in), the base14/TrueType/glyph-name encodings for fonts without a
 `ToUnicode` CMap, multi-column layout, and encryption. Link items are
 extracted but not yet *merged into the text* they sit over — that needs the
 layout to consume positioned annotations alongside text runs.
