@@ -1119,8 +1119,35 @@ than wired up with gaps.
 Folded into the detector probe, with financial rows added to the cases: 48
 items actually split across 2,014 cases, all agreeing.
 
-**Still outstanding for `detect_tables`:** `recover_header_row` (deferred
-since wave 13) and `try_add_label_column`.
+Both remaining helpers, and the orchestrator, landed in wave 20.
+
+- **Wave 20 — the heuristic strategy, assembled.** The last two helpers and
+  the orchestrator, so `pdfDetectTables` now runs end to end.
+  - `pdfRecoverHeaderRow` (deferred since wave 13) fixes a real blind spot: a
+    small-font table's header is usually set at the *body* size, which puts it
+    outside the candidate set entirely, so the detector never saw it. Once a
+    table is found, the band above it — up to twice its own row spacing,
+    bounded 10–40pt — is searched for a row of larger text that maps onto the
+    columns already established.
+  - `pdfTryAddLabelColumn` covers the mirror case: a table of nothing but
+    figures usually has names down its left edge, set differently enough that
+    the clustering dropped them.
+  - `pdfDetectTables` runs two passes in order. The first looks for text
+    *smaller* than the body — the classic signal, needing only density to
+    find regions. The second looks at body-sized text, where proximity proves
+    nothing, so it demands structural evidence and only considers what the
+    first pass left unclaimed. Indices are then mapped back through both
+    pre-passes to the caller's own items.
+
+The probe now runs the whole orchestrator at three base font sizes with the
+body-font pass on and off — six configurations per case. **1,214 cases agree,
+2,154 of them finding at least one table.**
+
+Two harness bugs surfaced first and are worth naming, because both would have
+read as port bugs: the Swift dump emitted its blocks in a different order than
+the Rust one, and formatted the base size to three decimals where the
+reference used one. Neither was in the port. When a probe lights up, the
+harness is a candidate too.
 
 ## Phase 6 status
 
@@ -1131,10 +1158,10 @@ structure, prose, emphasis, underlines, lists and cleanup come out right,
 and links and form fields are recovered; its *tables* are not.
 
 Graphics paths are now extracted, which unblocks the two largest remaining
-pieces. Remaining, roughly by size: the four table *detection* strategies (14.4k LOC
+pieces. The heuristic table strategy is complete. Remaining, roughly by size: the
+three other detection strategies (14.4k LOC
 of the 16.3k, now that the grid and the formatter are in — `detect_rects`
-4.7k, `detect_lines` 2.8k, the `detect_tables` orchestrator and its two
-remaining helpers, `detect_struct` 1.2k), the
+4.7k, `detect_lines` 2.8k, `detect_struct` 1.2k), the
 base14/TrueType/glyph-name encodings for fonts without a
 `ToUnicode` CMap, multi-column layout, and encryption. Link items are
 extracted but not yet *merged into the text* they sit over — that needs the

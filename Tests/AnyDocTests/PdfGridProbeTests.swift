@@ -202,6 +202,23 @@ import Testing
                     "strict\t\(shared.format(region.yMin))\t\(shared.format(region.yMax))\t"
                     + "\(shared.format(region.xMin))\t\(shared.format(region.xMax))\n"
             }
+            for base in [Float(8), 10, 12] {
+                for skip in [false, true] {
+                    let found = pdfDetectTables(items, baseFontSize: base, skipBodyFont: skip)
+                    ours += "tables\t\(String(format: "%.1f", base))\t\(skip)\t\(found.count)\n"
+                    for table in found {
+                        let kind = table.kind == .data ? "Data" : "Toc"
+                        let list =
+                            "[" + table.itemIndices.map(String.init).joined(separator: ", ") + "]"
+                        ours +=
+                            "table\t\(String(format: "%.1f", base))\t\(skip)\t\(table.columns.count)"
+                            + "\t\(table.rows.count)\t\(kind)\t\(list)\n"
+                        for row in table.cells {
+                            ours += "tcell\t" + row.joined(separator: "\t") + "\n"
+                        }
+                    }
+                }
+            }
             for (label, mode) in [
                 ("SmallFont", PdfTableDetectionMode.smallFont),
                 ("BodyFont", PdfTableDetectionMode.bodyFont),

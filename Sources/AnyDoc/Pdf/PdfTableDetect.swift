@@ -584,3 +584,209 @@ func pdfFindTableRegionsStrict(
     }
     return regions
 }
+
+/// Prepend a header row taken from body-sized text just above the table.
+///
+/// A small-font table's header is very often set at the body size, which puts
+/// it outside the small-font candidate set entirely — the detector never saw
+/// it. So once a table is found, the band immediately above it is searched
+/// for a row of larger text that maps onto the columns already established.
+///
+/// "Immediately" is measured from the table's own row spacing, up to twice
+/// it, bounded to 10–40pt.
+func pdfRecoverHeaderRow(
+    _ table: inout PdfTable, allItems: [PdfLayoutItem], smallFontThreshold: Float
+) {
+    guard let firstRowY = table.rows.first, !table.columns.isEmpty else { return }
+
+    let gapLimit: Float
+    if table.rows.count >= 2 {
+        let average =
+            (table.rows[0] - table.rows[table.rows.count - 1]) / Float(table.rows.count - 1)
+        gapLimit = min(max(average * 2, 10), 40)
+    } else {
+        gapLimit = 30
+    }
+
+    let candidates = allItems.enumerated().filter { _, item in
+        item.fontSize > smallFontThreshold && item.y > firstRowY
+            && item.y <= firstRowY + gapLimit
+    }
+    guard !candidates.isEmpty else { return }
+
+    // Group by baseline, highest first, and take the group nearest the table.
+    var groups: [(y: Float, entries: [(offset: Int, element: PdfLayoutItem)])] = []
+    for entry in candidates.sorted(by: { $0.element.y > $1.element.y }) {
+        if let index = groups.firstIndex(where: { abs(entry.element.y - $0.y) < 5 }) {
+            groups[index].entries.append(entry)
+        } else {
+            groups.append((entry.element.y, [entry]))
+        }
+    }
+    guard let header = groups.last else { return }
+
+    var cells = [String](repeating: "", count: table.columns.count)
+    var mapped = 0
+    var indices: [Int] = []
+    for entry in header.entries {
+        guard let column = pdfFindColumnIndex(table.columns, entry.element.x) else { continue }
+        let text = entry.element.text.rustTrim()
+        if text.isEmpty { continue }
+        if !cells[column].isEmpty { cells[column] += " " }
+        cells[column] += text
+        mapped += 1
+        indices.append(entry.offset)
+    }
+
+    // Two populated columns is the least that reads as a header rather than
+    // a stray caption.
+    let populated = cells.count(where: { !$0.isEmpty })
+    guard populated >= 2, mapped >= 2 else { return }
+
+    table.rows.insert(header.y, at: 0)
+    table.cells.insert(cells, at: 0)
+    table.itemIndices += indices
+}
+
+/// Prepend a column of row labels sitting to the left of a numeric table.
+///
+/// A table of nothing but figures usually has names down its left edge, and
+/// those names are often set differently enough that the column clustering
+/// dropped them. When the table is narrow, tall and overwhelmingly numeric,
+/// the unclaimed items to its left at each row's baseline are recovered as a
+/// label column.
+func pdfTryAddLabelColumn(
+    _ table: inout PdfTable,
+    candidates: [(index: Int, item: PdfLayoutItem)],
+    claimed: Set<Int>,
+    yMin: Float,
+    yMax: Float
+) {
+    guard (2...3).contains(table.columns.count), table.rows.count >= 5 else { return }
+
+    // Overwhelmingly numeric: at least seven cells in ten are mostly figures
+    // and the punctuation that goes with money.
+    let symbols = Set(",.-+%€$£¥()".unicodeScalars)
+    let nonEmpty = table.cells.flatMap { $0 }.filter { !$0.rustTrim().isEmpty }
+    guard !nonEmpty.isEmpty else { return }
+    let numeric = nonEmpty.count(where: { cell in
+        let text = cell.rustTrim()
+        let total = text.unicodeScalars.count
+        guard total > 0 else { return false }
+        let dataChars = text.unicodeScalars.count(where: {
+            ($0 >= "0" && $0 <= "9") || symbols.contains($0)
+        })
+        return Float(dataChars) / Float(total) >= 0.6
+    })
+    guard Float(numeric) / Float(nonEmpty.count) >= 0.7 else { return }
+
+    let tableLeft = table.columns.first ?? .greatestFiniteMagnitude
+    var perRow: [[(index: Int, item: PdfLayoutItem)]] = []
+    var found = 0
+    for rowY in table.rows {
+        let labels = candidates.filter { entry in
+            !claimed.contains(entry.index) && !table.itemIndices.contains(entry.index)
+                && abs(entry.item.y - rowY) < 5 && entry.item.x < tableLeft - 10
+                && entry.item.y >= yMin && entry.item.y <= yMax
+        }.sorted { $0.item.x < $1.item.x }
+        if !labels.isEmpty { found += 1 }
+        perRow.append(labels)
+    }
+    // Two rows in five must have a label, or this is not a column.
+    guard found >= table.rows.count * 2 / 5 else { return }
+
+    let labelX = perRow.flatMap { $0 }.map(\.item.x).min() ?? 0
+    table.columns.insert(labelX, at: 0)
+    for (row, labels) in perRow.enumerated() where row < table.cells.count {
+        table.cells[row].insert(labels.map(\.item.text).joined(separator: " "), at: 0)
+        table.itemIndices += labels.map(\.index)
+    }
+}
+
+/// Detect the heuristic tables on one page.
+///
+/// Two passes, and the order matters. The first looks for text *smaller* than
+/// the body, which is the classic table signal and needs only density to find
+/// its regions. The second looks at body-sized text, where being near other
+/// text proves nothing, so it demands structural evidence and only considers
+/// items the first pass did not already claim.
+///
+/// `skipBodyFont` turns the second pass off, which the reference does on
+/// multi-column pages where it produces false positives.
+func pdfDetectTables(
+    _ items: [PdfLayoutItem], baseFontSize: Float, skipBodyFont: Bool = false
+) -> [PdfTable] {
+    guard items.count >= 6 else { return [] }
+
+    // Fragments into words, then consolidated financial rows into columns.
+    let (merged, mergeMap) = pdfMergeAdjacentItems(items)
+    let (processed, expandMap) = pdfExpandConsolidatedItems(merged)
+
+    var tables: [PdfTable] = []
+    var claimed: Set<Int> = []
+
+    // Pass 1: smaller than the body text.
+    let smallFontThreshold = baseFontSize * 0.90
+    let smallCandidates = processed.enumerated()
+        .filter { $0.element.fontSize <= smallFontThreshold && $0.element.fontSize >= 6 }
+        .map { (index: $0.offset, item: $0.element) }
+
+    if smallCandidates.count >= 6 {
+        for region in pdfFindTableRegions(smallCandidates.map(\.item)) {
+            let regionItems = smallCandidates.filter {
+                $0.item.y >= region.yMin && $0.item.y <= region.yMax
+            }
+            guard regionItems.count >= 6 else { continue }
+            guard var table = pdfDetectTableInRegion(regionItems, mode: .smallFont) else {
+                continue
+            }
+            // A small-font table's header is usually set at the body size, so
+            // it was never a candidate; and a numeric table's row labels
+            // often sit outside the clustering.
+            pdfRecoverHeaderRow(
+                &table, allItems: processed, smallFontThreshold: smallFontThreshold)
+            pdfTryAddLabelColumn(
+                &table, candidates: smallCandidates, claimed: claimed,
+                yMin: region.yMin, yMax: region.yMax)
+            claimed.formUnion(table.itemIndices)
+            tables.append(table)
+        }
+    }
+
+    // Pass 2: body-sized, over what pass 1 left behind.
+    if !skipBodyFont {
+        let low = baseFontSize * 0.85
+        let high = baseFontSize * 1.05
+        let bodyCandidates = processed.enumerated()
+            .filter {
+                !claimed.contains($0.offset) && $0.element.fontSize >= low
+                    && $0.element.fontSize <= high && $0.element.fontSize >= 6
+            }
+            .map { (index: $0.offset, item: $0.element) }
+
+        if bodyCandidates.count >= 6 {
+            for region in pdfFindTableRegionsStrict(bodyCandidates.map(\.item)) {
+                // The strict x bounds would cut off a wrapped cell's
+                // continuation, so only the y bounds scope the region.
+                let regionItems = bodyCandidates.filter {
+                    $0.item.y >= region.yMin && $0.item.y <= region.yMax
+                }
+                guard regionItems.count >= 6 else { continue }
+                if let table = pdfDetectTableInRegion(regionItems, mode: .bodyFont) {
+                    tables.append(table)
+                }
+            }
+        }
+    }
+
+    // Map the indices back through both pre-passes to the caller's items.
+    for index in tables.indices {
+        var original: Set<Int> = []
+        for expanded in tables[index].itemIndices where expanded < expandMap.count {
+            let mergedIndex = expandMap[expanded]
+            if mergedIndex < mergeMap.count { original.formUnion(mergeMap[mergedIndex]) }
+        }
+        tables[index].itemIndices = original.sorted()
+    }
+    return tables
+}

@@ -362,6 +362,21 @@ pub fn probe_detect(input: &str) -> String {
     for (y0, y1, x0, x1) in crate::tables::detect_heuristic::find_table_regions_strict(&indexed) {
         out.push_str(&format!("strict\t{y0:.3}\t{y1:.3}\t{x0:.3}\t{x1:.3}\n"));
     }
+    for base in [8.0f32, 10.0, 12.0] {
+        for skip in [false, true] {
+            let found = crate::tables::detect_heuristic::detect_tables(&items, base, skip);
+            out.push_str(&format!("tables\t{base:.1}\t{skip}\t{}\n", found.len()));
+            for t in &found {
+                out.push_str(&format!(
+                    "table\t{base:.1}\t{skip}\t{}\t{}\t{:?}\t{:?}\n",
+                    t.columns.len(), t.rows.len(), t.kind, t.item_indices
+                ));
+                for row in &t.cells {
+                    out.push_str(&format!("tcell\t{}\n", row.join("\t")));
+                }
+            }
+        }
+    }
     for (label, mode) in [
         ("SmallFont", super::TableDetectionMode::SmallFont),
         ("BodyFont", super::TableDetectionMode::BodyFont),
