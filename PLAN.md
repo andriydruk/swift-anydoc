@@ -1149,6 +1149,66 @@ the Rust one, and formatted the base size to three decimals where the
 reference used one. Neither was in the port. When a probe lights up, the
 harness is a candidate too.
 
+## Phase 6 remaining work — exact inventory
+
+Measured against the vendored reference at wave 20. `Sources/AnyDoc/Pdf/` is
+6,636 lines of Swift at this point.
+
+| Reference file | LOC | State | Notes |
+|---|---|---|---|
+| `adobe_korea1.rs` | 17,073 | not started | Generated CMap table. Follow the `gen-shiftjis-table.py` precedent: generate, do not hand-write. |
+| `tables/detect_rects.rs` | 4,671 | not started | Ruled tables from `re` rectangles. Consumes wave 9 graphics; oracle already has `--graphics`. |
+| `glyph_names.rs` | 4,590 | not started | Generated AGL table. Same precedent as above. |
+| `detector.rs` | 3,645 | not started | Scanned-vs-text classification. Independent of everything else; good parallel wave. |
+| `tounicode.rs` | 3,162 | **partial** | Codespace/bfchar/bfrange done (waves 1, 11). CID CMaps and `usecmap` remain. |
+| `tables/detect_lines.rs` | 2,759 | not started | Ruled tables from stroked lines. Consumes wave 9 graphics. |
+| `tables/mod.rs` | 2,529 | **partial** | `Table` and the grid helpers done (waves 13–14). Orchestration across strategies remains. |
+| `markdown/convert.rs` | 2,284 | **partial** | Block loop done (waves 7, 11). Heading rarity scoring, TOC suppression, band-split columns, wrapped-bold runs, image and page markers, header/footer stripping remain. |
+| `extractor/layout.rs` | 2,153 | **partial** | Line/word grouping done (wave 4). Multi-column and band-split remain. |
+| `extractor/fonts.rs` | 2,083 | **partial** | `/Widths` and `/W` done (wave 3). Base14 metrics, `/Differences`, TrueType `cmap` remain. |
+| `structure_tree.rs` | 1,234 | not started | Prerequisite for `detect_struct` and for MCID-aware merging (see wave 12's stated gap). |
+| `tables/detect_struct.rs` | 1,163 | not started | Needs `structure_tree.rs` first. |
+| `markdown/heading.rs` | 1,012 | not started | The heading signals wave 5 explicitly did not port. |
+| `tables/structured.rs` | 972 | not started | |
+| `markdown/preprocess.rs` | 792 | not started | |
+| `extractor/xobjects.rs` | 681 | not started | Form XObjects — content streams nested in resources. |
+| `markdown/analysis.rs` | 629 | **partial** | `compute_paragraph_threshold` and `has_dot_leaders` done (wave 7). Font stats, isolated lines, wrapped-bold runs remain. |
+| `extractor/reading_order.rs` | 591 | not started | |
+
+Also outstanding, outside pdf-inspector: **encryption** (RC4/MD5/AES-CBC,
+which lives in lopdf), and the three non-PDF `asciiLowercased()` sites flagged
+in wave 7 that may share the grapheme defect — unverifiable without re-cloning
+`anydoc`.
+
+### How to continue
+
+Everything needed is in the repo; no state lives outside it.
+
+```bash
+scripts/gen-graphics-oracle.sh /tmp/oracle      # vendored reference + probes
+scripts/gen-pdf-corpus.py      /tmp/corpus      # 30 adversarial PDFs
+scripts/gen-classify-probe.py  /tmp/probe       # classifier + cleanup oracles
+scripts/gen-grid-probe.py      /tmp/grid --oracle /tmp/oracle
+ANYDOC_PDF_CORPUS=/tmp/corpus ANYDOC_CLASSIFY_PROBE=/tmp/probe \
+  ANYDOC_GRID_PROBE=/tmp/grid swift test
+```
+
+The drill that has caught every divergence this phase, in order:
+
+1. Read the reference function *completely* before writing. Every wave that
+   skipped this paid for it.
+2. Never defer a helper on the core path. Wave 16 deferred one and diverged
+   on hundreds of cases; wave 18 held the orchestrator back until all three
+   of its helpers were in, and it landed clean.
+3. Add the function to the oracle probe, generate cases aimed at each
+   *branch*, and **check the verdict distribution** — wave 15 passed 2,513
+   cases with two of four classifier branches never firing.
+4. When the probe lights up, suspect the harness too. Twice this phase the
+   first "divergence" was in the comparison, not the port.
+5. Swift `String` compares grapheme clusters where Rust `str` compares bytes.
+   This is gotcha 5 in §2 and has caused more real bugs here than anything
+   else.
+
 ## Phase 6 status
 
 Working end to end: bytes → objects → xref → filters → content operations →
