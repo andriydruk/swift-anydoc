@@ -998,16 +998,42 @@ walking, which is where this port's divergences have all lived.
     (`5-21`, `A-1`, `TC-2`) technical manuals use.
   - The data form is deliberately compact, no padding, because the
     reference's primary consumer is a model rather than a reader.
-  - **`kind` is an input, not derived.** The reference classifies with
-    `is_table_of_contents`, three sub-classifiers living with the heuristic
-    detector, which this port has not reached. Both kinds render correctly;
-    what is missing is deciding which one a grid *is*. Stated on the type
-    rather than defaulted silently.
+  - `kind` was left as an input here and is **derived as of wave 15**.
 
 The oracle gained a `--format` mode and `gen-grid-probe.py` a second case
 set: continuation rows, each of the four shapes that look like one but must
 not merge, the three footnote forms, and the contents shapes, plus a random
 tail over the fragments those tests key on. **2,513 cases agree.**
+
+- **Wave 15 — the contents classifier.** `PdfTableOfContents.swift` ports the
+  classifier cluster from `tables/detect_heuristic.rs`, closing the gap wave
+  14 stated: `PdfTable` now classifies itself on construction, as the
+  reference's `Table::new` does.
+  - Three independent signals, any one enough. An explicit **dot leader**,
+    either as a dedicated dots-only cell or glued to the title — the latter
+    needing a space and a word before the run, so `etc...` and a `1973 ... `
+    data label do not qualify. A **dotted section number** with page numbers
+    in the last column. Or, hardest, a **title column beside ascending page
+    numbers** with no leader at all.
+  - That last one has to be told from a two-column numeric data table, and
+    the reference's tells are worth naming: contents have no header row, so
+    the *first* row's last cell is already a page number; the first column is
+    mostly prose; the numbers mostly ascend; and — strongest — real page
+    numbers **span** the document, because entries skip. A perfectly dense
+    consecutive run is a rank column, accepted only when the titles average
+    at least 1.8 words, which separates contents from a leaderboard.
+  - A wide index whose cells each hold a whole `label ... page` fragment is
+    flagged separately: it renders badly as a table *and* as a list, so the
+    reference lets it fall back to the page's ordinary text flow.
+
+**A coverage hole the probe nearly hid.** The first run compared 2,513 cases
+green — but the verdict distribution was only two values, all-false and
+dot-leader. `is_page_number_toc` and `is_tabular_toc` never fired once, so
+two of the four columns were being compared vacuously. The generator now
+emits contents shapes that trip each branch, plus randomised listings around
+the accept/reject edges; the distribution has five values and **3,145 cases
+agree**. Checking *what a probe actually exercised* is now part of the drill,
+not just whether it passed.
 
 ## Phase 6 status
 
@@ -1020,8 +1046,8 @@ and links and form fields are recovered; its *tables* are not.
 Graphics paths are now extracted, which unblocks the two largest remaining
 pieces. Remaining, roughly by size: the four table *detection* strategies (14.4k LOC
 of the 16.3k, now that the grid and the formatter are in — `detect_rects`
-4.7k, `detect_lines` 2.8k, `detect_heuristic` 2.2k including the contents
-classifier, `detect_struct` 1.2k, plus orchestration), the
+4.7k, `detect_lines` 2.8k, `detect_heuristic` 1.8k now that the contents
+classifier is in, `detect_struct` 1.2k, plus orchestration), the
 base14/TrueType/glyph-name encodings for fonts without a
 `ToUnicode` CMap, multi-column layout, and encryption. Link items are
 extracted but not yet *merged into the text* they sit over — that needs the

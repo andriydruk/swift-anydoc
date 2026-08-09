@@ -10,19 +10,15 @@
 /// previous ones.
 
 /// What a table is, which changes how it renders.
-enum PdfTableKind {
+enum PdfTableKind: Equatable {
     case data
     /// A contents listing, which renders as a flat text block rather than a
     /// table so page numbers stay beside their titles.
     case tableOfContents
 }
 
-/// A detected table.
-///
-/// `kind` is supplied rather than derived: the reference classifies it with
-/// `is_table_of_contents`, three sub-classifiers living with the heuristic
-/// detector, which this port has not reached. Both kinds render correctly
-/// here — what is missing is deciding which one a grid *is*.
+/// A detected table, classified on construction as the reference's
+/// `Table::new` does — see `PdfTableOfContents.swift`.
 struct PdfTable {
     /// Column boundaries, as x positions.
     var columns: [Float] = []
@@ -33,6 +29,18 @@ struct PdfTable {
     /// Indices of the text items that fell inside.
     var itemIndices: [Int] = []
     var kind: PdfTableKind = .data
+
+    /// Build a table and classify it, as the reference's `Table::new` does.
+    init(
+        columns: [Float] = [], rows: [Float] = [], cells: [[String]] = [],
+        itemIndices: [Int] = []
+    ) {
+        self.columns = columns
+        self.rows = rows
+        self.cells = cells
+        self.itemIndices = itemIndices
+        self.kind = pdfIsTableOfContents(cells) ? .tableOfContents : .data
+    }
 }
 
 /// Render a table as Markdown.

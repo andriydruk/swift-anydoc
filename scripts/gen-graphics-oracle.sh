@@ -56,6 +56,10 @@ perl -pi -e 's/^pub\(crate\) enum TableDetectionMode/pub enum TableDetectionMode
     "$crate/src/tables/mod.rs"
 perl -pi -e 's/^pub\(crate\) mod format;/pub mod format;/; s/^mod format;/pub mod format;/' \
     "$crate/src/tables/mod.rs"
+perl -pi -e 's/^pub\(crate\) mod detect_heuristic;/pub mod detect_heuristic;/; s/^mod detect_heuristic;/pub mod detect_heuristic;/' \
+    "$crate/src/tables/mod.rs"
+perl -pi -e 's/^pub\(super\) fn (is_page_number_toc|is_dot_leader_toc|is_tabular_toc|is_inline_leader_index)\(/pub fn $1(/' \
+    "$crate/src/tables/detect_heuristic.rs"
 
 # Drop the python bindings: pyo3 is optional but its dev-dependencies still
 # have to resolve, and one of them is not vendored.
@@ -262,6 +266,13 @@ pub fn probe_format(input: &str) -> String {
     for f in &footnotes {
         out.push_str(&format!("footnote\t{f}\n"));
     }
+    out.push_str(&format!(
+        "kind\t{}\t{}\t{}\t{}\n",
+        crate::tables::detect_heuristic::is_table_of_contents(&cells) as u8,
+        crate::tables::detect_heuristic::is_page_number_toc(&cells) as u8,
+        crate::tables::detect_heuristic::is_dot_leader_toc(&cells) as u8,
+        crate::tables::detect_heuristic::is_tabular_toc(&cells) as u8,
+    ));
     let data = Table::new(vec![], vec![], cells.clone(), vec![]);
     let mut data = data;
     data.kind = TableKind::Data;

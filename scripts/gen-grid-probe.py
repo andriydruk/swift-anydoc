@@ -147,7 +147,52 @@ def format_cases(random_count):
         [["only one cell"]],
     ]
 
+    # Contents shapes that actually trip each classifier. Without these the
+    # random tail only ever produces dot-leader listings, and the other two
+    # branches are compared vacuously.
+    titles = [
+        "Introduction To The Subject", "Materials And Methods", "Results",
+        "Discussion Of Findings", "Conclusions", "Appendix A", "References",
+        "Acknowledgements", "Further Reading",
+    ]
+    # Page-number listing: no leaders, ascending pages that span the document.
+    out.append([[titles[i % len(titles)], str(3 + i * 7)] for i in range(8)])
+    # The same shape with a dense consecutive run, which needs the titles to
+    # read like headings before it is accepted.
+    out.append([[titles[i % len(titles)], str(10 + i)] for i in range(8)])
+    # And with short labels, which should be rejected as a rank column.
+    out.append([[f"Rank{i}", str(10 + i)] for i in range(8)])
+    # Front-matter roman numerals.
+    out.append(
+        [[titles[i % len(titles)], r] for i, r in enumerate(["i", "ii", "iv", "vii", "ix", "xii"])]
+    )
+    # A two-column numeric data table, which must NOT be a listing.
+    out.append([[f"Mineral{i}", str(100 + i * 3)] for i in range(8)])
+    # Tabular listing: dotted section numbers, page numbers last.
+    out.append([[f"{1 + i // 3}.{1 + i % 3} Section Title", str(4 + i * 5)] for i in range(9)])
+    # The same, but with a non-numeric last column, which must be rejected.
+    out.append([[f"{1 + i // 3}.{1 + i % 3} Section Title", "n/a"] for i in range(9)])
+
     generator = random.Random(97531)
+    # Randomised listings around the thresholds, so the accept/reject edges
+    # are compared rather than only the clear cases.
+    for _ in range(random_count // 4):
+        rows = generator.randint(3, 9)
+        style = generator.choice(["page", "tabular", "mixed"])
+        block = []
+        page = generator.randint(1, 40)
+        for i in range(rows):
+            page += generator.choice([0, 1, 1, 2, 7, -3])
+            if style == "page":
+                label = generator.choice(titles)
+            elif style == "tabular":
+                label = f"{1 + i // 3}.{1 + i % 3} {generator.choice(titles)}"
+            else:
+                label = generator.choice(titles + ["X", "Rank1", "1973"])
+            tail = generator.choice([str(max(page, 1)), "vii", "A-1", "n/a", ""])
+            block.append([label, tail])
+        out.append(block)
+
     pieces = [
         "", "x", "12", "3.50", "....", "Total", "Note: x", "(2) note", "3)",
         "Results And Notes", "costs and", "overheads", "6.2.1 Sub", "JAN", "vii",

@@ -108,3 +108,105 @@ import Testing
         #expect(!pdfIsDotsOnly("a..."))
     }
 }
+
+/// Telling a contents listing from a data table. The probe covers 3,145
+/// generated grids with all four classifier branches firing; these name the
+/// signals and the cases each one has to reject.
+@Suite struct PdfTableOfContentsTests {
+    private let titles = [
+        "Introduction To The Subject", "Materials And Methods", "Results",
+        "Discussion Of Findings", "Conclusions", "Appendix A", "References",
+        "Acknowledgements",
+    ]
+
+    /// Entries skip pages, so their range exceeds the entry count. That span
+    /// is the strongest signal there is.
+    @Test func aTitleAndPageColumnIsAListing() {
+        let cells = (0..<8).map { [titles[$0 % titles.count], String(3 + $0 * 7)] }
+        #expect(pdfIsPageNumberToc(cells))
+        #expect(pdfIsTableOfContents(cells))
+    }
+
+    /// A perfectly dense consecutive run is a rank column, not page numbers —
+    /// accepted only when the titles read like headings.
+    @Test func denseRunsNeedHeadingLikeTitles() {
+        let headings = (0..<8).map { [titles[$0 % titles.count], String(10 + $0)] }
+        #expect(pdfIsPageNumberToc(headings))
+        let ranks = (0..<8).map { ["Rank\($0)", String(10 + $0)] }
+        #expect(!pdfIsPageNumberToc(ranks))
+    }
+
+    /// A two-column numeric grid with a header row is a data table: contents
+    /// have no header, so their first row's last cell is already a page.
+    @Test func aDataTableIsNotAListing() {
+        var cells: [[String]] = [["Mineral", "CEC"]]
+        cells += (0..<8).map { ["Mineral\($0)", String(100 + $0 * 3)] }
+        #expect(!pdfIsPageNumberToc(cells))
+    }
+
+    @Test func frontMatterRomanNumeralsCount() {
+        let cells = zip(titles, ["i", "ii", "iv", "vii", "ix", "xii"]).map { [$0, $1] }
+        #expect(pdfIsPageNumberToc(cells))
+    }
+
+    @Test func explicitDotLeadersAreEnough() {
+        let cells = (0..<5).map { ["Chapter \($0)", "........", String(3 + $0 * 4)] }
+        #expect(pdfIsDotLeaderToc(cells))
+    }
+
+    /// A leader glued to its title also counts, but only after a space and a
+    /// word — `etc...` and a `1973 ... ` data label must not.
+    @Test func trailingLeadersNeedASpaceAndAWord() {
+        #expect(pdfCellHasTrailingLeader("Introduction ..."))
+        #expect(!pdfCellHasTrailingLeader("etc..."))
+        #expect(!pdfCellHasTrailingLeader("1973 ..."))
+    }
+
+    /// Dotted section numbers with page numbers last, no leaders at all.
+    @Test func dottedSectionNumbersMakeATabularListing() {
+        let cells = (0..<9).map { ["\(1 + $0 / 3).\(1 + $0 % 3) Section", String(4 + $0 * 5)] }
+        #expect(pdfIsTabularToc(cells))
+        // With a non-numeric last column it is not one.
+        let unnumbered = (0..<9).map { ["\(1 + $0 / 3).\(1 + $0 % 3) Section", "n/a"] }
+        #expect(!pdfIsTabularToc(unnumbered))
+    }
+
+    @Test func sectionNumbersNeedAtLeastOneDot() {
+        #expect(pdfStartsWithSectionNumber("1.2 Scope"))
+        #expect(pdfStartsWithSectionNumber("4.3.1.2 Detail"))
+        // A bare number is too ambiguous.
+        #expect(!pdfStartsWithSectionNumber("1 Scope"))
+    }
+
+    /// A page list uses comma-*space*, which is what distinguishes it from a
+    /// thousands separator.
+    @Test func pageListsAreCommaSpaceSeparated() {
+        #expect(pdfRowCellIsPageNumber("18, 36, 107"))
+        #expect(!pdfRowCellIsPageNumber("189,164"))
+        #expect(pdfRowCellIsPageNumber("A-1"))
+    }
+
+    /// A wide index whose cells each hold a whole entry renders badly either
+    /// way, so it is flagged separately.
+    @Test func inlineLeaderIndexesAreRecognised() {
+        let cells = [
+            ["alpha ... 12", "beta ... 34"],
+            ["gamma ... 56", "delta ... 78"],
+        ]
+        #expect(pdfIsInlineLeaderIndex(cells))
+        #expect(pdfCellIsInlineLeader("alpha ... 12"))
+        #expect(pdfCellIsInlineLeader("... 12"))
+        #expect(!pdfCellIsInlineLeader("etc... more words"))
+    }
+
+    /// The model classifies on construction, so rendering follows.
+    @Test func theModelClassifiesItself() {
+        let listing = PdfTable(cells: (0..<8).map { [titles[$0 % titles.count], String(3 + $0 * 7)] })
+        #expect(listing.kind == .tableOfContents)
+        #expect(pdfTableToMarkdown(listing).contains("\t"))
+
+        let data = PdfTable(cells: [["A", "B"], ["x", "1"], ["y", "2"]])
+        #expect(data.kind == .data)
+        #expect(pdfTableToMarkdown(data).hasPrefix("|A|B|"))
+    }
+}

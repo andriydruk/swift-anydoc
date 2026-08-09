@@ -120,8 +120,12 @@ import Testing
             var ours = ""
             for row in cleaned { ours += "clean\t" + row.joined(separator: "\t") + "\n" }
             for footnote in footnotes { ours += "footnote\t" + footnote + "\n" }
-            var data = PdfTable()
-            data.cells = cells
+            func flag(_ value: Bool) -> String { value ? "1" : "0" }
+            ours +=
+                "kind\t\(flag(pdfIsTableOfContents(cells)))\t"
+                + "\(flag(pdfIsPageNumberToc(cells)))\t"
+                + "\(flag(pdfIsDotLeaderToc(cells)))\t\(flag(pdfIsTabularToc(cells)))\n"
+            var data = PdfTable(cells: cells)
             data.kind = .data
             ours += "--data--\n" + pdfTableToMarkdown(data)
             ours += "--toc--\n" + pdfFormatTocAsList(cells, footnotes: [])
