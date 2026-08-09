@@ -117,10 +117,13 @@ import Testing
             for (index, page) in pdfPages(&document).enumerated() {
                 let operations = pdfPageOperations(&document, page)
                 let graphics = pdfExtractGraphics(operations)
-                var items = pdfGroupIntoLines(pdfPageTextRuns(&document, page))
-                    .flatMap(\.items)
+                // The reference's own order: extract, mark decoration, then
+                // merge fragments into words, then absorb scripts.
+                var items = pdfLayoutItems(pdfPageTextRuns(&document, page))
+                pdfApplyFontStyles(&items, pdfPageFontStyles(&document, page))
                 pdfMarkUnderlines(
                     &items, rectangles: pdfUnderlineInk(graphics), lines: graphics.lines)
+                items = pdfMergeSubscriptItems(pdfMergeTextItems(items))
                 ours.append("#PAGE \(index + 1)")
                 for item in items {
                     let text = item.text.rustTrim()

@@ -905,6 +905,42 @@ and marked as such at the call site. The probe's item dump now carries run
 **width**, which is what turned the `Tz` and `"` questions from arguments
 into measurements.
 
+- **Wave 12 — fragment merging.** `PdfMergeItems.swift` ports
+  `merge_text_items` and `merge_subscript_items` with their helpers. A PDF
+  does not draw words: it draws a glyph at a time when the text is
+  letterspaced, a fragment per kerning pair, a separate run at every style
+  change. Reassembling that is its own pass, and it has to guess where the
+  spaces were, because a space is usually not in the file — it is a gap.
+  - Thresholds are the reference's: half an em ends a run, a fifth of the
+    font size is the size band, and the space threshold is 0.08em, widened to
+    0.13em for a lowercase pair (probably mid-word) and 0.25em before joining
+    punctuation (never spaced). Style boundaries always break, since the
+    merged fragment carries the first one's flags.
+  - `pdfTrackedRunSpaceFloor` handles display tracking: a run of single
+    all-caps glyphs gets its own gap floor, or `TRACK` comes back as five
+    words. Lowercase singles deliberately keep their spaces — geometry alone
+    cannot tell `x y z` from a tracked title-case word.
+  - `pdfMergeSubscriptItems` absorbs numeric scripts into the word beside
+    them, mapping them to Unicode raised/lowered digits so `H`+`2`+`O`
+    becomes `H₂` and `O`, and `note`+`3` becomes `note³`. Direction comes
+    from the baseline offset. Only digits are absorbed, and only into a
+    parent ending in a letter.
+  - **Not ported**, each stated in the source: right-to-left runs, which the
+    reference sorts descending by x; and the marked-content overlay order for
+    `ActualText` fragments, which cannot fire here at all because this port
+    does not read MCIDs — the reference's own test returns false without them.
+
+Two corpus files drive this: `merge-fragments` (a word split across four
+`Tj`, a letterspaced all-caps run, a chemical subscript, a footnote
+superscript, and a pair too far apart to join) and `merge-thresholds` (one
+line per branch of the space decision). The reference's answers discriminate
+every branch — `abcd` versus `AB cd`, `word.`, `near far` — and this port
+agrees on all of them.
+
+The underline probe now applies the reference's full order: extract, mark
+decoration, merge fragments, absorb scripts. That makes it a check on the
+whole text pipeline rather than on decoration alone.
+
 ## Phase 6 status
 
 Working end to end: bytes → objects → xref → filters → content operations →
@@ -915,8 +951,7 @@ and links and form fields are recovered; its *tables* are not.
 
 Graphics paths are now extracted, which unblocks the two largest remaining
 pieces. Remaining, roughly by size: table detection (16.3k LOC, the largest
-single piece in the project), superscript and subscript merging, the
-base14/TrueType/glyph-name encodings for fonts without a
+single piece in the project), the base14/TrueType/glyph-name encodings for fonts without a
 `ToUnicode` CMap, multi-column layout, and encryption. Link items are
 extracted but not yet *merged into the text* they sit over — that needs the
 layout to consume positioned annotations alongside text runs.
@@ -927,7 +962,7 @@ a narrow slice, which is why the generated corpus below exists.
 
 ### Generated adversarial corpus
 
-`scripts/gen-pdf-corpus.py` writes 28 PDFs byte by byte, each aimed at a path
+`scripts/gen-pdf-corpus.py` writes 30 PDFs byte by byte, each aimed at a path
 the fixture cannot reach. It is deterministic: regenerating produces
 identical bytes, so the oracle dumps stay valid.
 
@@ -941,14 +976,15 @@ identical bytes, so the oracle dumps stay valid.
 | Annotations | `annotations` (links, reversed rect, AcroForm field tree) |
 | Graphics | `graphics-rects`, `graphics-fills`, `graphics-clips` |
 | Underlines | `underline-basic`, `underline-table`, `underline-segmented`, `underline-fraction` |
+| Merging | `merge-fragments`, `merge-thresholds` |
 
 `Tests/AnyDocTests/PdfCorpusTests.swift` runs against it when
 `ANYDOC_PDF_CORPUS` points at the generated directory, and skips otherwise —
 the corpus is a build product, not a committed artifact. Two assertions: the
 object graph must match a dump from the `pdfprobe` lopdf oracle, and every
 file must reach the end of the pipeline without crashing or hanging. Current
-result: **25 graphs compared identical, 3 rejections agreed** (lopdf and this
-port reject the same three malformed files), **24 rendered to Markdown**.
+result: **27 graphs compared identical, 3 rejections agreed** (lopdf and this
+port reject the same three malformed files), **26 rendered to Markdown**.
 
 The corpus found one real divergence, now fixed. A stream whose direct
 `/Length` overruns the file was being recovered by scanning forward for

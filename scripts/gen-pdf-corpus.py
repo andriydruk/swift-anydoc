@@ -627,4 +627,39 @@ b = Builder()
 write("underline-fraction", classic_trailer(b, base_document(b, content=UNDERLINE_FRACTION)))
 
 
+# --- fragment merging ---------------------------------------------------
+#
+# A PDF does not draw words. These are the shapes the merge pass has to put
+# back together: a word split across several Tj at explicit positions, a
+# letterspaced all-caps run drawn a glyph at a time, a chemical subscript,
+# and a footnote superscript. The simple-font glyph advance is 6pt at 12pt.
+MERGE_FRAGMENTS = b"""BT /F1 12 Tf 100 700 Td (Hel) Tj 18 0 Td (lo) Tj 12 0 Td (wor) Tj 18 0 Td (ld) Tj ET
+BT /F1 12 Tf 100 670 Td (T) Tj 9 0 Td (R) Tj 9 0 Td (A) Tj 9 0 Td (C) Tj 9 0 Td (K) Tj ET
+BT /F1 12 Tf 100 640 Td (H) Tj ET
+BT /F1 6 Tf 106 638 Td (2) Tj ET
+BT /F1 12 Tf 109 640 Td (O) Tj ET
+BT /F1 12 Tf 100 610 Td (note) Tj ET
+BT /F1 6 Tf 124 614 Td (3) Tj ET
+BT /F1 12 Tf 100 580 Td (far) Tj 60 0 Td (apart) Tj ET
+"""
+b = Builder()
+write("merge-fragments", classic_trailer(b, base_document(b, content=MERGE_FRAGMENTS)))
+
+
+# The threshold branches of the merge loop, one line each: a lowercase pair
+# (wider 0.13em threshold), a mixed-case pair (0.08em), joining punctuation
+# (0.25em, never spaced), a gap just past the 0.5em merge limit, a backward
+# jump past -0.5em, and a size change outside the 20% band.
+MERGE_THRESHOLDS = b"""BT /F1 12 Tf 100 700 Td (ab) Tj 13.2 0 Td (cd) Tj ET
+BT /F1 12 Tf 100 670 Td (AB) Tj 13.2 0 Td (cd) Tj ET
+BT /F1 12 Tf 100 640 Td (word) Tj 26 0 Td (.) Tj ET
+BT /F1 12 Tf 100 610 Td (near) Tj 29 0 Td (far) Tj ET
+BT /F1 12 Tf 100 580 Td (one) Tj -30 0 Td (two) Tj ET
+BT /F1 12 Tf 100 550 Td (big) Tj ET
+BT /F1 8 Tf 118 550 Td (small) Tj ET
+"""
+b = Builder()
+write("merge-thresholds", classic_trailer(b, base_document(b, content=MERGE_THRESHOLDS)))
+
+
 print("generated %d pdfs in %s" % (len([f for f in os.listdir(OUT) if f.endswith(".pdf")]), OUT))

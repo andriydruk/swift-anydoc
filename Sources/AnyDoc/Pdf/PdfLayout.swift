@@ -54,12 +54,20 @@ private let baselineTolerance: Float = 3.0
 /// top to bottom) and then by x. Sorting rather than trusting content order
 /// is what handles a writer that jumps backwards to place a glyph from
 /// another font — which real documents do.
-func pdfGroupIntoLines(_ runs: [PdfTextRun]) -> [PdfTextLine] {
-    let items = runs.map {
+/// Text runs as layout items, before any grouping.
+func pdfLayoutItems(_ runs: [PdfTextRun]) -> [PdfLayoutItem] {
+    runs.map {
         PdfLayoutItem(
             text: $0.text, x: $0.x, y: $0.y, width: $0.width, fontSize: $0.fontSize,
             fontName: $0.fontName)
     }
+}
+
+func pdfGroupIntoLines(_ runs: [PdfTextRun]) -> [PdfTextLine] {
+    pdfGroupIntoLines(pdfLayoutItems(runs))
+}
+
+func pdfGroupIntoLines(_ items: [PdfLayoutItem]) -> [PdfTextLine] {
     guard !items.isEmpty else { return [] }
 
     // Sort top to bottom, then left to right. `sorted` is stable, so runs
