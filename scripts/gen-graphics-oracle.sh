@@ -66,6 +66,10 @@ perl -pi -e 's/^pub\(crate\) fn merge_adjacent_items\(/pub fn merge_adjacent_ite
     "$crate/src/tables/detect_heuristic.rs"
 perl -pi -e 's/^fn (find_table_regions|find_table_regions_strict)\(/pub fn $1(/' \
     "$crate/src/tables/detect_heuristic.rs"
+perl -pi -e 's/^pub\(crate\) mod detect_lines;/pub mod detect_lines;/; s/^mod detect_lines;/pub mod detect_lines;/' \
+    "$crate/src/tables/mod.rs"
+perl -pi -e 's/^fn (merge_horizontal_segments|group_rules_by_span|numbered_table_caption|split_independent_rule_runs|rules_are_uniform_grid|derive_columns_from_horizontal_segments)\(/pub fn $1(/' \
+    "$crate/src/tables/detect_lines.rs"
 cat >> "$crate/src/tables/mod.rs" <<'RS2'
 
 /// Probe shim (added for swift-anydoc): expose the financial expansion.
@@ -400,6 +404,73 @@ pub fn probe_detect(input: &str) -> String {
 }
 RUSTEOF
 
+cat >> "$crate/src/tables/detect_lines.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): report what the rule primitives make of a
+/// set of horizontal segments. Input lines are `y x_min x_max`, then a blank
+/// line, then optional text items as `x y width font_size text`.
+pub fn probe_rules(input: &str) -> String {
+    use crate::types::{ItemType, TextItem};
+    let mut rules: Vec<(f32, f32, f32)> = Vec::new();
+    let mut items: Vec<TextItem> = Vec::new();
+    let mut in_items = false;
+    for line in input.lines() {
+        if line.trim().is_empty() {
+            in_items = true;
+            continue;
+        }
+        let parts: Vec<&str> = line.split(' ').collect();
+        if !in_items {
+            if parts.len() >= 3 {
+                rules.push((
+                    parts[0].parse().unwrap_or(0.0),
+                    parts[1].parse().unwrap_or(0.0),
+                    parts[2].parse().unwrap_or(0.0),
+                ));
+            }
+        } else if parts.len() >= 5 {
+            items.push(TextItem {
+                text: parts[4..].join(" "),
+                x: parts[0].parse().unwrap_or(0.0),
+                y: parts[1].parse().unwrap_or(0.0),
+                width: parts[2].parse().unwrap_or(0.0),
+                height: parts[3].parse().unwrap_or(0.0),
+                font: "F1".to_string(),
+                font_size: parts[3].parse().unwrap_or(0.0),
+                page: 1,
+                is_bold: false, is_italic: false, is_underline: false, is_strikeout: false,
+                item_type: ItemType::Text, mcid: None,
+            });
+        }
+    }
+
+    let mut out = String::new();
+    let merged = merge_horizontal_segments(&rules);
+    for r in &merged {
+        out.push_str(&format!("merged {:.3} {:.3} {:.3}\n", r.0, r.1, r.2));
+    }
+    for (i, g) in group_rules_by_span(&merged).iter().enumerate() {
+        out.push_str(&format!("group {i} {}\n", g.len()));
+    }
+    for (i, g) in split_independent_rule_runs(&merged, &items, 1).iter().enumerate() {
+        out.push_str(&format!("run {i} {}\n", g.len()));
+    }
+    out.push_str(&format!("uniform {}\n", rules_are_uniform_grid(&merged) as u8));
+    match derive_columns_from_horizontal_segments(&merged) {
+        None => out.push_str("columns none\n"),
+        Some(c) => {
+            out.push_str("columns");
+            for x in &c { out.push_str(&format!(" {x:.3}")); }
+            out.push('\n');
+        }
+    }
+    for t in ["Table 3", "Table 12.", "table (4) x", "Tables 3", "Table x", "Table"] {
+        out.push_str(&format!("caption {} {}\n", numbered_table_caption(t) as u8, t));
+    }
+    out
+}
+RUSTEOF
+
 mkdir -p "$crate/src/bin"
 cat > "$crate/src/bin/graphicsprobe.rs" <<'RUSTEOF'
 // Dumps the reference's path-extraction output for one PDF.
@@ -411,6 +482,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::format::probe_format(&input));
+        return;
+    }
+    if path == "--rules" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::tables::detect_lines::probe_rules(&input));
         return;
     }
     if path == "--detect" {

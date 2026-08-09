@@ -1149,6 +1149,40 @@ the Rust one, and formatted the base size to three decimals where the
 reference used one. Neither was in the port. When a probe lights up, the
 harness is a candidate too.
 
+- **Wave 21 — line-based table rule primitives.** `PdfTableRules.swift`
+  ports the horizontal-rule layer of `tables/detect_lines.rs`, plus
+  `snap_edges` from `detect_rects.rs`. Many forms and government PDFs draw
+  their grids with `m`/`l`/`S` rather than `re`, so the table arrives as a
+  scatter of stroked segments; all six table-building strategies in that file
+  need those turned into rules first.
+  - `pdfMergeHorizontalSegments` joins segments a form drew a cell at a time —
+    without it, path endpoints become false column edges. Rows are formed
+    against the group's *first* rule, so slowly drifting baselines do not
+    chain.
+  - `pdfSplitIndependentRuleRuns` separates consecutive booktabs tables that
+    share x endpoints, using a numbered caption between them, or failing that
+    a large *mostly empty* band. The same band filled with text must not
+    split, and both sides must keep two rules.
+  - `pdfDeriveColumnsFromHorizontalSegments` recovers columns from endpoints
+    that recur down the table; a ragged edge touching under half the rows is
+    not a column.
+
+**Two coverage holes caught, not one.** The probe first reported 612 cases
+green — with `rules_are_uniform_grid` returning true exactly **once**, and
+columns derived in 22 cases. The random generator almost never produces an
+evenly spaced run. Added deliberate generators for both, straddling the 2%
+deviation bar and the 5pt clustering tolerance: **1,512 cases, 227 uniform
+verdicts, 92 column derivations, all agreeing.**
+
+A unit test also corrected the port's own documentation: `snap_edges`
+compares each value against the last one **kept**, not its predecessor, so
+`[100, 102, 104, 106, 108]` at 3pt keeps `[100, 104, 108]` rather than
+collapsing to one edge. The comment claimed otherwise; both are fixed.
+
+**Still unported in `detect_lines.rs`:** the six table-building strategies
+(stacked-token, text-anchor, dense-row-anchor, open-edge-grid), the
+evidence-scoring hypothesis selector, and vertical-rule handling.
+
 ## Phase 6 remaining work — exact inventory
 
 Measured against the vendored reference at wave 20. `Sources/AnyDoc/Pdf/` is

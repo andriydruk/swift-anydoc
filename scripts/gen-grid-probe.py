@@ -252,6 +252,106 @@ def format_cases(random_count):
     return out
 
 
+def rule_cases(random_count):
+    """Segment sets for the horizontal-rule primitives. Each block is
+    `y x_min x_max` lines, a blank line, then `x y width size text` items."""
+    def block(rules, items=()):
+        return "\n".join(f"{y:g} {a:g} {b:g}" for y, a, b in rules) + "\n\n" + "\n".join(
+            f"{x:g} {y:g} {w:g} {s:g} {t}" for x, y, w, s, t in items
+        )
+
+    out = [
+        # Segmented cells on one baseline: joins across a 5pt gap, not a 10pt one.
+        block([(700, 100, 200), (700, 205, 300), (700, 310, 400), (660, 100, 400)]),
+        # A booktabs table: three full-width rules.
+        block([(700, 100, 400), (660, 100, 400), (500, 100, 400)]),
+        # Two tables sharing endpoints, separated by a numbered caption.
+        block(
+            [(700, 100, 400), (660, 100, 400), (500, 100, 400), (460, 100, 400)],
+            [(120, 580, 60, 10, "Table 2")],
+        ),
+        # The same, separated by a large empty gap instead of a caption.
+        block([(700, 100, 400), (660, 100, 400), (500, 100, 400), (460, 100, 400)]),
+        # ...and the same with text filling the gap, which must NOT split.
+        block(
+            [(700, 100, 400), (660, 100, 400), (500, 100, 400), (460, 100, 400)],
+            [(120, 640 - i * 14, 60, 10, "row") for i in range(9)],
+        ),
+        # A uniform ruled grid (evenly spaced, 5+ rules).
+        block([(700 - i * 20, 100, 400) for i in range(6)]),
+        # Nearly uniform, but outside the 2% bar.
+        block([(700, 100, 400), (680, 100, 400), (659, 100, 400), (640, 100, 400), (618, 100, 400)]),
+        # Segment endpoints that recur down the table → columns.
+        block([(700 - i * 20, 100, 200) for i in range(4)]
+              + [(700 - i * 20, 205, 300) for i in range(4)]
+              + [(700 - i * 20, 305, 400) for i in range(4)]),
+        # Ragged endpoints that do not recur → no columns.
+        block([(700 - i * 20, 100 + i * 9, 400 - i * 7) for i in range(4)]),
+        # Baselines drifting 1.5pt at a time — the grouping must not chain.
+        block([(700 - i * 1.5, 100, 400) for i in range(5)]),
+        block([]),
+        block([(700, 100, 400)]),
+    ]
+
+    generator = random.Random(31337)
+
+    # Evenly-spaced runs, which is the only way rules_are_uniform_grid says
+    # yes. The random tail below almost never produces one, so these are
+    # generated deliberately, straddling the 2% relative-deviation bar.
+    for _ in range(random_count // 3):
+        n = generator.randint(4, 9)
+        pitch = generator.choice([14, 18, 20, 24, 30])
+        jitter = generator.choice([0, 0, 0.05, 0.2, 0.5, 1.0, 2.0])
+        rules = [
+            (
+                700 - i * pitch + generator.uniform(-jitter, jitter),
+                100,
+                400,
+            )
+            for i in range(n)
+        ]
+        out.append(block(rules))
+
+    # Segmented rows whose endpoints recur, which is the only way columns are
+    # derived — again with jitter across the 5pt clustering tolerance.
+    for _ in range(random_count // 3):
+        rows = generator.randint(2, 6)
+        spans = generator.choice(
+            [[(100, 200), (205, 300), (305, 400)],
+             [(100, 180), (185, 260), (265, 340), (345, 420)],
+             [(100, 250), (255, 400)]]
+        )
+        drift = generator.choice([0, 0, 1, 3, 6])
+        rules = [
+            (700 - r * 20, a + generator.uniform(0, drift), b + generator.uniform(0, drift))
+            for r in range(rows)
+            for a, b in spans
+        ]
+        out.append(block(rules))
+
+    for _ in range(random_count):
+        rules = []
+        for _ in range(generator.randint(1, 9)):
+            y = generator.choice([700, 690, 660, 620, 500, 460, 300]) + generator.choice(
+                [0, 0, 1, -1, 2, -2, 3]
+            )
+            a = generator.choice([100, 105, 200, 205, 300, 310])
+            b = a + generator.choice([50, 95, 100, 200, 300])
+            rules.append((y, a, b))
+        items = [
+            (
+                generator.choice([120, 200, 300]),
+                generator.choice([680, 640, 580, 520, 480]),
+                40,
+                10,
+                generator.choice(["body", "Table 2", "Table x", "", "note"]),
+            )
+            for _ in range(generator.randint(0, 4))
+        ]
+        out.append(block(rules, items))
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -297,6 +397,18 @@ def main():
         detect_answers.append(result.stdout)
     with open(os.path.join(arguments.directory, "detect-rust.txt"), "w", encoding="utf-8") as f:
         f.write("\n---\n".join(detect_answers))
+
+    rule_blocks = rule_cases(arguments.cases)
+    with open(os.path.join(arguments.directory, "rules-cases.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(rule_blocks) + "\n")
+    rule_answers = []
+    for b in rule_blocks:
+        r = subprocess.run(
+            [probe, "--rules"], input=b + "\n", capture_output=True, text=True, check=True
+        )
+        rule_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "rules-rust.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(rule_answers))
 
     fmt_blocks = format_cases(arguments.cases)
     with open(os.path.join(arguments.directory, "format-cases.txt"), "w", encoding="utf-8") as f:
