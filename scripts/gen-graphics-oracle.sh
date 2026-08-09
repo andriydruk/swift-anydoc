@@ -64,6 +64,8 @@ perl -pi -e 's/^fn detect_table_in_region\(/pub fn detect_table_in_region(/' \
     "$crate/src/tables/detect_heuristic.rs"
 perl -pi -e 's/^pub\(crate\) fn merge_adjacent_items\(/pub fn merge_adjacent_items(/' \
     "$crate/src/tables/detect_heuristic.rs"
+perl -pi -e 's/^fn (find_table_regions|find_table_regions_strict)\(/pub fn $1(/' \
+    "$crate/src/tables/detect_heuristic.rs"
 
 # Drop the python bindings: pyo3 is optional but its dev-dependencies still
 # have to resolve, and one of them is not vendored.
@@ -322,6 +324,12 @@ pub fn probe_detect(input: &str) -> String {
             "merge\t{:.3}\t{:.3}\t{:.3}\t{:?}\t{}\n",
             item.x, item.y, item.width, indices, item.text
         ));
+    }
+    for (y0, y1) in crate::tables::detect_heuristic::find_table_regions(&indexed) {
+        out.push_str(&format!("region\t{y0:.3}\t{y1:.3}\n"));
+    }
+    for (y0, y1, x0, x1) in crate::tables::detect_heuristic::find_table_regions_strict(&indexed) {
+        out.push_str(&format!("strict\t{y0:.3}\t{y1:.3}\t{x0:.3}\t{x1:.3}\n"));
     }
     for (label, mode) in [
         ("SmallFont", super::TableDetectionMode::SmallFont),

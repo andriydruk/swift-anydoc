@@ -466,3 +466,121 @@ func pdfMergeAdjacentItems(
     }
     return (merged, indexMap)
 }
+
+/// The vertical bands that might hold a small-font table.
+///
+/// Nothing structural here: candidates are simply clustered by baseline, and
+/// a run of four or more with no gap wider than 30pt is a band worth looking
+/// at. The band is padded by 5pt so the first and last rows are not clipped.
+func pdfFindTableRegions(_ items: [PdfLayoutItem]) -> [(yMin: Float, yMax: Float)] {
+    let ys = items.map(\.y).sorted()
+    guard let first = ys.first else { return [] }
+
+    var regions: [(Float, Float)] = []
+    var start = first
+    var end = first
+    var count = 1
+    for y in ys.dropFirst() {
+        if y - end > 30 {
+            if count >= 4 { regions.append((start - 5, end + 5)) }
+            start = y
+            end = y
+            count = 1
+        } else {
+            end = y
+            count += 1
+        }
+    }
+    if count >= 4 { regions.append((start - 5, end + 5)) }
+    return regions
+}
+
+/// The bands that might hold a *body-font* table, found on structure rather
+/// than density.
+///
+/// Body-sized candidates include all the page's prose, so proximity alone
+/// proves nothing. A row qualifies only if its x positions form two or more
+/// clusters, and a run of qualifying rows becomes a region only if their
+/// column positions agree across rows — which is precisely what separates a
+/// table from paragraph text, where word positions vary line to line.
+func pdfFindTableRegionsStrict(
+    _ items: [PdfLayoutItem]
+) -> [(yMin: Float, yMax: Float, xMin: Float, xMax: Float)] {
+    guard !items.isEmpty else { return [] }
+
+    // Rows, in first-seen order.
+    var rowGroups: [(y: Float, xs: [Float])] = []
+    for item in items {
+        if let index = rowGroups.firstIndex(where: { abs(item.y - $0.y) < 8 }) {
+            rowGroups[index].xs.append(item.x)
+        } else {
+            rowGroups.append((item.y, [item.x]))
+        }
+    }
+
+    // A row qualifies when its x positions fall into two or more clusters.
+    var qualifying: [(y: Float, starts: [Float])] = []
+    for group in rowGroups {
+        let sorted = group.xs.sorted()
+        guard let first = sorted.first else { continue }
+        var starts: [Float] = [first]
+        var last = first
+        for x in sorted.dropFirst() where x - last > 20 {
+            starts.append(x)
+            last = x
+        }
+        if starts.count >= 2 { qualifying.append((group.y, starts)) }
+    }
+    guard qualifying.count >= 3 else { return [] }
+
+    qualifying.sort { $0.y < $1.y }
+
+    // A wrapped cell spaces the qualifying rows further apart, so the gap
+    // that ends a run is taken from the rows themselves.
+    let gaps = zip(qualifying, qualifying.dropFirst()).map { abs($1.y - $0.y) }.sorted()
+    let maximumGap = gaps.isEmpty ? 25 : max(gaps[gaps.count / 2] * 3, 25)
+
+    var candidates: [[(y: Float, starts: [Float])]] = []
+    var current = [qualifying[0]]
+    for row in qualifying.dropFirst() {
+        if row.y - (current.last?.y ?? row.y) > maximumGap {
+            if current.count >= 3 { candidates.append(current) }
+            current = [row]
+        } else {
+            current.append(row)
+        }
+    }
+    if current.count >= 3 { candidates.append(current) }
+
+    // Every pair of rows in a candidate votes on whether their columns line
+    // up; the region survives if they agree half the time.
+    var regions: [(Float, Float, Float, Float)] = []
+    for rows in candidates {
+        var totalScore: Float = 0
+        var pairs: Float = 0
+        for i in 0..<rows.count {
+            for j in (i + 1)..<rows.count {
+                let a = rows[i].starts
+                let b = rows[j].starts
+                let matchesA = a.count(where: { x in b.contains { abs(x - $0) < 10 } })
+                let matchesB = b.count(where: { x in a.contains { abs(x - $0) < 10 } })
+                let longest = max(a.count, b.count)
+                if longest > 0 {
+                    totalScore += Float(matchesA + matchesB) / Float(2 * longest)
+                    pairs += 1
+                }
+            }
+        }
+        let average = pairs > 0 ? totalScore / pairs : 0
+        guard average >= 0.5 else { continue }
+
+        let allStarts = rows.flatMap(\.starts)
+        guard let yMin = rows.first?.y, let yMax = rows.last?.y,
+            let xMin = allStarts.min(), let xMax = allStarts.max()
+        else { continue }
+        // The x bounds are generous on the right, where a wrapped cell's
+        // continuation runs past the last column start.
+        regions.append((yMin - 5, yMax + 5, xMin - 15, xMax + 50))
+    }
+    return regions
+}

@@ -165,3 +165,61 @@ import Testing
         #expect(merged.map(\.text) == ["upper", "lower"])
     }
 }
+
+/// Where on the page a table might be. The two finders answer differently
+/// because they are given different candidates.
+@Suite struct PdfTableRegionTests {
+    private func item(_ x: Float, _ y: Float) -> PdfLayoutItem {
+        PdfLayoutItem(text: "x", x: x, y: y, width: 20, fontSize: 10, fontName: "F1")
+    }
+
+    /// The small-font finder is pure density: four or more baselines with no
+    /// gap wider than 30pt, padded by 5.
+    @Test func denseRunsBecomeRegions() {
+        let items = (0..<5).map { item(100, 700 - Float($0) * 12) }
+        let regions = pdfFindTableRegions(items)
+        #expect(regions.count == 1)
+        #expect(regions[0].yMin == 700 - 4 * 12 - 5)
+        #expect(regions[0].yMax == 705)
+    }
+
+    @Test func aWideGapSplitsRegions() {
+        var items = (0..<5).map { item(100, 700 - Float($0) * 12) }
+        items += (0..<5).map { item(100, 500 - Float($0) * 12) }
+        #expect(pdfFindTableRegions(items).count == 2)
+    }
+
+    @Test func tooFewBaselinesIsNoRegion() {
+        #expect(pdfFindTableRegions((0..<3).map { item(100, 700 - Float($0) * 12) }).isEmpty)
+    }
+
+    /// The body-font finder needs structure: rows of two or more x clusters
+    /// whose columns line up across rows.
+    @Test func alignedColumnsBecomeStrictRegions() {
+        let items = (0..<5).flatMap { row in
+            [100, 250, 400].map { item(Float($0), 700 - Float(row) * 14) }
+        }
+        let regions = pdfFindTableRegionsStrict(items)
+        #expect(regions.count == 1)
+        #expect(regions[0].xMin == 85)
+    }
+
+    /// Paragraph text has one cluster per line, so no row qualifies.
+    @Test func proseYieldsNoStrictRegion() {
+        let items = (0..<8).map { item(72, 700 - Float($0) * 14) }
+        #expect(pdfFindTableRegionsStrict(items).isEmpty)
+    }
+
+    /// Rows whose columns wander line to line are prose, not a table, even
+    /// when each row has several clusters.
+    @Test func misalignedColumnsAreRejected() {
+        let offsets: [[Float]] = [
+            [100, 260, 430], [140, 300, 470], [180, 340, 510],
+            [220, 380, 550], [260, 420, 590],
+        ]
+        let items = offsets.enumerated().flatMap { row, xs in
+            xs.map { item($0, 700 - Float(row) * 14) }
+        }
+        #expect(pdfFindTableRegionsStrict(items).isEmpty)
+    }
+}

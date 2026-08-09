@@ -1079,6 +1079,28 @@ Folded into the detector probe: 3,295 genuine multi-item merges across the
 2,512 cases, all agreeing. (Counting the multi-source merges rather than just
 reading "2,512 passed" is the wave-15 lesson applied.)
 
+- **Wave 18 — table region finding.** Both finders from
+  `detect_heuristic.rs`, and the pair is instructive because they answer the
+  same question from opposite evidence.
+  - `pdfFindTableRegions` is pure density: four or more small-font baselines
+    with no gap over 30pt. That is enough because being *smaller than the
+    body text* is already most of the signal.
+  - `pdfFindTableRegionsStrict` gets body-sized candidates, which include all
+    the page's prose, so proximity proves nothing. A row qualifies only if
+    its x positions form two or more clusters, and a run of qualifying rows
+    survives only if every pair of them agrees on where the columns are —
+    which is exactly what separates a table from paragraph text, where word
+    positions wander line to line.
+
+Folded into the detector probe: 2,226 plain and 1,473 strict regions found
+across the 2,512 cases, all agreeing.
+
+**Still not ported, and needed before `detect_tables` can be assembled:**
+`expand_consolidated_items`, `recover_header_row` (deferred since wave 13)
+and `try_add_label_column`. Wave 16 showed what deferring a core-path helper
+costs, so the orchestrator is deliberately left until all three are in rather
+than wired up with gaps.
+
 ## Phase 6 status
 
 Working end to end: bytes → objects → xref → filters → content operations →
@@ -1090,8 +1112,8 @@ and links and form fields are recovered; its *tables* are not.
 Graphics paths are now extracted, which unblocks the two largest remaining
 pieces. Remaining, roughly by size: the four table *detection* strategies (14.4k LOC
 of the 16.3k, now that the grid and the formatter are in — `detect_rects`
-4.7k, `detect_lines` 2.8k, the rest of `detect_heuristic` (region finding
-and the `detect_tables` orchestrator), `detect_struct` 1.2k), the
+4.7k, `detect_lines` 2.8k, the `detect_tables` orchestrator and its three
+remaining helpers, `detect_struct` 1.2k), the
 base14/TrueType/glyph-name encodings for fonts without a
 `ToUnicode` CMap, multi-column layout, and encryption. Link items are
 extracted but not yet *merged into the text* they sit over — that needs the

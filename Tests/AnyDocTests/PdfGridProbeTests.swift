@@ -188,6 +188,14 @@ import Testing
                     "merge\t\(shared.format(item.x))\t\(shared.format(item.y))\t"
                     + "\(shared.format(item.width))\t\(list)\t\(item.text)\n"
             }
+            for region in pdfFindTableRegions(items) {
+                ours += "region\t\(shared.format(region.yMin))\t\(shared.format(region.yMax))\n"
+            }
+            for region in pdfFindTableRegionsStrict(items) {
+                ours +=
+                    "strict\t\(shared.format(region.yMin))\t\(shared.format(region.yMax))\t"
+                    + "\(shared.format(region.xMin))\t\(shared.format(region.xMax))\n"
+            }
             for (label, mode) in [
                 ("SmallFont", PdfTableDetectionMode.smallFont),
                 ("BodyFont", PdfTableDetectionMode.bodyFont),
