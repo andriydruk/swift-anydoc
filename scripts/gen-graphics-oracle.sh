@@ -54,6 +54,8 @@ perl -pi -e 's/^pub\(crate\) fn (find_column_boundaries|find_row_boundaries|find
     "$crate/src/tables/grid.rs"
 perl -pi -e 's/^pub\(crate\) enum TableDetectionMode/pub enum TableDetectionMode/' \
     "$crate/src/tables/mod.rs"
+perl -pi -e 's/^pub\(crate\) mod format;/pub mod format;/; s/^mod format;/pub mod format;/' \
+    "$crate/src/tables/mod.rs"
 
 # Drop the python bindings: pyo3 is optional but its dev-dependencies still
 # have to resolve, and one of them is not vendored.
@@ -237,12 +239,55 @@ pub fn probe_grid(input: &str) -> String {
 }
 RUSTEOF
 
+cat >> "$crate/src/tables/format.rs" <<'RUSTEOF'
+
+// ── Differential probe (added for swift-anydoc; not part of the crate) ──
+/// Read tab-separated cell rows and report what the formatter makes of them:
+/// the cleaned grid, the footnotes pulled out, the data-table rendering and
+/// the contents-listing rendering.
+pub fn probe_format(input: &str) -> String {
+    let cells: Vec<Vec<String>> = input
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| l.split('\t').map(|c| c.to_string()).collect())
+        .collect();
+    if cells.is_empty() {
+        return String::new();
+    }
+    let (cleaned, footnotes) = clean_table_cells(&cells);
+    let mut out = String::new();
+    for row in &cleaned {
+        out.push_str(&format!("clean\t{}\n", row.join("\t")));
+    }
+    for f in &footnotes {
+        out.push_str(&format!("footnote\t{f}\n"));
+    }
+    let data = Table::new(vec![], vec![], cells.clone(), vec![]);
+    let mut data = data;
+    data.kind = TableKind::Data;
+    out.push_str("--data--
+");
+    out.push_str(&table_to_markdown(&data));
+    out.push_str("--toc--
+");
+    out.push_str(&format_toc_as_list(&cells, &[]));
+    out
+}
+RUSTEOF
+
 mkdir -p "$crate/src/bin"
 cat > "$crate/src/bin/graphicsprobe.rs" <<'RUSTEOF'
 // Dumps the reference's path-extraction output for one PDF.
 fn main() {
     let mut args = std::env::args().skip(1);
     let path = args.next().expect("usage: graphicsprobe [--underline] <file.pdf>");
+    if path == "--format" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::tables::format::probe_format(&input));
+        return;
+    }
     if path == "--grid" {
         use std::io::Read;
         let mut input = String::new();

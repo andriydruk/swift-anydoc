@@ -90,3 +90,57 @@ import Testing
         #expect(mismatches.isEmpty, "\(mismatches.count) grid divergences:\n\(report)")
     }
 }
+
+/// Differential check of the table formatter against `tables/format.rs`.
+///
+/// Continuation merging is the interesting part: a row with an empty first
+/// column is usually a wrapped cell, but it is also how a spanned first
+/// column, a short sub-header and a hierarchical sub-entry look. The cases
+/// include one of each, plus a random tail over the fragments those tests
+/// key on.
+@Suite struct PdfTableFormatProbeTests {
+    @Test func formattingMatchesTheReference() throws {
+        guard let path = ProcessInfo.processInfo.environment["ANYDOC_GRID_PROBE"], !path.isEmpty
+        else { return }
+        let caseText = try String(contentsOfFile: path + "/format-cases.txt", encoding: .utf8)
+        let expectedText = try String(contentsOfFile: path + "/format-rust.txt", encoding: .utf8)
+
+        let blocks = caseText.components(separatedBy: "\n---\n")
+        let expected = expectedText.components(separatedBy: "\n---\n")
+        #expect(blocks.count == expected.count, "case and answer counts disagree")
+
+        var mismatches: [String] = []
+        for (index, block) in blocks.enumerated() where index < expected.count {
+            let cells = block.split(separator: "\n", omittingEmptySubsequences: true).map {
+                $0.components(separatedBy: "\t")
+            }
+            if cells.isEmpty { continue }
+
+            let (cleaned, footnotes) = pdfCleanTableCells(cells)
+            var ours = ""
+            for row in cleaned { ours += "clean\t" + row.joined(separator: "\t") + "\n" }
+            for footnote in footnotes { ours += "footnote\t" + footnote + "\n" }
+            var data = PdfTable()
+            data.cells = cells
+            data.kind = .data
+            ours += "--data--\n" + pdfTableToMarkdown(data)
+            ours += "--toc--\n" + pdfFormatTocAsList(cells, footnotes: [])
+
+            if ours != expected[index] {
+                let ourLines = ours.split(separator: "\n", omittingEmptySubsequences: false)
+                let theirLines = expected[index].split(
+                    separator: "\n", omittingEmptySubsequences: false)
+                var diff: [String] = []
+                for line in 0..<max(ourLines.count, theirLines.count) {
+                    let a = line < ourLines.count ? String(ourLines[line]) : "<none>"
+                    let b = line < theirLines.count ? String(theirLines[line]) : "<none>"
+                    if a != b { diff.append("    ours: \(a)\n    rust: \(b)") }
+                }
+                mismatches.append("case \(index)\n" + diff.prefix(4).joined(separator: "\n"))
+            }
+        }
+        print("pdf table format probe: \(blocks.count) cases compared")
+        let report = mismatches.prefix(4).joined(separator: "\n")
+        #expect(mismatches.isEmpty, "\(mismatches.count) format divergences:\n\(report)")
+    }
+}

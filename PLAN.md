@@ -983,6 +983,32 @@ ANYDOC_GRID_PROBE=/tmp/probe swift test --filter PdfGridProbe
 found nothing — the geometry is arithmetic over floats rather than string
 walking, which is where this port's divergences have all lived.
 
+- **Wave 14 — the table model and its rendering.** `PdfTable.swift` ports
+  the `Table` type from `tables/mod.rs` and all of `tables/format.rs`.
+  - Rendering a grid of strings is the easy half. The other half is that the
+    grid does not arrive clean: `pdfCleanTableCells` merges rows that are a
+    wrapped cell's overflow, lifts footnote rows out below the table, and
+    drops empty rows. A row with an empty first column is *usually* overflow
+    — but it is also how a spanned first column, a short sub-header and a
+    hierarchical sub-entry look, and each has its own test to keep it intact.
+  - A contents listing renders as flat lines with the page number on a tab,
+    so it stays beside its title instead of drifting into a column. Page
+    numbers include canonical roman numerals — canonical, so `iiii` is
+    rejected where `iv` is accepted — and the dashed section-page forms
+    (`5-21`, `A-1`, `TC-2`) technical manuals use.
+  - The data form is deliberately compact, no padding, because the
+    reference's primary consumer is a model rather than a reader.
+  - **`kind` is an input, not derived.** The reference classifies with
+    `is_table_of_contents`, three sub-classifiers living with the heuristic
+    detector, which this port has not reached. Both kinds render correctly;
+    what is missing is deciding which one a grid *is*. Stated on the type
+    rather than defaulted silently.
+
+The oracle gained a `--format` mode and `gen-grid-probe.py` a second case
+set: continuation rows, each of the four shapes that look like one but must
+not merge, the three footnote forms, and the contents shapes, plus a random
+tail over the fragments those tests key on. **2,513 cases agree.**
+
 ## Phase 6 status
 
 Working end to end: bytes → objects → xref → filters → content operations →
@@ -992,8 +1018,11 @@ structure, prose, emphasis, underlines, lists and cleanup come out right,
 and links and form fields are recovered; its *tables* are not.
 
 Graphics paths are now extracted, which unblocks the two largest remaining
-pieces. Remaining, roughly by size: the rest of table detection (15.4k LOC of the
-16.3k, now that the grid is in), the base14/TrueType/glyph-name encodings for fonts without a
+pieces. Remaining, roughly by size: the four table *detection* strategies (14.4k LOC
+of the 16.3k, now that the grid and the formatter are in — `detect_rects`
+4.7k, `detect_lines` 2.8k, `detect_heuristic` 2.2k including the contents
+classifier, `detect_struct` 1.2k, plus orchestration), the
+base14/TrueType/glyph-name encodings for fonts without a
 `ToUnicode` CMap, multi-column layout, and encryption. Link items are
 extracted but not yet *merged into the text* they sit over — that needs the
 layout to consume positioned annotations alongside text runs.

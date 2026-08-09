@@ -121,6 +121,47 @@ def cases(random_count):
     return out
 
 
+def format_cases(random_count):
+    """Cell grids for the formatter: continuation rows and the four shapes
+    that look like one but must not be merged, footnotes, and the contents
+    forms."""
+    out = [
+        [["Item", "Qty", "Price"], ["Widget", "12", "3.50"], ["", "overflow text", ""]],
+        [["A", "B", "C"], ["x", "1", "2"], ["(1) a footnote", "", ""]],
+        [["A", "B", "C"], ["x", "1", "2"], ["2) another footnote", "", ""]],
+        [["A", "B", "C"], ["x", "1", "2"], ["Note: see below", "", ""]],
+        # A short sub-header, not overflow.
+        [["Month", "Val", "Pct"], ["Jan", "1", "2"], ["", "FEB", ""]],
+        # A data row with a spanned first column.
+        [["A", "B", "C", "D"], ["x", "1", "2", "3"], ["", "4", "5", "6"]],
+        # A hierarchical sub-row.
+        [["6 Section", ""], ["6.1 Part", ""], ["", "6.2.1 Sub"]],
+        # A bare section label in a wide table.
+        [["A", "B", "C"], ["x", "1", "2"], ["Results And Notes", "", ""]],
+        # A wrapped first-column label continuing from an incomplete phrase.
+        [["A", "B", "C"], ["costs and", "1", "2"], ["overheads", "", ""]],
+        # Contents shapes.
+        [["Introduction", "....", "3"], ["Methods", "....", "vii"], ["Results", "", "5-21"]],
+        [["Title only", "", ""], ["", "", "42"]],
+        [[""]],
+        [["only one cell"]],
+    ]
+
+    generator = random.Random(97531)
+    pieces = [
+        "", "x", "12", "3.50", "....", "Total", "Note: x", "(2) note", "3)",
+        "Results And Notes", "costs and", "overheads", "6.2.1 Sub", "JAN", "vii",
+        "A-1", "long descriptive continuation text", "Item Name",
+    ]
+    for _ in range(random_count):
+        columns = generator.randint(1, 5)
+        rows = generator.randint(1, 7)
+        out.append(
+            [[generator.choice(pieces) for _ in range(columns)] for _ in range(rows)]
+        )
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -151,7 +192,27 @@ def main():
     with open(os.path.join(arguments.directory, "grid-rust.txt"), "w", encoding="utf-8") as f:
         f.write("\n---\n".join(answers) + "\n")
 
-    print(f"{len(blocks)} grid cases; oracle answers written to {arguments.directory}")
+    fmt_blocks = format_cases(arguments.cases)
+    with open(os.path.join(arguments.directory, "format-cases.txt"), "w", encoding="utf-8") as f:
+        f.write("\n---\n".join("\n".join("\t".join(r) for r in b) for b in fmt_blocks) + "\n")
+
+    fmt_answers = []
+    for block in fmt_blocks:
+        result = subprocess.run(
+            [probe, "--format"],
+            input="\n".join("\t".join(r) for r in block) + "\n",
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        fmt_answers.append(result.stdout)
+    with open(os.path.join(arguments.directory, "format-rust.txt"), "w", encoding="utf-8") as f:
+        f.write("\n---\n".join(fmt_answers))
+
+    print(
+        f"{len(blocks)} grid cases and {len(fmt_blocks)} format cases; "
+        f"oracle answers written to {arguments.directory}"
+    )
 
 
 if __name__ == "__main__":
