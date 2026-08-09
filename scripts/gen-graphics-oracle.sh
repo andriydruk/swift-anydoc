@@ -60,6 +60,8 @@ perl -pi -e 's/^pub\(crate\) mod detect_heuristic;/pub mod detect_heuristic;/; s
     "$crate/src/tables/mod.rs"
 perl -pi -e 's/^pub\(super\) fn (is_page_number_toc|is_dot_leader_toc|is_tabular_toc|is_inline_leader_index)\(/pub fn $1(/' \
     "$crate/src/tables/detect_heuristic.rs"
+perl -pi -e 's/^fn detect_table_in_region\(/pub fn detect_table_in_region(/' \
+    "$crate/src/tables/detect_heuristic.rs"
 
 # Drop the python bindings: pyo3 is optional but its dev-dependencies still
 # have to resolve, and one of them is not vendored.
@@ -286,6 +288,54 @@ pub fn probe_format(input: &str) -> String {
 }
 RUSTEOF
 
+cat >> "$crate/src/tables/grid.rs" <<'RUSTEOF'
+
+/// Run the heuristic detector over a region's items and report the table it
+/// produces, or that it rejected the region.
+pub fn probe_detect(input: &str) -> String {
+    use crate::types::{ItemType, TextItem};
+    let mut items: Vec<TextItem> = Vec::new();
+    for line in input.lines() {
+        if line.trim_end().is_empty() {
+            continue;
+        }
+        let mut parts = line.splitn(5, ' ');
+        let x: f32 = parts.next().unwrap_or("0").parse().unwrap_or(0.0);
+        let y: f32 = parts.next().unwrap_or("0").parse().unwrap_or(0.0);
+        let w: f32 = parts.next().unwrap_or("0").parse().unwrap_or(0.0);
+        let fs: f32 = parts.next().unwrap_or("0").parse().unwrap_or(0.0);
+        let text = parts.next().unwrap_or("").to_string();
+        items.push(TextItem {
+            text, x, y, width: w, height: fs, font: "F1".to_string(), font_size: fs,
+            page: 1, is_bold: false, is_italic: false, is_underline: false,
+            is_strikeout: false, item_type: ItemType::Text, mcid: None,
+        });
+    }
+    let indexed: Vec<(usize, &TextItem)> = items.iter().enumerate().collect();
+    let mut out = String::new();
+    for (label, mode) in [
+        ("SmallFont", super::TableDetectionMode::SmallFont),
+        ("BodyFont", super::TableDetectionMode::BodyFont),
+    ] {
+        match crate::tables::detect_heuristic::detect_table_in_region(&indexed, mode) {
+            None => out.push_str(&format!("{label}\tnone\n")),
+            Some(t) => {
+                out.push_str(&format!(
+                    "{label}\t{}\t{}\t{:?}\n",
+                    t.columns.len(),
+                    t.rows.len(),
+                    t.kind
+                ));
+                for row in &t.cells {
+                    out.push_str(&format!("{label}cell\t{}\n", row.join("\t")));
+                }
+            }
+        }
+    }
+    out
+}
+RUSTEOF
+
 mkdir -p "$crate/src/bin"
 cat > "$crate/src/bin/graphicsprobe.rs" <<'RUSTEOF'
 // Dumps the reference's path-extraction output for one PDF.
@@ -297,6 +347,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::format::probe_format(&input));
+        return;
+    }
+    if path == "--detect" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::tables::grid::probe_detect(&input));
         return;
     }
     if path == "--grid" {

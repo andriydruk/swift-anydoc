@@ -1,0 +1,393 @@
+/// Heuristic table detection, ported from `detect_table_in_region` and its
+/// validators in pdf-inspector's `tables/detect_heuristic.rs`.
+///
+/// This is the strategy for a table with no ruling at all: the only evidence
+/// is that the text lines up. That evidence is weak, so the reference spends
+/// far more code rejecting than accepting — eight validations after the grid
+/// is built, each one a different way a page of prose can look like a table
+/// from a distance.
+///
+/// The first pass over the grid is not a validation at all but a trim:
+/// `pdfFirstTableRow` walks down from the top discarding form metadata,
+/// spanning super-headers and sparse preamble until it reaches something that
+/// is really the table. That turned out to fire on most regions, not just
+/// forms — deferring it left every row count one too high.
+
+/// A region with fewer than this many columns is not a table; more than this
+/// and the clustering has fragmented something else.
+private let pdfMinimumTableColumns = 2
+private let pdfMaximumTableColumns = 25
+private let pdfMinimumTableRows = 2
+private let pdfMaximumTableRows = 200
+
+/// How far an item may sit from a column and still count as aligned to it.
+private func pdfAlignmentTolerance(_ mode: PdfTableDetectionMode) -> Float {
+    switch mode {
+    case .smallFont: return 40
+    case .bodyFont: return 30
+    }
+}
+
+/// The fraction of items that must align to a column for a region to be a
+/// table. Body-font candidates need more, because they include prose.
+private func pdfMinimumAlignment(_ mode: PdfTableDetectionMode) -> Float {
+    switch mode {
+    case .smallFont: return 0.5
+    case .bodyFont: return 0.7
+    }
+}
+
+/// What fraction of items sit on a column boundary.
+func pdfColumnAlignment(
+    _ items: [PdfLayoutItem], _ columns: [Float], _ mode: PdfTableDetectionMode
+) -> Float {
+    guard !items.isEmpty else { return 0 }
+    let tolerance = pdfAlignmentTolerance(mode)
+    let aligned = items.count(where: { item in
+        columns.contains { abs(item.x - $0) < tolerance }
+    })
+    return Float(aligned) / Float(items.count)
+}
+
+/// Build a table from a region's items, or reject the region.
+///
+/// `items` are paired with their indices in the page's item list, so the
+/// caller can tell which items a detected table consumed.
+func pdfDetectTableInRegion(
+    _ items: [(index: Int, item: PdfLayoutItem)], mode: PdfTableDetectionMode = .smallFont
+) -> PdfTable? {
+    let plain = items.map(\.item)
+
+    let columns = pdfFindColumnBoundaries(plain, mode: mode)
+    guard columns.count >= pdfMinimumTableColumns, columns.count <= pdfMaximumTableColumns
+    else { return nil }
+
+    var rows = pdfFindRowBoundaries(plain)
+    guard rows.count >= pdfMinimumTableRows else { return nil }
+
+    guard pdfColumnAlignment(plain, columns, mode) >= pdfMinimumAlignment(mode) else { return nil }
+
+    // Collect the items falling in each cell, then join each cell's own.
+    var cellItems = Array(
+        repeating: Array(repeating: [PdfLayoutItem](), count: columns.count), count: rows.count)
+    var itemIndices: [Int] = []
+    for (index, item) in items {
+        guard let column = pdfFindColumnIndex(columns, item.x),
+            let row = pdfFindRowIndex(rows, item.y)
+        else { continue }
+        cellItems[row][column].append(item)
+        itemIndices.append(index)
+    }
+
+    // The trim decision is made on cells joined in *arrival* order, because
+    // the reference runs it before it sorts each cell's items by x. The two
+    // orders join differently, so using the sorted cells here trims a
+    // different row.
+    let firstRow = pdfFirstTableRow(cellItems.map { $0.map(pdfJoinCellItems) })
+
+    var cells = cellItems.map { row in
+        row.map { pdfJoinCellItems($0.sorted { $0.x < $1.x }) }
+    }
+    if firstRow > 0 {
+        // An item on a trimmed row is no longer the table's.
+        let trimmedYs = rows.prefix(firstRow)
+        itemIndices = items.filter { entry in
+            itemIndices.contains(entry.index)
+                && !trimmedYs.contains(where: { abs(entry.item.y - $0) < 15 })
+        }.map(\.index)
+        cells = Array(cells.dropFirst(firstRow))
+        rows = Array(rows.dropFirst(firstRow))
+    }
+
+    // A narrow contents listing legitimately leaves its leftmost column
+    // sparse — only top-level chapters land there — and trips both the
+    // first-column and paragraph tests below. Wide ones are excluded because
+    // the flat-list renderer assumes one entry per row.
+    let isNarrowToc = columns.count <= 5 && pdfIsTableOfContents(cells)
+
+    // 1. Some rows must carry a first column. A quarter is enough, because a
+    //    wrapped cell's continuation leaves it empty.
+    let rowsWithFirstColumn = cells.count(where: { !($0.first ?? "").isEmpty })
+    guard rowsWithFirstColumn >= rows.count / 4 || isNarrowToc else { return nil }
+
+    // 2. A real table fills more than one column on many of its rows.
+    let rowsWithSeveralColumns = cells.count(where: { $0.count(where: { !$0.isEmpty }) >= 2 })
+    let severalColumnsThreshold: Int
+    switch mode {
+    case .smallFont: severalColumnsThreshold = max(rows.count / 3, 1)
+    case .bodyFont: severalColumnsThreshold = max(rows.count / 2, 1)
+    }
+    guard rowsWithSeveralColumns >= severalColumnsThreshold else { return nil }
+
+    // 3. Too many rows means something that is not a table was misread.
+    guard rows.count <= pdfMaximumTableRows else { return nil }
+
+    // 4. A table averages more than one and a half filled cells per row.
+    let totalFilled = cells.map { $0.count(where: { !$0.isEmpty }) }.reduce(0, +)
+    guard Float(totalFilled) / Float(rows.count) >= 1.5 else { return nil }
+
+    // 5-9. The shapes that align like a table and are not one.
+    guard !pdfIsKeyValueLayout(cells) else { return nil }
+    guard pdfHasConsistentColumns(cells) else { return nil }
+    guard pdfHasTableLikeContent(cells, mode) else { return nil }
+    guard !pdfIsParagraphContent(cells) || isNarrowToc else { return nil }
+    guard !pdfIsInlineLeaderIndex(cells) else { return nil }
+
+    return PdfTable(columns: columns, rows: rows, cells: cells, itemIndices: itemIndices)
+}
+
+// MARK: - the validators
+
+/// Whether the grid is a label-and-value list rather than a table: mostly two
+/// filled columns, the first often a label ending in a colon or set in caps.
+func pdfIsKeyValueLayout(_ cells: [[String]]) -> Bool {
+    guard let first = cells.first else { return false }
+    let columnCount = first.count
+
+    var labelLike = 0
+    var twoOrFewer = 0
+    for row in cells {
+        if row.count(where: { !$0.isEmpty }) <= 2 { twoOrFewer += 1 }
+        let firstCell = row.first.map { $0.rustTrim() } ?? ""
+        if firstCell.hasSuffix(":")
+            || (firstCell.utf8.count > 3
+                && firstCell.unicodeScalars.allSatisfy {
+                    $0.properties.isUppercase || $0.properties.isWhitespace || $0 == "("
+                        || $0 == ")"
+                })
+        {
+            labelLike += 1
+        }
+    }
+    let total = Float(cells.count)
+    return Float(twoOrFewer) / total > 0.7 && Float(labelLike) / total > 0.5 && columnCount <= 6
+}
+
+/// Whether rows agree on how many columns they fill, which real tables do.
+func pdfHasConsistentColumns(_ cells: [[String]]) -> Bool {
+    // Too few rows to judge.
+    guard cells.count >= 3, let first = cells.first else { return true }
+
+    let filledCounts = cells.map { $0.count(where: { !$0.isEmpty }) }
+    var frequency: [Int: Int] = [:]
+    for count in filledCounts { frequency[count, default: 0] += 1 }
+    // Ties go to the higher column count, so the result is deterministic.
+    let mostCommon =
+        frequency.max(by: { ($0.value, $0.key) < ($1.value, $1.key) })?.key ?? 0
+
+    // A very wide table has inherently variable fill, so it gets a wider
+    // tolerance and a lower bar.
+    let columnCount = first.count
+    let tolerance = columnCount > 15 ? columnCount / 4 : 2
+    let consistent = filledCounts.count(where: {
+        $0 >= mostCommon - tolerance && $0 <= mostCommon + tolerance
+    })
+    let minimumRatio: Float = columnCount > 15 ? 0.25 : 0.40
+    return Float(consistent) / Float(cells.count) > minimumRatio
+}
+
+/// Whether the body rows carry the kind of short, coded content tables hold.
+///
+/// Bypassed for three or more columns: a text-only table — a category list, a
+/// programme of study — is legitimate once it has passed the structural
+/// tests, and demanding numbers would reject it.
+func pdfHasTableLikeContent(_ cells: [[String]], _ mode: PdfTableDetectionMode) -> Bool {
+    var dataLike = 0
+    var total = 0
+    for row in cells.dropFirst() {
+        for cell in row {
+            let trimmed = cell.rustTrim()
+            if trimmed.isEmpty { continue }
+            total += 1
+            if pdfLooksLikeTableData(trimmed) { dataLike += 1 }
+        }
+    }
+    guard total > 0 else { return false }
+
+    let fraction = Float(dataLike) / Float(total)
+    let columnCount = cells.first?.count ?? 0
+    let minimum: Float
+    switch mode {
+    case .smallFont: minimum = 0.2
+    case .bodyFont: minimum = 0.3
+    }
+    if fraction > minimum || columnCount >= 3 { return true }
+
+    // A two-column body-font grid of short cells is a definition list, not
+    // paragraph text.
+    if columnCount == 2, case .bodyFont = mode {
+        let lengths = cells.dropFirst().flatMap { $0 }.map { $0.rustTrim() }
+            .filter { !$0.isEmpty }.map(\.utf8.count)
+        if !lengths.isEmpty { return lengths.reduce(0, +) / lengths.count <= 25 }
+    }
+    return false
+}
+
+/// Whether a cell holds the sort of value a table does — a number, a date, a
+/// part code, a measurement, a package designation.
+func pdfLooksLikeTableData(_ text: String) -> Bool {
+    let trimmed = text.rustTrim()
+    guard !trimmed.isEmpty else { return false }
+    if pdfLooksLikeNumber(trimmed) { return true }
+
+    let scalars = Array(trimmed.unicodeScalars)
+    let digits = scalars.count(where: { $0 >= "0" && $0 <= "9" })
+    let hasDigit = digits > 0
+
+    // A date: mostly digits with slashes or dashes.
+    if trimmed.utf8.count <= 10, digits >= 4,
+        trimmed.contains("/") || trimmed.contains("-"),
+        scalars.allSatisfy({ ($0 >= "0" && $0 <= "9") || $0 == "/" || $0 == "-" })
+    {
+        return true
+    }
+    // A part number or model code: short, alphanumeric, carrying a digit.
+    if trimmed.utf8.count <= 10, hasDigit,
+        scalars.allSatisfy({ $0.properties.isAlphabetic || ($0 >= "0" && $0 <= "9") })
+    {
+        return true
+    }
+    // A measurement with a unit.
+    let hasUnit =
+        trimmed.contains("°") || trimmed.contains("V") || trimmed.contains("A")
+        || trimmed.contains("Hz") || trimmed.contains("mA") || trimmed.contains("µ")
+        || trimmed.contains("pin") || trimmed.contains("MHz") || trimmed.contains("kHz")
+    if hasDigit, hasUnit { return true }
+    // A package designation.
+    if trimmed.contains("("), trimmed.contains(")"), hasDigit { return true }
+    // A temperature range.
+    if trimmed.contains("°C") || trimmed.contains("°F"), trimmed.contains("to") { return true }
+    return false
+}
+
+/// Whether the text is a number in any of the forms a table writes them.
+func pdfLooksLikeNumber(_ text: String) -> Bool {
+    let trimmed = text.rustTrim()
+    guard !trimmed.isEmpty else { return false }
+    var sawDigit = false
+    for scalar in trimmed.unicodeScalars {
+        if scalar >= "0", scalar <= "9" {
+            sawDigit = true
+        } else if scalar != ".", scalar != ",", scalar != "-", scalar != "+" {
+            return false
+        }
+    }
+    return sawDigit
+}
+
+/// Whether the grid is really paragraph text spread across a false grid.
+///
+/// The signals are what multi-column prose produces and a table does not: a
+/// word broken at a hyphen where a column boundary fell, a mostly-empty grid
+/// over many rows, letterspaced display text, and long sentence fragments.
+func pdfIsParagraphContent(_ cells: [[String]]) -> Bool {
+    guard let first = cells.first else { return false }
+    let totalCells = cells.count * first.count
+    guard totalCells > 0 else { return false }
+
+    let filled = cells.flatMap { $0 }.map { $0.rustTrim() }.filter { !$0.isEmpty }
+    let totalFilled = filled.count
+    guard totalFilled >= 4 else { return false }
+
+    let emptyRatio = 1 - Float(totalFilled) / Float(totalCells)
+
+    // A hyphen after a letter at a cell's end is a word broken across what
+    // the detector took for a column boundary. Real cells almost never end
+    // that way, so even a few are decisive.
+    let hyphenBreaks = filled.count(where: { cell in
+        guard cell.hasSuffix("-"), cell.utf8.count > 1 else { return false }
+        return cell.unicodeScalars.dropLast().last?.properties.isAlphabetic == true
+    })
+    if Float(hyphenBreaks) / Float(totalFilled) > 0.03 { return true }
+
+    if emptyRatio > 0.55, cells.count > 10 { return true }
+
+    // Letterspaced display text is never table data. Nine characters, so a
+    // short code does not match.
+    let letterSpaced = filled.count(where: { cell in
+        let characters = Array(cell)
+        guard characters.count >= 9 else { return false }
+        for window in 0...(characters.count - 4) {
+            let w = characters[window..<(window + 4)].map { $0 }
+            let alternates =
+                (w[0].isLetter && w[1] == " " && w[2].isLetter && w[3] == " ")
+                || (w[0] == " " && w[1].isLetter && w[2] == " " && w[3].isLetter)
+            if !alternates { return false }
+        }
+        return true
+    })
+    if letterSpaced > 0, Float(letterSpaced) / Float(totalFilled) > 0.08 { return true }
+
+    let longCells = filled.count(where: { $0.utf8.count > 60 })
+    let longRatio = Float(longCells) / Float(totalFilled)
+    let averageLength =
+        Float(filled.map(\.utf8.count).reduce(0, +)) / Float(totalFilled)
+    if averageLength > 40, longRatio > 0.2 { return true }
+    return longRatio > 0.3
+}
+
+
+/// The first row that is really the table's, skipping what sits above it.
+///
+/// A region often opens with form metadata (`Name:`, `Date:`), a spanning
+/// super-header whose cells repeat, or simply sparse preamble. Using any of
+/// those as the header row produces duplicate column names and shifts every
+/// row by one.
+func pdfFirstTableRow(_ cells: [[String]]) -> Int {
+    guard let first = cells.first else { return 0 }
+    let columnCount = first.count
+    guard columnCount > 0 else { return 0 }
+
+    /// Whether a cell reads as a form label.
+    func isFormCell(_ text: String) -> Bool {
+        let trimmed = text.rustTrim()
+        return (trimmed.hasSuffix(":") && trimmed.utf8.count > 1)
+            || (trimmed.contains(": ") && !pdfLooksLikeNumber(trimmed))
+    }
+
+    for (index, row) in cells.enumerated() {
+        let filled = row.filter { !$0.rustTrim().isEmpty }
+        let fillRatio = Float(filled.count) / Float(columnCount)
+
+        // Form rows are skipped whatever their density, so long as the form
+        // cells dominate or the row is sparse.
+        let formCells = filled.count(where: isFormCell)
+        if formCells > 0, formCells * 2 >= filled.count || fillRatio < 0.3 { continue }
+
+        let hasData = filled.count(where: { pdfLooksLikeNumber($0.rustTrim()) }) >= 2
+
+        // A spanning super-header repeats its cells. Skip it only when
+        // something below is a better header.
+        if filled.count >= 2, !hasData {
+            var counts: [String: Int] = [:]
+            for cell in filled { counts[cell.rustTrim(), default: 0] += 1 }
+            if counts.values.contains(where: { $0 >= 2 }) {
+                let betterBelow = cells.dropFirst(index + 1).prefix(3).contains { next in
+                    let nextFilled = next.count(where: { !$0.rustTrim().isEmpty })
+                    let nextNumeric = next.count(where: { pdfLooksLikeNumber($0.rustTrim()) })
+                    return Float(nextFilled) / Float(columnCount) >= 0.4 || nextNumeric >= 2
+                }
+                if betterBelow { continue }
+            }
+        }
+
+        if hasData { return index }
+        // A dense row with no form pattern is the header.
+        if fillRatio >= 0.4 { return index }
+        // A very sparse opening row is metadata.
+        if fillRatio < 0.3 { continue }
+
+        // Moderately sparse: it starts the table only if what follows is
+        // dense or numeric, and is not itself a form row.
+        if index + 1 < cells.count {
+            let next = cells[index + 1]
+            let nextFilled = next.count(where: { !$0.rustTrim().isEmpty })
+            let nextNumeric = next.count(where: { pdfLooksLikeNumber($0.rustTrim()) })
+            let nextHasForm = next.contains(where: isFormCell)
+            if (Float(nextFilled) / Float(columnCount) >= 0.4 || nextNumeric >= 2), !nextHasForm {
+                return index
+            }
+        }
+    }
+    return 0
+}

@@ -22,6 +22,8 @@ import Testing
         value.map { "Some(\($0))" } ?? "None"
     }
 
+    func parseItems(_ block: String) -> [PdfLayoutItem] { parse(Substring(block)) }
+
     private func parse(_ block: Substring) -> [PdfLayoutItem] {
         block.split(separator: "\n").compactMap { line -> PdfLayoutItem? in
             let fields = line.split(separator: " ", maxSplits: 4, omittingEmptySubsequences: false)
@@ -146,5 +148,68 @@ import Testing
         print("pdf table format probe: \(blocks.count) cases compared")
         let report = mismatches.prefix(4).joined(separator: "\n")
         #expect(mismatches.isEmpty, "\(mismatches.count) format divergences:\n\(report)")
+    }
+}
+
+/// Differential check of heuristic table detection against
+/// `detect_table_in_region`.
+///
+/// The evidence for a borderless table is only that the text lines up, so
+/// the reference spends most of its code rejecting. The cases are the grid
+/// probe's — they already cover the clustering branches — plus the shapes
+/// that must be rejected: a key-value list, prose broken across a false grid,
+/// and letterspaced display text.
+@Suite struct PdfTableDetectProbeTests {
+    @Test func detectionMatchesTheReference() throws {
+        guard let path = ProcessInfo.processInfo.environment["ANYDOC_GRID_PROBE"], !path.isEmpty
+        else { return }
+        let caseText = try String(contentsOfFile: path + "/grid-cases.txt", encoding: .utf8)
+        guard
+            let expectedText = try? String(
+                contentsOfFile: path + "/detect-rust.txt", encoding: .utf8)
+        else { return }
+
+        let blocks = caseText.components(separatedBy: "\n---\n")
+        let expected = expectedText.components(separatedBy: "\n---\n")
+        #expect(blocks.count == expected.count, "case and answer counts disagree")
+
+        let shared = PdfGridProbeTests()
+        var mismatches: [String] = []
+        for (index, block) in blocks.enumerated() where index < expected.count {
+            let items = shared.parseItems(block)
+            if items.isEmpty { continue }
+            let indexed = items.enumerated().map { (index: $0.offset, item: $0.element) }
+
+            var ours = ""
+            for (label, mode) in [
+                ("SmallFont", PdfTableDetectionMode.smallFont),
+                ("BodyFont", PdfTableDetectionMode.bodyFont),
+            ] {
+                guard let table = pdfDetectTableInRegion(indexed, mode: mode) else {
+                    ours += "\(label)\tnone\n"
+                    continue
+                }
+                let kind = table.kind == .data ? "Data" : "Toc"
+                ours += "\(label)\t\(table.columns.count)\t\(table.rows.count)\t\(kind)\n"
+                for row in table.cells {
+                    ours += "\(label)cell\t" + row.joined(separator: "\t") + "\n"
+                }
+            }
+
+            if ours != expected[index] {
+                let a = ours.split(separator: "\n", omittingEmptySubsequences: false)
+                let b = expected[index].split(separator: "\n", omittingEmptySubsequences: false)
+                var diff: [String] = []
+                for line in 0..<max(a.count, b.count) {
+                    let x = line < a.count ? String(a[line]) : "<none>"
+                    let y = line < b.count ? String(b[line]) : "<none>"
+                    if x != y { diff.append("    ours: \(x)\n    rust: \(y)") }
+                }
+                mismatches.append("case \(index)\n" + diff.prefix(3).joined(separator: "\n"))
+            }
+        }
+        print("pdf table detect probe: \(blocks.count) cases compared")
+        let report = mismatches.prefix(3).joined(separator: "\n")
+        #expect(mismatches.isEmpty, "\(mismatches.count) detection divergences:\n\(report)")
     }
 }

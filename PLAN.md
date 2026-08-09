@@ -1035,6 +1035,36 @@ the accept/reject edges; the distribution has five values and **3,145 cases
 agree**. Checking *what a probe actually exercised* is now part of the drill,
 not just whether it passed.
 
+- **Wave 16 — heuristic table detection.** `PdfTableDetect.swift` ports
+  `detect_table_in_region` and its validators. This is the strategy for a
+  table with no ruling at all, where the only evidence is that the text lines
+  up — weak evidence, so the reference spends far more code rejecting than
+  accepting: eight validations, each a different way a page of prose can look
+  like a table from a distance (a key-value list, a false grid with words
+  hyphenated at the column boundary, letterspaced display text, long sentence
+  fragments, inconsistent fill, an inline-leader index).
+
+**Two things the probe caught that reading alone had not.**
+
+1. **`find_first_table_row` is not optional.** It was deferred as
+   "form-header trimming", and the first probe run diverged on hundreds of
+   cases with a systematic signature: every row count one too high, every
+   cell shifted down one. It fires on most regions, not just forms — spanning
+   super-headers whose cells repeat, and sparse preamble, are trimmed by it
+   too. Now ported.
+2. **The trim reads differently-joined cells than the output does.** The
+   reference calls `find_first_table_row` *before* it sorts each cell's items
+   by x, so the trim decision sees cells joined in arrival order and the
+   final table sees them joined left to right. Passing the sorted cells to
+   both trimmed a different row. Two cases in 1,512 diverged on this, which
+   is exactly the sort of thing no amount of re-reading finds.
+
+The oracle gained a `--detect` mode. The detector runs over the grid probe's
+positional cases — they already cover the clustering branches — plus a
+key-value list, hyphen-broken prose and letterspaced text that must be
+rejected. Both accept and reject verdicts fire in both modes, and **2,512
+cases agree**.
+
 ## Phase 6 status
 
 Working end to end: bytes → objects → xref → filters → content operations →
@@ -1046,8 +1076,8 @@ and links and form fields are recovered; its *tables* are not.
 Graphics paths are now extracted, which unblocks the two largest remaining
 pieces. Remaining, roughly by size: the four table *detection* strategies (14.4k LOC
 of the 16.3k, now that the grid and the formatter are in — `detect_rects`
-4.7k, `detect_lines` 2.8k, `detect_heuristic` 1.8k now that the contents
-classifier is in, `detect_struct` 1.2k, plus orchestration), the
+4.7k, `detect_lines` 2.8k, the rest of `detect_heuristic` (region
+finding and item pre-merging), `detect_struct` 1.2k, plus orchestration), the
 base14/TrueType/glyph-name encodings for fonts without a
 `ToUnicode` CMap, multi-column layout, and encryption. Link items are
 extracted but not yet *merged into the text* they sit over — that needs the

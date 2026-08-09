@@ -92,6 +92,33 @@ def cases(random_count):
         ]
     )
 
+    # Shapes the detector must reject: a key-value list, prose broken across
+    # a false grid with hyphenated word breaks, and letterspaced display text.
+    out.append(
+        [
+            item(100, 700 - r * 14, 60, 10, lbl)
+            for r, lbl in enumerate(["Name:", "Date:", "Total:", "Status:", "Owner:"])
+        ]
+        + [
+            item(200, 700 - r * 14, 40, 10, v)
+            for r, v in enumerate(["Widget", "2026", "12", "open", "me"])
+        ]
+    )
+    out.append(
+        [
+            item(100 + c * 90, 700 - r * 14, 80, 10, w)
+            for r in range(12)
+            for c, w in enumerate(["a long sentence frag-", "ment continuing here"])
+        ]
+    )
+    out.append(
+        [
+            item(100 + c * 90, 700 - r * 14, 80, 10, "l e t t e r s p a c e d")
+            for r in range(6)
+            for c in range(2)
+        ]
+    )
+
     # Single item, and a pair — the degenerate shapes.
     out.append([item(100, 700, 40, 10, "alone")])
     out.append([item(100, 700, 40, 10, "left"), item(400, 700, 40, 10, "right")])
@@ -236,6 +263,22 @@ def main():
         answers.append(result.stdout.rstrip("\n"))
     with open(os.path.join(arguments.directory, "grid-rust.txt"), "w", encoding="utf-8") as f:
         f.write("\n---\n".join(answers) + "\n")
+
+    # The detector runs over the same positional cases as the grid probe —
+    # they already cover the clustering branches — plus prose and key-value
+    # shapes it must reject.
+    detect_answers = []
+    for block in blocks:
+        result = subprocess.run(
+            [probe, "--detect"],
+            input="\n".join(block) + "\n",
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        detect_answers.append(result.stdout)
+    with open(os.path.join(arguments.directory, "detect-rust.txt"), "w", encoding="utf-8") as f:
+        f.write("\n---\n".join(detect_answers))
 
     fmt_blocks = format_cases(arguments.cases)
     with open(os.path.join(arguments.directory, "format-cases.txt"), "w", encoding="utf-8") as f:
