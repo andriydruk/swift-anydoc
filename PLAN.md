@@ -1065,6 +1065,20 @@ key-value list, hyphen-broken prose and letterspaced text that must be
 rejected. Both accept and reject verdicts fire in both modes, and **2,512
 cases agree**.
 
+- **Wave 17 — the table path's fragment merger.** `pdfMergeAdjacentItems`
+  ports `merge_adjacent_items`, the pre-pass `detect_tables` runs before it
+  looks for regions. It is a near-cousin of wave 12's `pdfMergeTextItems` and
+  deliberately *not* the same function: raw widths rather than the
+  word-spacing-capped ones, one fixed space threshold instead of the
+  punctuation and lowercase-pair cases, no tracked-run floor, and — the
+  telling difference — **no break at style boundaries**, because a cell's
+  styling is nothing to the grid. It also returns an index map, so a detected
+  table can still say which original items it consumed.
+
+Folded into the detector probe: 3,295 genuine multi-item merges across the
+2,512 cases, all agreeing. (Counting the multi-source merges rather than just
+reading "2,512 passed" is the wave-15 lesson applied.)
+
 ## Phase 6 status
 
 Working end to end: bytes → objects → xref → filters → content operations →
@@ -1076,8 +1090,8 @@ and links and form fields are recovered; its *tables* are not.
 Graphics paths are now extracted, which unblocks the two largest remaining
 pieces. Remaining, roughly by size: the four table *detection* strategies (14.4k LOC
 of the 16.3k, now that the grid and the formatter are in — `detect_rects`
-4.7k, `detect_lines` 2.8k, the rest of `detect_heuristic` (region
-finding and item pre-merging), `detect_struct` 1.2k, plus orchestration), the
+4.7k, `detect_lines` 2.8k, the rest of `detect_heuristic` (region finding
+and the `detect_tables` orchestrator), `detect_struct` 1.2k), the
 base14/TrueType/glyph-name encodings for fonts without a
 `ToUnicode` CMap, multi-column layout, and encryption. Link items are
 extracted but not yet *merged into the text* they sit over — that needs the

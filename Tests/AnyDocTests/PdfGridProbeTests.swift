@@ -15,7 +15,7 @@ import Testing
 ///   python3 scripts/gen-grid-probe.py /tmp/probe --oracle /tmp/oracle
 ///   ANYDOC_GRID_PROBE=/tmp/probe swift test --filter PdfGridProbe
 @Suite struct PdfGridProbeTests {
-    private func format(_ value: Float) -> String { String(format: "%.3f", value) }
+    func format(_ value: Float) -> String { String(format: "%.3f", value) }
 
     /// The reference prints an `Option<usize>` with `{:?}`.
     private func optional(_ value: Int?) -> String {
@@ -181,6 +181,13 @@ import Testing
             let indexed = items.enumerated().map { (index: $0.offset, item: $0.element) }
 
             var ours = ""
+            let (merged, indexMap) = pdfMergeAdjacentItems(items)
+            for (item, indices) in zip(merged, indexMap) {
+                let list = "[" + indices.map(String.init).joined(separator: ", ") + "]"
+                ours +=
+                    "merge\t\(shared.format(item.x))\t\(shared.format(item.y))\t"
+                    + "\(shared.format(item.width))\t\(list)\t\(item.text)\n"
+            }
             for (label, mode) in [
                 ("SmallFont", PdfTableDetectionMode.smallFont),
                 ("BodyFont", PdfTableDetectionMode.bodyFont),

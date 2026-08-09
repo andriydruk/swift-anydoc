@@ -391,3 +391,78 @@ func pdfFirstTableRow(_ cells: [[String]]) -> Int {
     }
     return 0
 }
+
+/// Consolidate each line's fragments before table detection looks at them.
+///
+/// A near-cousin of `pdfMergeTextItems`, and deliberately not the same
+/// function: this one is what the *table* path runs, and its rules are
+/// simpler. It uses raw widths rather than the word-spacing-capped ones, has
+/// a single fixed space threshold instead of the punctuation and
+/// lowercase-pair cases, ignores the tracked-run floor entirely, and does
+/// **not** break at style boundaries — a bold label merges into the plain
+/// text beside it, because a cell's styling does not matter to the grid.
+///
+/// The index map records which original items went into each merged one, so
+/// a detected table can still say which items it consumed.
+func pdfMergeAdjacentItems(
+    _ items: [PdfLayoutItem]
+) -> (merged: [PdfLayoutItem], indexMap: [[Int]]) {
+    guard !items.isEmpty else { return ([], []) }
+
+    // Group by baseline in first-seen order, then order the lines down the
+    // page and each line left to right.
+    var groups: [(y: Float, entries: [(index: Int, item: PdfLayoutItem)])] = []
+    for (index, item) in items.enumerated() {
+        if let position = groups.firstIndex(where: { abs(item.y - $0.y) < 5 }) {
+            groups[position].entries.append((index, item))
+        } else {
+            groups.append((item.y, [(index, item)]))
+        }
+    }
+    for position in groups.indices {
+        groups[position].entries.sort { $0.item.x < $1.item.x }
+    }
+    groups.sort { $0.y > $1.y }
+
+    var merged: [PdfLayoutItem] = []
+    var indexMap: [[Int]] = []
+    for group in groups {
+        let line = group.entries
+        var index = 0
+        while index < line.count {
+            let first = line[index].item
+            var text = first.text
+            // The raw width, not the capped one — this path does not undo
+            // word-spacing inflation.
+            var endX = first.x + first.width
+            var indices = [line[index].index]
+            let maximumGap = first.fontSize * 0.5
+
+            var next = index + 1
+            while next < line.count {
+                let candidate = line[next].item
+                if abs(candidate.fontSize - first.fontSize) > first.fontSize * 0.20 { break }
+                let gap = candidate.x - endX
+                // Past this is the next column; far behind it is a different
+                // column overlapping.
+                if gap > maximumGap { break }
+                if gap < -first.fontSize * 0.5 { break }
+                // Within a word the glyphs touch; between words there is a
+                // visible gap.
+                if gap > first.fontSize * 0.08 { text += " " }
+                text += candidate.text
+                endX = candidate.x + candidate.width
+                indices.append(line[next].index)
+                next += 1
+            }
+
+            var joined = first
+            joined.text = text
+            joined.width = endX - first.x
+            merged.append(joined)
+            indexMap.append(indices)
+            index = next
+        }
+    }
+    return (merged, indexMap)
+}

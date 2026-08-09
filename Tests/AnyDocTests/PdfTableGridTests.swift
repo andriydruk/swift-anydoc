@@ -109,3 +109,59 @@ import Testing
         }
     }
 }
+
+/// The table path's own fragment merger, which is deliberately simpler than
+/// the text path's.
+@Suite struct PdfMergeAdjacentItemsTests {
+    private func item(
+        _ text: String, x: Float, y: Float = 700, size: Float = 10, width: Float
+    ) -> PdfLayoutItem {
+        PdfLayoutItem(text: text, x: x, y: y, width: width, fontSize: size, fontName: "F1")
+    }
+
+    @Test func touchingFragmentsJoinAndRecordTheirSources() {
+        let (merged, map) = pdfMergeAdjacentItems([
+            item("Hel", x: 100, width: 15), item("lo", x: 115, width: 10),
+        ])
+        #expect(merged.map(\.text) == ["Hello"])
+        #expect(map == [[0, 1]])
+        #expect(merged[0].width == 25)
+    }
+
+    /// A visible gap is a word boundary; a column-sized one ends the run.
+    @Test func gapsDecideSpacesAndBreaks() {
+        let spaced = pdfMergeAdjacentItems([
+            item("one", x: 100, width: 15), item("two", x: 117, width: 15),
+        ])
+        #expect(spaced.merged.map(\.text) == ["one two"])
+
+        let split = pdfMergeAdjacentItems([
+            item("left", x: 100, width: 15), item("right", x: 130, width: 15),
+        ])
+        #expect(split.merged.count == 2)
+    }
+
+    @Test func aSizeChangeEndsTheRun() {
+        let (merged, _) = pdfMergeAdjacentItems([
+            item("big", x: 100, width: 15), item("small", x: 115, size: 6, width: 10),
+        ])
+        #expect(merged.count == 2)
+    }
+
+    /// Unlike the text path, a style boundary does *not* break the run: a
+    /// cell's styling is nothing to the grid.
+    @Test func styleBoundariesDoNotBreakTheRun() {
+        var bold = item("bold", x: 115, width: 10)
+        bold.isBold = true
+        let (merged, _) = pdfMergeAdjacentItems([item("plain", x: 100, width: 15), bold])
+        #expect(merged.count == 1)
+    }
+
+    @Test func linesComeBackTopToBottom() {
+        let (merged, _) = pdfMergeAdjacentItems([
+            item("lower", x: 100, y: 600, width: 20),
+            item("upper", x: 100, y: 700, width: 20),
+        ])
+        #expect(merged.map(\.text) == ["upper", "lower"])
+    }
+}

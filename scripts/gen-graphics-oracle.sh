@@ -62,6 +62,8 @@ perl -pi -e 's/^pub\(super\) fn (is_page_number_toc|is_dot_leader_toc|is_tabular
     "$crate/src/tables/detect_heuristic.rs"
 perl -pi -e 's/^fn detect_table_in_region\(/pub fn detect_table_in_region(/' \
     "$crate/src/tables/detect_heuristic.rs"
+perl -pi -e 's/^pub\(crate\) fn merge_adjacent_items\(/pub fn merge_adjacent_items(/' \
+    "$crate/src/tables/detect_heuristic.rs"
 
 # Drop the python bindings: pyo3 is optional but its dev-dependencies still
 # have to resolve, and one of them is not vendored.
@@ -313,6 +315,14 @@ pub fn probe_detect(input: &str) -> String {
     }
     let indexed: Vec<(usize, &TextItem)> = items.iter().enumerate().collect();
     let mut out = String::new();
+    let (merged, index_map) =
+        crate::tables::detect_heuristic::merge_adjacent_items(&items);
+    for (item, indices) in merged.iter().zip(index_map.iter()) {
+        out.push_str(&format!(
+            "merge\t{:.3}\t{:.3}\t{:.3}\t{:?}\t{}\n",
+            item.x, item.y, item.width, indices, item.text
+        ));
+    }
     for (label, mode) in [
         ("SmallFont", super::TableDetectionMode::SmallFont),
         ("BodyFont", super::TableDetectionMode::BodyFont),
