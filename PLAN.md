@@ -1101,6 +1101,27 @@ and `try_add_label_column`. Wave 16 showed what deferring a core-path helper
 costs, so the orchestrator is deliberately left until all three are in rather
 than wired up with gaps.
 
+- **Wave 19 — consolidated financial rows.** `PdfTableFinancial.swift` ports
+  `tables/financial.rs` and `expand_consolidated_items`, the second of the
+  three helpers `detect_tables` still needed.
+  - A financial statement often draws a whole row of figures as **one** text
+    item, because the producer emitted it with one `Tj`. No amount of column
+    clustering can recover a grid from that — there is only one x position —
+    so a very wide item holding nothing but figures is split before detection
+    runs, its values spread evenly across its own width. That spacing is a
+    fiction, since the real figures are right-aligned, but it is a *consistent*
+    fiction across a table's rows, which is all the clustering needs.
+  - The guess is narrow on purpose: two consecutive letters anywhere
+    disqualify the item, as does any token that is not a figure, a dash or a
+    `$` bound to the figure after it. Under twenty ems wide, or fewer than
+    three values, and it is left alone.
+
+Folded into the detector probe, with financial rows added to the cases: 48
+items actually split across 2,014 cases, all agreeing.
+
+**Still outstanding for `detect_tables`:** `recover_header_row` (deferred
+since wave 13) and `try_add_label_column`.
+
 ## Phase 6 status
 
 Working end to end: bytes → objects → xref → filters → content operations →
@@ -1112,7 +1133,7 @@ and links and form fields are recovered; its *tables* are not.
 Graphics paths are now extracted, which unblocks the two largest remaining
 pieces. Remaining, roughly by size: the four table *detection* strategies (14.4k LOC
 of the 16.3k, now that the grid and the formatter are in — `detect_rects`
-4.7k, `detect_lines` 2.8k, the `detect_tables` orchestrator and its three
+4.7k, `detect_lines` 2.8k, the `detect_tables` orchestrator and its two
 remaining helpers, `detect_struct` 1.2k), the
 base14/TrueType/glyph-name encodings for fonts without a
 `ToUnicode` CMap, multi-column layout, and encryption. Link items are

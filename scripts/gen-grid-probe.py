@@ -119,6 +119,24 @@ def cases(random_count):
         ]
     )
 
+    # Consolidated financial rows: one very wide item holding a whole row of
+    # figures, which must be split before any column can be found.
+    out.append(
+        [
+            item(100, 700 - r * 14, 400, 10, txt)
+            for r, txt in enumerate(
+                [
+                    "$ 5,147,649 114,167 \u2014 778,177",
+                    "$ 1,234 5,678 9,012 3,456",
+                    "114,167 (2,340) \u2013 778,177",
+                    "Land $ 778,177 114,167 5,147",
+                    "$ 1,234 5,678",
+                ]
+            )
+        ]
+    )
+    out.append([item(100, 700, 100, 10, "$ 1,234 5,678 9,012")])
+
     # Single item, and a pair — the degenerate shapes.
     out.append([item(100, 700, 40, 10, "alone")])
     out.append([item(100, 700, 40, 10, "left"), item(400, 700, 40, 10, "right")])

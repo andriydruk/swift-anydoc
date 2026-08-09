@@ -66,6 +66,28 @@ perl -pi -e 's/^pub\(crate\) fn merge_adjacent_items\(/pub fn merge_adjacent_ite
     "$crate/src/tables/detect_heuristic.rs"
 perl -pi -e 's/^fn (find_table_regions|find_table_regions_strict)\(/pub fn $1(/' \
     "$crate/src/tables/detect_heuristic.rs"
+cat >> "$crate/src/tables/mod.rs" <<'RS2'
+
+/// Probe shim (added for swift-anydoc): expose the financial expansion.
+pub fn financial_probe_expand(
+    items: &[crate::types::TextItem],
+) -> (Vec<crate::types::TextItem>, Vec<usize>) {
+    let mut expanded = Vec::new();
+    let mut index_map = Vec::new();
+    for (orig_idx, item) in items.iter().enumerate() {
+        if let Some(subs) = financial::try_split_financial_item(item) {
+            for sub in subs {
+                expanded.push(sub);
+                index_map.push(orig_idx);
+            }
+        } else {
+            expanded.push(item.clone());
+            index_map.push(orig_idx);
+        }
+    }
+    (expanded, index_map)
+}
+RS2
 
 # Drop the python bindings: pyo3 is optional but its dev-dependencies still
 # have to resolve, and one of them is not vendored.
@@ -324,6 +346,15 @@ pub fn probe_detect(input: &str) -> String {
             "merge\t{:.3}\t{:.3}\t{:.3}\t{:?}\t{}\n",
             item.x, item.y, item.width, indices, item.text
         ));
+    }
+    {
+        let (expanded, map) = crate::tables::financial_probe_expand(&items);
+        for (item, orig) in expanded.iter().zip(map.iter()) {
+            out.push_str(&format!(
+                "expand\t{:.3}\t{:.3}\t{orig}\t{}\n",
+                item.x, item.width, item.text
+            ));
+        }
     }
     for (y0, y1) in crate::tables::detect_heuristic::find_table_regions(&indexed) {
         out.push_str(&format!("region\t{y0:.3}\t{y1:.3}\n"));

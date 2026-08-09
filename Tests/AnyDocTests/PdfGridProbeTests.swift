@@ -188,6 +188,12 @@ import Testing
                     "merge\t\(shared.format(item.x))\t\(shared.format(item.y))\t"
                     + "\(shared.format(item.width))\t\(list)\t\(item.text)\n"
             }
+            let (expanded, expandMap) = pdfExpandConsolidatedItems(items)
+            for (item, original) in zip(expanded, expandMap) {
+                ours +=
+                    "expand\t\(shared.format(item.x))\t\(shared.format(item.width))\t"
+                    + "\(original)\t\(item.text)\n"
+            }
             for region in pdfFindTableRegions(items) {
                 ours += "region\t\(shared.format(region.yMin))\t\(shared.format(region.yMax))\n"
             }
