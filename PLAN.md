@@ -1183,6 +1183,30 @@ collapsing to one edge. The comment claimed otherwise; both are fixed.
 (stacked-token, text-anchor, dense-row-anchor, open-edge-grid), the
 evidence-scoring hypothesis selector, and vertical-rule handling.
 
+- **Wave 22 — the table-hypothesis selector.** `PdfTableHypothesis.swift`
+  ports the scoring and selection cluster from `tables/detect_lines.rs`.
+  - A ruled page rarely yields one obvious table. The reference builds several
+    readings over the same items and then picks — not by deciding which
+    strategy is cleverer, but by scoring how much evidence each result
+    accounts for, taking the best, then the best of what does not overlap it.
+  - The weights state the priorities plainly: an item consumed is worth 100,
+    a filled cell 25, an occupied column 60 and an occupied row 20, with
+    empty cells penalised 4 apiece. Columns outweigh rows threefold because
+    spanning columns is what distinguishes a table from a list; the empty-cell
+    penalty is small enough not to reject a legitimately ragged table, and
+    the score saturates at zero so a mostly-empty grid still sorts above a
+    reading that found nothing.
+  - `pdfSelectTableHypothesis` privileges neither side: with both present
+    they are pooled and scored together, so an alternative that explains the
+    page better displaces the grid reading outright.
+
+708 cases agree. **The third harness bug of this phase**, and again it read
+as a port bug at first: 23 divergences with a line-count offset, because the
+cells field is empty whenever a one-cell grid holds the empty string — Rust's
+`splitn` keeps that empty field and Swift's `split` drops it unless told
+`omittingEmptySubsequences: false`. Worth adding to the drill: **Rust's
+`splitn` and Swift's `split` disagree on empty fields by default.**
+
 ## Phase 6 remaining work — exact inventory
 
 Measured against the vendored reference at wave 20. `Sources/AnyDoc/Pdf/` is
@@ -1251,8 +1275,10 @@ The drill that has caught every divergence this phase, in order:
 3. Add the function to the oracle probe, generate cases aimed at each
    *branch*, and **check the verdict distribution** — wave 15 passed 2,513
    cases with two of four classifier branches never firing.
-4. When the probe lights up, suspect the harness too. Twice this phase the
-   first "divergence" was in the comparison, not the port.
+4. When the probe lights up, suspect the harness too. **Three times** this
+   phase the first "divergence" was in the comparison, not the port: block
+   ordering, float formatting, and `split` dropping empty fields where Rust's
+   `splitn` keeps them.
 5. Swift `String` compares grapheme clusters where Rust `str` compares bytes.
    This is gotcha 5 in §2 and has caused more real bugs here than anything
    else.

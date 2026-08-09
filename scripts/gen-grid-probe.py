@@ -352,6 +352,71 @@ def rule_cases(random_count):
     return out
 
 
+def hypothesis_cases(random_count):
+    """Competing table hypotheses. Each line is `L|A rowY cells items`, where
+    cells are `a,b;c,d` (semicolon between rows) and items are indices."""
+    def cand(tag, y, rows, items):
+        cells = ";".join(",".join(r) for r in rows)
+        return f"{tag} {y:g} {cells} {','.join(str(i) for i in items)}"
+
+    out = [
+        # An alternative that explains more displaces the legacy reading.
+        "\n".join([
+            cand("L", 700, [["a", "b"], ["c", "d"]], [1, 2, 3]),
+            cand("A", 700, [["a", "b", "c"], ["d", "e", "f"]], [1, 2, 3, 4, 5]),
+        ]),
+        # ...and one that explains less does not.
+        "\n".join([
+            cand("L", 700, [["a", "b", "c"], ["d", "e", "f"]], [1, 2, 3, 4, 5]),
+            cand("A", 700, [["a"], ["b"]], [1, 2]),
+        ]),
+        # Non-overlapping candidates all survive.
+        "\n".join([
+            cand("L", 700, [["a", "b"], ["c", "d"]], [1, 2]),
+            cand("A", 500, [["x", "y"], ["z", "w"]], [9, 10]),
+        ]),
+        # No alternatives at all → legacy passes through untouched.
+        cand("L", 700, [["a", "b"], ["c", "d"]], [1, 2]),
+        # No legacy → alternatives are selected among themselves.
+        "\n".join([
+            cand("A", 700, [["a", "b"], ["c", "d"]], [1, 2, 3]),
+            cand("A", 690, [["e", "f"], ["g", "h"]], [3, 4]),
+        ]),
+        # Equal scores: the tie-break is item count, then input order.
+        "\n".join([
+            cand("L", 700, [["a", "b"], ["c", "d"]], [1, 2]),
+            cand("A", 700, [["a", "b"], ["c", "d"]], [1, 2]),
+        ]),
+        # A sparse grid over the same items loses to a tight one.
+        "\n".join([
+            cand("L", 700, [["a", "", "", ""], ["", "", "", "b"]], [1, 2]),
+            cand("A", 700, [["a", "b"]], [1, 2]),
+        ]),
+        # A candidate straddling two accepted tables.
+        "\n".join([
+            cand("L", 700, [["a"], ["b"]], [1, 2]),
+            cand("L", 500, [["c"], ["d"]], [7, 8]),
+            cand("A", 600, [["x", "y"]], [2, 7]),
+        ]),
+    ]
+
+    generator = random.Random(24680)
+    words = ["a", "bb", "ccc", "", "12", "total"]
+    for _ in range(random_count):
+        lines = []
+        pool = list(range(1, 14))
+        for _ in range(generator.randint(1, 4)):
+            tag = generator.choice(["L", "A"])
+            rows = generator.randint(1, 4)
+            cols = generator.randint(1, 4)
+            grid = [[generator.choice(words) for _ in range(cols)] for _ in range(rows)]
+            n = generator.randint(1, 6)
+            items = sorted(generator.sample(pool, min(n, len(pool))))
+            lines.append(cand(tag, generator.choice([700, 690, 600, 500]), grid, items))
+        out.append("\n".join(lines))
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -397,6 +462,18 @@ def main():
         detect_answers.append(result.stdout)
     with open(os.path.join(arguments.directory, "detect-rust.txt"), "w", encoding="utf-8") as f:
         f.write("\n---\n".join(detect_answers))
+
+    hyp_blocks = hypothesis_cases(arguments.cases)
+    with open(os.path.join(arguments.directory, "hyp-cases.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(hyp_blocks) + "\n")
+    hyp_answers = []
+    for b in hyp_blocks:
+        r = subprocess.run(
+            [probe, "--hyp"], input=b + "\n", capture_output=True, text=True, check=True
+        )
+        hyp_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "hyp-rust.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(hyp_answers))
 
     rule_blocks = rule_cases(arguments.cases)
     with open(os.path.join(arguments.directory, "rules-cases.txt"), "w", encoding="utf-8") as f:

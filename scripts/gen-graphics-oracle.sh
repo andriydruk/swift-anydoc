@@ -70,6 +70,8 @@ perl -pi -e 's/^pub\(crate\) mod detect_lines;/pub mod detect_lines;/; s/^mod de
     "$crate/src/tables/mod.rs"
 perl -pi -e 's/^fn (merge_horizontal_segments|group_rules_by_span|numbered_table_caption|split_independent_rule_runs|rules_are_uniform_grid|derive_columns_from_horizontal_segments)\(/pub fn $1(/' \
     "$crate/src/tables/detect_lines.rs"
+perl -pi -e 's/^fn (table_evidence_score|select_non_overlapping_hypotheses|tables_share_items|overlaps_multiple_tables|select_table_hypothesis)\(/pub fn $1(/' \
+    "$crate/src/tables/detect_lines.rs"
 cat >> "$crate/src/tables/mod.rs" <<'RS2'
 
 /// Probe shim (added for swift-anydoc): expose the financial expansion.
@@ -469,6 +471,54 @@ pub fn probe_rules(input: &str) -> String {
     }
     out
 }
+
+/// Probe (added for swift-anydoc): score and select table hypotheses.
+/// Input blocks are `L|A rowY cell,cell,... ; item,item,...` — one candidate
+/// per line, tagged legacy or alternative.
+pub fn probe_hypotheses(input: &str) -> String {
+    use crate::tables::Table;
+    let mut legacy: Vec<Table> = Vec::new();
+    let mut alternatives: Vec<Table> = Vec::new();
+    for line in input.lines() {
+        if line.trim().is_empty() { continue }
+        let parts: Vec<&str> = line.splitn(4, ' ').collect();
+        if parts.len() < 4 { continue }
+        let tag = parts[0];
+        let row_y: f32 = parts[1].parse().unwrap_or(0.0);
+        let cells: Vec<Vec<String>> = parts[2]
+            .split(';')
+            .map(|row| row.split(',').map(|c| c.replace('_', " ").trim().to_string()).collect())
+            .collect();
+        let items: Vec<usize> = parts[3]
+            .split(',')
+            .filter_map(|t| t.trim().parse().ok())
+            .collect();
+        let rows = vec![row_y; cells.len().max(1)];
+        let cols = vec![0.0f32; cells.first().map_or(0, Vec::len)];
+        let t = Table::new(cols, rows, cells, items);
+        if tag == "L" { legacy.push(t) } else { alternatives.push(t) }
+    }
+
+    let mut out = String::new();
+    for t in legacy.iter().chain(alternatives.iter()) {
+        out.push_str(&format!("score {}\n", table_evidence_score(t)));
+    }
+    let all: Vec<Table> = legacy.iter().cloned().chain(alternatives.iter().cloned()).collect();
+    for t in select_non_overlapping_hypotheses(all) {
+        out.push_str(&format!("sel {:?}\n", t.item_indices));
+    }
+    for t in select_table_hypothesis(legacy.clone(), alternatives.clone(), 1) {
+        out.push_str(&format!("hyp {:?}\n", t.item_indices));
+    }
+    if let (Some(a), Some(b)) = (legacy.first(), alternatives.first()) {
+        out.push_str(&format!("share {}\n", tables_share_items(a, b) as u8));
+        out.push_str(&format!(
+            "multi {}\n",
+            overlaps_multiple_tables(b, &legacy) as u8
+        ));
+    }
+    out
+}
 RUSTEOF
 
 mkdir -p "$crate/src/bin"
@@ -482,6 +532,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::format::probe_format(&input));
+        return;
+    }
+    if path == "--hyp" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::tables::detect_lines::probe_hypotheses(&input));
         return;
     }
     if path == "--rules" {
