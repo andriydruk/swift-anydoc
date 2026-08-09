@@ -1187,11 +1187,25 @@ Everything needed is in the repo; no state lives outside it.
 ```bash
 scripts/gen-graphics-oracle.sh /tmp/oracle      # vendored reference + probes
 scripts/gen-pdf-corpus.py      /tmp/corpus      # 30 adversarial PDFs
+scripts/gen-pdf-oracles.sh     /tmp/corpus /tmp/oracle   # the per-file dumps
 scripts/gen-classify-probe.py  /tmp/probe       # classifier + cleanup oracles
 scripts/gen-grid-probe.py      /tmp/grid --oracle /tmp/oracle
 ANYDOC_PDF_CORPUS=/tmp/corpus ANYDOC_CLASSIFY_PROBE=/tmp/probe \
   ANYDOC_GRID_PROBE=/tmp/grid swift test
 ```
+
+Expect **473 tests, 87 suites, all passing**, and these counts — if any reads
+zero, an oracle is missing rather than the code being fine:
+
+```
+pdf corpus: 27 graphs compared, 3 rejections agreed
+pdf graphics probe: 26 files compared     pdf underline probe: 26 files compared
+pdf classify probe / cleanup probe / grid / table format / table detect: > 0
+```
+
+The third step is easy to forget and does **not** fail loudly: without the
+per-file dumps the corpus suites compare *nothing* and still report a count.
+That is how this recipe was wrong when first written.
 
 The drill that has caught every divergence this phase, in order:
 
