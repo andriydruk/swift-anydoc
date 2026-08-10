@@ -1234,9 +1234,10 @@ cells field is empty whenever a one-cell grid holds the empty string — Rust's
 (`detect_tables_from_rects`, stacked-box, row-stripe, merged-cluster),
 `detect_row_stripe_table_from_cell_rects`,
 `collapse_multiline_description_rows`, `detect_chart_regions`, the rect-hint
-machinery, and the top-level `detect_tables_from_rects` that orchestrates all
-of them — roughly 3,300 of its 4,671 lines. **The strategies ported in waves
-23–29 have no caller yet**; that orchestrator is what makes them reachable.
+machinery, and the cluster loop of `detect_tables_from_rects` — roughly 3,100
+of its 4,671 lines. **The strategies of waves 23–30 still have no caller**:
+what remains of the orchestrator is the loop that clusters, tries each
+strategy per cluster, and collects hint regions.
 
 - **Wave 24 — grid assignment.** `PdfGridAssign.swift` ports
   `assign_items_to_grid` and `remove_inner_delimiter_spaces`. Both ruled
@@ -1379,6 +1380,34 @@ first run, fixed in the harness, not the port.
 
 1,424 cases agree on the first run, ordering included — with genuinely broad
 coverage this time: **531 accepts spanning 2 to 6 columns, 893 rejects.**
+
+- **Wave 30 — rect preprocessing and the direct chain.**
+  `PdfRectPipeline.swift` ports the filtering inline at the top of
+  `detect_tables_from_rects`, plus `detect_table_from_rect_group` and
+  `detect_direct_rect_table`.
+  - Preprocessing normalises flipped extents, drops decoration under 5pt,
+    removes page-spanning fills, and deduplicates cell-internal shading.
+    Each exists because leaving it in corrupts the grid: a fill adds spurious
+    column edges, shading inside a cell splits one visual row into two.
+  - The oversized filter keys on median **width**, not area, and the choice
+    matters: a row-stripe table has every rectangle at full width, so its
+    median *is* the table width and nothing is dropped. A unit test written
+    expecting a 600pt fill to be dropped was wrong — nine 60pt cells give a
+    threshold of exactly 600 and the comparison is `<=`, so it survives. The
+    boundary is now pinned from both sides.
+  - `pdfDetectTableFromRectGroup` is where `fewNonEmptyRows` earns its
+    keep: a full-page background makes merged-cell propagation collapse every
+    row's text into the first, and that verdict is what triggers the retry
+    with those rectangles excluded from the column edges. Gated on twelve
+    y-edges, because the stricter retry manufactures false positives on small
+    grids.
+  - `pdfDetectDirectRectTable` tries grid, then stripes, then stacked boxes —
+    the order of decreasing geometric evidence.
+
+1,428 cases agree on both new probes on the first run. Preprocessing coverage
+was 31 cases in 1,228 and is now **160 in 1,428**, after adding randomised
+flipped, tiny, oversized and nested shapes; the direct chain accepts 306 times
+across 1 to 5 columns.
 
 ## Phase 6 remaining work — exact inventory
 

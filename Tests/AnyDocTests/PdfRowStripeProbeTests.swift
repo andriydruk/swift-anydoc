@@ -48,8 +48,14 @@ import Testing
                 ours += " " + format(column)
             }
             ours += "\n"
-            // The reference's probe emits cols, merged, stack, stripe — in
-            // that order. Four harness bugs this phase have been ordering.
+            // The reference's probe emits cols, direct, merged, stack,
+            // stripe — in that order. Four harness bugs this phase have been
+            // ordering, so it is checked against the Rust each time.
+            if let direct = pdfDetectDirectRectTable(items: items, rects: rects) {
+                ours += "direct \(direct.columns.count) \(direct.rows.count)\n"
+            } else {
+                ours += "direct none\n"
+            }
             if let merged = pdfDetectMergedClusterTable(items: items, allRects: rects) {
                 ours += "merged \(merged.columns.count) \(merged.rows.count)\n"
                 for row in merged.cells { ours += "m\t" + row.joined(separator: "\t") + "\n" }

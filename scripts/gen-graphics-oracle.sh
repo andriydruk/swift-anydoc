@@ -88,6 +88,8 @@ perl -pi -e 's/^fn detect_stacked_box_table\(/pub fn detect_stacked_box_table(/'
     "$crate/src/tables/detect_rects.rs"
 perl -pi -e 's/^fn detect_merged_cluster_table\(/pub fn detect_merged_cluster_table(/' \
     "$crate/src/tables/detect_rects.rs"
+perl -pi -e 's/^fn detect_direct_rect_table\(/pub fn detect_direct_rect_table(/' \
+    "$crate/src/tables/detect_rects.rs"
 cat >> "$crate/src/tables/mod.rs" <<'RS2'
 
 /// Probe shim (added for swift-anydoc): expose the financial expansion.
@@ -622,6 +624,56 @@ pub fn probe_assign(input: &str) -> String {
     out
 }
 
+/// Probe (added for swift-anydoc): the rect preprocessing pipeline, mirroring
+/// the filtering inline at the top of `detect_tables_from_rects`.
+pub fn probe_prepare(input: &str) -> String {
+    let mut raw: Vec<(f32, f32, f32, f32)> = Vec::new();
+    for line in input.lines().skip(1) {
+        let p: Vec<&str> = line.splitn(6, ' ').collect();
+        if p.len() >= 5 && p[0] == "R" {
+            raw.push((
+                p[1].parse().unwrap_or(0.0), p[2].parse().unwrap_or(0.0),
+                p[3].parse().unwrap_or(0.0), p[4].parse().unwrap_or(0.0),
+            ));
+        }
+    }
+    let mut page_rects: Vec<(f32, f32, f32, f32)> = Vec::new();
+    for r in &raw {
+        let (mut x, mut y, mut w, mut h) = *r;
+        if w < 0.0 { x += w; w = -w; }
+        if h < 0.0 { y += h; h = -h; }
+        if w < 5.0 || h < 5.0 { continue }
+        page_rects.push((x, y, w, h));
+    }
+    if page_rects.len() >= 6 {
+        let mut widths: Vec<f32> = page_rects.iter().map(|&(_, _, w, _)| w).collect();
+        widths.sort_by(|a, b| a.total_cmp(b));
+        let threshold = widths[widths.len() / 2] * 10.0;
+        page_rects.retain(|&(_, _, w, _)| w <= threshold);
+        if page_rects.len() < MAX_CLUSTER_RECTS {
+            let snapshot = page_rects.clone();
+            page_rects.retain(|&(ax, ay, aw, ah)| {
+                let tol = 2.0;
+                !snapshot.iter().any(|&(bx, by, bw, bh)| {
+                    let container_is_page_bg = bx < 5.0 && by < 5.0;
+                    bw * bh > aw * ah * 1.2
+                        && bh < ah * 4.0
+                        && !container_is_page_bg
+                        && bx <= ax + tol
+                        && (bx + bw) >= (ax + aw) - tol
+                        && by <= ay + tol
+                        && (by + bh) >= (ay + ah) - tol
+                })
+            });
+        }
+    }
+    let mut out = String::new();
+    for r in &page_rects {
+        out.push_str(&format!("p {:.3} {:.3} {:.3} {:.3}\n", r.0, r.1, r.2, r.3));
+    }
+    out
+}
+
 /// Probe (added for swift-anydoc): row-stripe table detection.
 /// Same input shape as --gridbuild.
 pub fn probe_stripe(input: &str) -> String {
@@ -653,6 +705,10 @@ pub fn probe_stripe(input: &str) -> String {
         out.push_str(&format!(" {c:.3}"));
     }
     out.push('\n');
+    match detect_direct_rect_table(&items, &rects, 1) {
+        None => out.push_str("direct none\n"),
+        Some(t) => out.push_str(&format!("direct {} {}\n", t.columns.len(), t.rows.len())),
+    }
     match detect_merged_cluster_table(&items, &rects, 1) {
         None => out.push_str("merged none\n"),
         Some(t) => {
@@ -780,6 +836,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::format::probe_format(&input));
+        return;
+    }
+    if path == "--prepare" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::tables::detect_rects::probe_prepare(&input));
         return;
     }
     if path == "--stripe" {

@@ -624,6 +624,18 @@ def gridbuild_cases(random_count):
         bg = [(0, 0, 600, 780)] * count + cell_grid(3, 3)
         out.append(block(False, [False] * len(bg), bg, fill(3, 3)))
 
+    # Preprocessing shapes: negative extents, decoration, an oversized fill,
+    # and cell-internal shading inside a cell.
+    out.append(block(False, [False] * 4, [
+        (300, 700, -100, 20), (100, 700, 60, -20),
+        (100, 600, 3, 20), (100, 500, 60, 3),
+    ], []))
+    grid_rects = cell_grid(3, 3)
+    out.append(block(False, [False] * (len(grid_rects) + 1),
+                     grid_rects + [(0, 0, 600, 780)], fill(3, 3)))
+    shaded = cell_grid(3, 3) + [(102, 702, 56, 16)]
+    out.append(block(False, [False] * len(shaded), shaded, fill(3, 3)))
+
     # Stacked boxes: a framed list, and the prose shapes that must be
     # rejected. The random tail almost never produces a clean stack.
     def stack(n, h=24, gap=2, width=300):
@@ -664,6 +676,32 @@ def gridbuild_cases(random_count):
 
     generator = random.Random(4242)
     words = ["a", "bb", "12", "", "3.50", "total"]
+
+    # Randomised shapes for the preprocessing filters: flipped extents, sub-
+    # threshold decoration, oversized fills straddling the 10x median-width
+    # gate, and nested shading straddling the 4x container-height gate.
+    for _ in range(random_count // 3):
+        rects = list(cell_grid(generator.randint(2, 4), generator.randint(2, 4)))
+        for _ in range(generator.randint(0, 4)):
+            kind = generator.choice(["flip", "tiny", "oversize", "nested", "pagebg"])
+            if kind == "flip":
+                x, y = generator.randrange(100, 400), generator.randrange(500, 700)
+                rects.append((x, y, -generator.choice([20, 60]), -generator.choice([10, 30])))
+            elif kind == "tiny":
+                rects.append((generator.randrange(100, 400), generator.randrange(500, 700),
+                              generator.choice([1, 3, 4.5, 6]), generator.choice([2, 4, 8])))
+            elif kind == "oversize":
+                base = rects[0][2] if rects else 60
+                rects.append((100, 400, base * generator.choice([5, 9, 11, 20]), 30))
+            elif kind == "pagebg":
+                rects.append((0, 0, 600, 780))
+            else:
+                if rects:
+                    bx, by, bw, bh = rects[0]
+                    shrink = generator.choice([0.9, 0.6, 0.2])
+                    rects.append((bx + 2, by + 2, bw * shrink, bh * shrink))
+        generator.shuffle(rects)
+        out.append(block(False, [False] * len(rects), rects, fill(2, 2)))
 
     # Randomised framed stacks, straddling the gates: box count, the 120-char
     # cell cap, the 60-char prose mean, the continuation and list-marker
@@ -818,6 +856,15 @@ def main():
         gb_answers.append(r.stdout)
     with open(os.path.join(arguments.directory, "gridbuild-rust.txt"), "w", encoding="utf-8") as f:
         f.write("\n===\n".join(gb_answers))
+
+    prep_answers = []
+    for b in gb_blocks:
+        r = subprocess.run(
+            [probe, "--prepare"], input=b + "\n", capture_output=True, text=True, check=True
+        )
+        prep_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "prepare-rust.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(prep_answers))
 
     stack_answers = []
     for b in gb_blocks:
