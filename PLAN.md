@@ -1230,11 +1230,12 @@ cells field is empty whenever a one-cell grid holds the empty string — Rust's
 
 708 cases agree, with 1,232 groups formed and 264 splits taken.
 
-**Still unported in `detect_rects.rs`:** `detect_chart_regions`, the rect-hint
-machinery, and the cluster loop of `detect_tables_from_rects` — roughly 2,500
-of its 4,671 lines. Every table-building *strategy* now exists. **They still
-have no caller**: what remains of the orchestrator is the loop that clusters,
-tries each strategy per cluster, and collects hint regions.
+**Still unported in `detect_rects.rs`:** `detect_chart_regions` and the
+rect-hint machinery — roughly 2,100 of its 4,671 lines. Every table-building
+strategy exists and, as of wave 33, is reached from a caller. What remains is
+the *hint* half of `detect_tables_from_rects`: when the loop finds no table it
+turns cluster bounding boxes into regions that scope heuristic detection, and
+that half returns nothing yet.
 
 - **Wave 24 — grid assignment.** `PdfGridAssign.swift` ports
   `assign_items_to_grid` and `remove_inner_delimiter_spaces`. Both ruled
@@ -1475,6 +1476,49 @@ disproportionate-grid gates, which fire once each. Six gates remain unfired;
 five are provably unreachable (the extent, text-edge, column-count and
 edge-mismatch guards all follow from checks already made above them), and only
 the empty-assignment gate is reachable but unexercised.
+
+- **Wave 33 — the cluster loop, and a caller at last.** `PdfRectTables.swift`
+  ports the table half of `detect_tables_from_rects`. Waves 23–32 built eight
+  strategies with nothing calling them; this is what calls them.
+
+  The loop clusters a page's rectangles, tries the strategies against each
+  cluster in decreasing order of geometric evidence, and keeps three
+  whole-page fallbacks behind them for shapes clustering cannot see:
+  - **Merged-cluster**, for clip-path PDFs where every column is its own
+    cluster. It also *replaces* tables that were found but are all narrow —
+    the same failure seen from the other side.
+  - **Cell-rect**, for tables drawn as cell backgrounds, where the rows are in
+    the rectangles but the columns are only in the text.
+  - **Row-stripe**, for banded tables whose stripes never overlap, so
+    clustering yields nothing at all and the page must be tried whole.
+
+  Origin-anchored page backgrounds are held out of the *adjacency graph* but
+  not out of the clusters — they would bridge separate tables into one, yet
+  grid detection still wants their edges. Chart clusters are dropped outright
+  before any detector sees them, with one escape hatch: repeated page fills
+  can make a real shaded-cell table look like a chart, so the cluster is
+  re-tried without them and a hypothesis of eight rows or more can overturn
+  the chart verdict.
+
+  Also reproduced: three-to-five box stacks never reach the stacked-box
+  detector, because both the page and the cluster must hold six rectangles.
+  That is a deliberate precision gate upstream, not an oversight.
+
+1,485 cases agree on the first run. **Branch coverage was again measured, not
+assumed** — and again the first measurement was damning: every existing case
+was a single cluster, so the loop only ever exercised `direct` and the
+cell-rect fallback. Seven whole-page shapes were added (two separated grids,
+three two-column groups, non-overlapping stripes above and below the
+fifteen-rect bar, a bar chart bridged by its axis rule, clip-path columns), and
+seven of the ten branches now fire. The three that do not:
+  - the **split-wide retry** and its two outcomes. Its call site is
+    unreachable through this loop by construction: a cluster wide enough to
+    split needs a rectangle bridging the gutter, and any such rectangle fills
+    the gutter the splitter is looking for. `pdfSplitWideCluster` itself is
+    covered by its own wave-23 probe.
+  - the **chart-normalisation** acceptance, which needs dominant page fills
+    that survive preprocessing; the oversized-width filter and the sub-rect
+    dedup jointly remove them in every synthetic shape tried.
 
 ## Phase 6 remaining work — exact inventory
 

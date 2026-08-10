@@ -655,6 +655,75 @@ def gridbuild_cases(random_count):
                 items.append((100 + c * 60 + 10, 700 - r * 20 + 5, 30, 10, text))
         out.append(block(False, [False] * len(rects), rects, items))
 
+    # Whole-page shapes, for the orchestrator rather than a single cluster.
+    # Every other case here is one cluster, so without these the multi-table,
+    # split, merged-fallback and row-stripe-fallback branches never run.
+
+    # Two grids far enough apart to cluster separately.
+    two = cell_grid(3, 3, y0=700) + cell_grid(3, 3, y0=500)
+    out.append(block(False, [False] * len(two),
+                     two, fill(3, 3, y0=700) + fill(3, 3, y0=500, word="w")))
+
+    # Two grids bridged by a full-width header, so they arrive as one wide
+    # cluster with a gutter down the middle. The halves sit on different row
+    # baselines, which is what stops the combined geometry gridding cleanly
+    # and sends the cluster to the split retry.
+    for offset in (0, 7):
+        bridged = ([(100, 720, 460, 20)]
+                   + cell_grid(3, 3, x0=100, y0=700)
+                   + cell_grid(3, 3, x0=380, y0=700 - offset))
+        bridged_items = ([(110, 725, 200, 10, "header")]
+                         + fill(3, 3, x0=100, y0=700)
+                         + fill(3, 3, x0=380, y0=700 - offset, word="w"))
+        out.append(block(False, [False] * len(bridged), bridged, bridged_items))
+
+    # Three two-column groups: each detects a narrow table on its own, which
+    # is the signal that the real table was split across clusters — so the
+    # merged fallback replaces all three.
+    narrow = []
+    narrow_items = []
+    for g in range(3):
+        for r in range(15):
+            for c in range(2):
+                x = g * 180 + c * 70 + 50
+                narrow.append((x, 700 - r * 20, 70, 20))
+                narrow_items.append((x + 5, 705 - r * 20, 40, 10, f"g{g}c{c}r{r}"))
+    out.append(block(False, [False] * len(narrow), narrow, narrow_items))
+
+    # Clip-path style: each column its own cluster, none overlapping.
+    columns = []
+    column_items = []
+    for c in range(4):
+        for r in range(15):
+            columns.append((100 + c * 80, 700 - r * 20, 70, 20))
+            column_items.append((105 + c * 80, 705 - r * 20, 40, 10, f"c{c}r{r}"))
+    out.append(block(False, [False] * len(columns), columns, column_items))
+
+    # Row stripes: full-width bands separated by more than the 3pt cluster
+    # tolerance, so clustering finds nothing at all and the whole page has to
+    # be tried at once.
+    stripes = [(100, 700 - r * 30, 400, 15) for r in range(16)]
+    stripe_items = [
+        (110 + c * 130, 705 - r * 30, 60, 10, f"s{r}{c}")
+        for r in range(16) for c in range(3)
+    ]
+    out.append(block(False, [False] * len(stripes), stripes, stripe_items))
+    # ...and the same shape too short to clear the fifteen-rect bar.
+    short_stripes = stripes[:12]
+    out.append(block(False, [False] * len(short_stripes), short_stripes,
+                     [i for i in stripe_items if i[1] > 705 - 12 * 30]))
+
+    # A bar chart: equal-breadth bars of varying length, standing apart, with
+    # numeric labels. Bars never overlap each other, so an axis rule is what
+    # bridges them into one cluster — which is how a chart reaches the loop.
+    bars = [(100, 294, 220, 6)] + [(100 + c * 40, 300, 25, 60 + c * 35) for c in range(6)]
+    bar_items = [(105 + c * 40, 295, 20, 10, f"{c * 12}") for c in range(6)]
+    out.append(block(False, [False] * len(bars), bars, bar_items))
+    # The same bars under repeated page fills, which is what makes a real
+    # shaded-cell table look chart-like.
+    filled = [(0, 0, 612, 792)] * 3 + bars
+    out.append(block(False, [False] * len(filled), filled, bar_items))
+
     # Shapes aimed at the gates the randomised prose cases never reach:
     # a paragraph-length cell in a short table, a tall skinny grid, and
     # uniformly long prose across enough columns to pass the distribution
@@ -1007,6 +1076,15 @@ def main():
         cr_answers.append(r.stdout)
     with open(os.path.join(arguments.directory, "cellrows-rust.txt"), "w", encoding="utf-8") as f:
         f.write("\n===\n".join(cr_answers))
+
+    rt_answers = []
+    for b in gb_blocks:
+        r = subprocess.run(
+            [probe, "--recttables"], input=b + "\n", capture_output=True, text=True, check=True
+        )
+        rt_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "recttables-rust.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(rt_answers))
 
     cs_answers = []
     for b in gb_blocks:

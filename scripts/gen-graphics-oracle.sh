@@ -624,6 +624,48 @@ pub fn probe_assign(input: &str) -> String {
     out
 }
 
+/// Probe (added for swift-anydoc): the cluster loop, tables only.
+pub fn probe_rect_tables(input: &str) -> String {
+    use crate::types::{ItemType, PdfRect, TextItem};
+    let mut rects: Vec<PdfRect> = Vec::new();
+    let mut items: Vec<TextItem> = Vec::new();
+    for line in input.lines().skip(1) {
+        let p: Vec<&str> = line.splitn(6, ' ').collect();
+        if p.len() >= 5 && p[0] == "R" {
+            rects.push(PdfRect {
+                x: p[1].parse().unwrap_or(0.0), y: p[2].parse().unwrap_or(0.0),
+                width: p[3].parse().unwrap_or(0.0), height: p[4].parse().unwrap_or(0.0),
+                page: 1,
+            });
+        } else if p.len() >= 6 && p[0] == "I" {
+            items.push(TextItem {
+                text: p[5].to_string(),
+                x: p[1].parse().unwrap_or(0.0), y: p[2].parse().unwrap_or(0.0),
+                width: p[3].parse().unwrap_or(0.0), height: p[4].parse().unwrap_or(0.0),
+                font: "F1".to_string(), font_size: p[4].parse().unwrap_or(0.0), page: 1,
+                is_bold: false, is_italic: false, is_underline: false, is_strikeout: false,
+                item_type: ItemType::Text, mcid: None,
+            });
+        }
+    }
+    let (tables, _hints) = detect_tables_from_rects(&items, &rects, 1);
+    let mut out = format!("tables {}\n", tables.len());
+    for t in &tables {
+        out.push_str(&format!("t {} {}\nc", t.columns.len(), t.rows.len()));
+        for v in &t.columns { out.push_str(&format!(" {v:.3}")); }
+        out.push_str("\nw");
+        for v in &t.rows { out.push_str(&format!(" {v:.3}")); }
+        out.push('\n');
+        for row in &t.cells {
+            out.push('x');
+            for c in row { out.push('\t'); out.push_str(c); }
+            out.push('\n');
+        }
+        out.push_str(&format!("n {}\n", t.item_indices.len()));
+    }
+    out
+}
+
 /// Probe (added for swift-anydoc): the whole cell-rect stripe strategy.
 pub fn probe_cell_stripe(input: &str) -> String {
     use crate::types::{ItemType, TextItem};
@@ -985,6 +1027,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::format::probe_format(&input));
+        return;
+    }
+    if path == "--recttables" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::tables::detect_rects::probe_rect_tables(&input));
         return;
     }
     if path == "--cellstripe" {
