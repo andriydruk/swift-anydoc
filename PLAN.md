@@ -1232,8 +1232,26 @@ cells field is empty whenever a one-cell grid holds the empty string — Rust's
 
 **Still unported in `detect_rects.rs`:** every table-building strategy
 (`detect_tables_from_rects`, stacked-box, row-stripe, merged-cluster),
-`assign_items_to_grid`, chart-region detection, and the page-background
-filter — roughly 4,400 of its 4,671 lines.
+`try_build_grid`, `propagate_merged_cells`, chart-region detection, and the
+page-background filter — roughly 4,300 of its 4,671 lines.
+
+- **Wave 24 — grid assignment.** `PdfGridAssign.swift` ports
+  `assign_items_to_grid` and `remove_inner_delimiter_spaces`. Both ruled
+  strategies end here: once cell borders have yielded column and row *edges*,
+  every item is dropped into the cell it falls in and each cell's items joined.
+  - Edges bound cells — `n` edges give `n - 1` cells — which is what
+    distinguishes this from the heuristic path's `pdfFindColumnIndex`, where
+    columns are positions and an item goes to the nearest. Two different
+    models of the same idea, and mixing them up would be silent.
+  - An item is placed by its horizontal *centre* but its vertical *baseline*,
+    not its vertical centre: a cell's row is decided by where the text sits,
+    so a tall glyph must not migrate into the row above.
+  - `remove_inner_delimiter_spaces` closes a space that landed just inside a
+    bracket — joining fragments puts one wherever the producer broke the run,
+    and `( 12 )` reads wrong. Only the inner side: `a (b)` keeps its space.
+
+707 cases agree, with 2,171 cells emitted and 589 cases placing at least one
+item.
 
 ## Phase 6 remaining work — exact inventory
 

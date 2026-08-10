@@ -490,6 +490,66 @@ def rect_cases(random_count):
     return out
 
 
+def assign_cases(random_count):
+    """Grid-assignment cases: column edges, row edges, then items."""
+    def block(cols, rows, items):
+        return (
+            " ".join(f"{c:g}" for c in cols) + "\n"
+            + " ".join(f"{r:g}" for r in rows) + "\n"
+            + "\n".join(f"{x:g} {y:g} {w:g} {s:g} {t}" for x, y, w, s, t in items)
+        )
+
+    out = [
+        # A plain 2x2.
+        block([100, 200, 300], [720, 700, 680],
+              [(110, 710, 40, 10, "a"), (210, 710, 40, 10, "b"),
+               (110, 690, 40, 10, "c"), (210, 690, 40, 10, "d")]),
+        # Items outside the grid are dropped.
+        block([100, 200], [720, 700],
+              [(110, 710, 40, 10, "in"), (500, 710, 40, 10, "out"),
+               (110, 400, 40, 10, "below")]),
+        # An item straddling a border: assignment is by horizontal centre.
+        block([100, 200, 300], [720, 700],
+              [(180, 710, 40, 10, "straddles")]),
+        # Exactly on a border, and just outside it by less than the slack.
+        block([100, 200], [720, 700],
+              [(80, 710, 40, 10, "onedge"), (78, 701.5, 40, 10, "slack")]),
+        # Several items in one cell: down the page, then left to right.
+        block([100, 300], [720, 680],
+              [(110, 690, 40, 10, "second"), (200, 710, 40, 10, "first-right"),
+               (110, 710, 40, 10, "first-left")]),
+        # Bracket spacing inside a joined cell.
+        block([100, 300], [720, 680],
+              [(110, 710, 20, 10, "value"), (140, 710, 10, 10, "("),
+               (160, 710, 20, 10, "12"), (190, 710, 10, 10, ")")]),
+        # Degenerate: too few edges to bound a cell.
+        block([100], [720], [(110, 710, 40, 10, "x")]),
+    ]
+
+    generator = random.Random(8642)
+    words = ["a", "bb", "12", "(", ")", "3.50", "", "total"]
+    for _ in range(random_count):
+        ncols = generator.randint(1, 5)
+        nrows = generator.randint(1, 5)
+        cols = [100.0]
+        for _ in range(ncols):
+            cols.append(cols[-1] + generator.choice([30, 50, 80, 120]))
+        rows = [720.0]
+        for _ in range(nrows):
+            rows.append(rows[-1] - generator.choice([15, 20, 30]))
+        items = []
+        for _ in range(generator.randint(0, 12)):
+            items.append((
+                generator.uniform(60, cols[-1] + 40),
+                generator.uniform(rows[-1] - 20, 730),
+                generator.choice([10, 20, 40]),
+                10,
+                generator.choice(words),
+            ))
+        out.append(block(cols, rows, items))
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -535,6 +595,18 @@ def main():
         detect_answers.append(result.stdout)
     with open(os.path.join(arguments.directory, "detect-rust.txt"), "w", encoding="utf-8") as f:
         f.write("\n---\n".join(detect_answers))
+
+    assign_blocks = assign_cases(arguments.cases)
+    with open(os.path.join(arguments.directory, "assign-cases.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(assign_blocks) + "\n")
+    assign_answers = []
+    for b in assign_blocks:
+        r = subprocess.run(
+            [probe, "--assign"], input=b + "\n", capture_output=True, text=True, check=True
+        )
+        assign_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "assign-rust.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(assign_answers))
 
     rect_blocks = rect_cases(arguments.cases)
     with open(os.path.join(arguments.directory, "rect-cases.txt"), "w", encoding="utf-8") as f:
