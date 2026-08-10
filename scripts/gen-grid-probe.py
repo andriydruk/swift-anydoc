@@ -263,6 +263,49 @@ def rule_cases(random_count):
     out = [
         # Segmented cells on one baseline: joins across a 5pt gap, not a 10pt one.
         block([(700, 100, 200), (700, 205, 300), (700, 310, 400), (660, 100, 400)]),
+        # Ruled bands filled with real multi-column rows. Without these the
+        # anchor primitives only ever see one-word rows: the other cases in
+        # this file exist for the rule geometry and carry almost no text.
+        block(
+            [(700, 100, 500), (680, 100, 500), (560, 100, 500)],
+            [(100 + c * 100, 690 - r * 20, 70, 10, f"c{c}r{r}")
+             for r in range(6) for c in range(4)],
+        ),
+        # Columns close enough to join into one anchor, against columns that
+        # stay apart: the join gap is 6pt, so 4pt merges and 8pt does not.
+        block(
+            [(700, 100, 400), (600, 100, 400)],
+            [(100, 690, 40, 10, "a"), (144, 690, 40, 10, "b"),
+             (250, 690, 40, 10, "c"), (298, 690, 40, 10, "d"),
+             (100, 670, 40, 10, "e"), (250, 670, 190, 10, "wide")],
+        ),
+        # Baselines drifting by 2pt a line — inside the row tolerance, so they
+        # chain into one row and the row keeps the first item's y.
+        block(
+            [(700, 100, 400), (600, 100, 400)],
+            [(100 + i * 60, 690 - i * 2, 40, 10, f"t{i}") for i in range(5)],
+        ),
+        # Items sharing a point exactly, which is where a non-stable sort
+        # would diverge from the reference.
+        block(
+            [(700, 100, 400), (600, 100, 400)],
+            [(200, 660, 30, 10, "same"), (200, 660, 30, 10, "point"),
+             (200, 660, 30, 10, "again"), (100, 660, 30, 10, "left")],
+        ),
+        # Text reaching past the rules on both sides, and blank items that are
+        # dropped before rows are formed.
+        block(
+            [(700, 200, 300), (600, 200, 300)],
+            [(190, 690, 20, 10, "edgeL"), (295, 690, 20, 10, "edgeR"),
+             (100, 690, 20, 10, "far"), (250, 670, 20, 10, " "),
+             (250, 650, 20, 10, "keep")],
+        ),
+        # Negative widths, which the span sweep clamps to zero.
+        block(
+            [(700, 100, 400), (600, 100, 400)],
+            [(150, 690, -40, 10, "neg"), (200, 690, 40, 10, "pos"),
+             (300, 690, -5, 10, "neg2")],
+        ),
         # A booktabs table: three full-width rules.
         block([(700, 100, 400), (660, 100, 400), (500, 100, 400)]),
         # Two tables sharing endpoints, separated by a numbered caption.
@@ -1199,6 +1242,15 @@ def main():
         f.write("\n===\n".join(hyp_answers))
 
     rule_blocks = rule_cases(arguments.cases)
+    an_answers = []
+    for b in rule_blocks:
+        r = subprocess.run(
+            [probe, "--anchors"], input=b + "\n", capture_output=True, text=True, check=True
+        )
+        an_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "anchors-rust.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(an_answers))
+
     with open(os.path.join(arguments.directory, "rules-cases.txt"), "w", encoding="utf-8") as f:
         f.write("\n===\n".join(rule_blocks) + "\n")
     rule_answers = []

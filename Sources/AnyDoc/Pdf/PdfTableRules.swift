@@ -10,16 +10,16 @@
 /// split where two tables happen to share x endpoints.
 
 /// Rules within this vertical distance are the same rule.
-private let pdfRuleYTolerance: Float = 2.0
+let pdfRuleYTolerance: Float = 2.0
 
 /// Segments this close end-to-end were one rule drawn in pieces.
-private let pdfRuleJoinGap: Float = 6.0
+let pdfRuleJoinGap: Float = 6.0
 
 /// How far two rules' endpoints may differ and still count as the same span.
 private let pdfRuleSpanTolerance: Float = 8.0
 
 /// Text baselines within this distance are one row, for the empty-gap test.
-private let pdfTextRowTolerance: Float = 2.5
+let pdfTextRowTolerance: Float = 2.5
 
 /// A horizontal rule: a baseline and the span it covers.
 struct PdfHorizontalRule: Equatable {

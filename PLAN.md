@@ -1555,6 +1555,39 @@ with the large-decorative-cluster source and the merge both dead. Two shapes
 fixed that — paired textless calendar grids, and two column groups 20pt apart
 whose merged width stays under the cap — and all five paths now fire.
 
+- **Wave 35 — the anchor primitives of `detect_lines.rs`.**
+  `PdfRuleAnchors.swift` ports `collect_anchored_rows`, `logical_row_anchors`,
+  `nearest_anchor_column`, `matched_anchor_column_count` and
+  `combine_non_overlapping_tables` — the layer every ruled-table strategy in
+  that file is built on.
+
+  A booktabs table draws two or three rules and no column borders at all, so
+  its columns exist only in where the text starts. These functions read that:
+  gather the text a run of rules encloses, group it into rows, and infer each
+  row's anchors from the gaps between word spans.
+  - **Rows form against the row's *first* baseline, not its last.** Text
+    drifting 2pt a line against a 2.5pt tolerance therefore makes a new row
+    every second line rather than chaining into one — which is what stops a
+    slanted column of text collapsing into a single row. A unit test written
+    the other way round was wrong.
+  - **No rules selects nothing.** The bounds are folded from the rules, so an
+    empty list leaves them inverted (bottom at +∞, top at -∞) and no item can
+    satisfy both. Reads like an accident, behaves usefully.
+  - `logical_row_anchors` *replaces* the running right edge when an anchor
+    opens rather than extending it, and clamps negative widths to zero.
+  - Overlap between competing strategies is settled by **item ownership**, not
+    geometry: a table sharing even one item with an accepted one is dropped
+    whole.
+  - Two stability fixes: Rust's `sort_by` is stable and Swift's `sort` is not,
+    so both the item sort and the table sort break exact ties on the original
+    index — which is precisely what stability would have given.
+
+1,018 cases agree on the first run. Coverage of the anchor sweep was thin at
+first (544 rows with a single anchor, 6 with three) because the wave-21 rule
+cases exist for rule *geometry* and carry almost no text; six text-bearing
+bands were added for joined and separated columns, drifting baselines,
+coincident points, out-of-band text and negative widths.
+
 ## Phase 6 remaining work — exact inventory
 
 Measured against the vendored reference at wave 20. `Sources/AnyDoc/Pdf/` is

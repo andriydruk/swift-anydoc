@@ -70,6 +70,8 @@ perl -pi -e 's/^pub\(crate\) mod detect_lines;/pub mod detect_lines;/; s/^mod de
     "$crate/src/tables/mod.rs"
 perl -pi -e 's/^fn (merge_horizontal_segments|group_rules_by_span|numbered_table_caption|split_independent_rule_runs|rules_are_uniform_grid|derive_columns_from_horizontal_segments)\(/pub fn $1(/' \
     "$crate/src/tables/detect_lines.rs"
+perl -pi -e "s/^fn (collect_anchored_rows|logical_row_anchors|nearest_anchor_column|matched_anchor_column_count|combine_non_overlapping_tables)/pub fn \$1/" \
+    "$crate/src/tables/detect_lines.rs"
 perl -pi -e 's/^fn (table_evidence_score|select_non_overlapping_hypotheses|tables_share_items|overlaps_multiple_tables|select_table_hypothesis)\(/pub fn $1(/' \
     "$crate/src/tables/detect_lines.rs"
 perl -pi -e 's/^pub\(crate\) mod detect_rects;/pub mod detect_rects;/; s/^mod detect_rects;/pub mod detect_rects;/' \
@@ -429,6 +431,64 @@ cat >> "$crate/src/tables/detect_lines.rs" <<'RUSTEOF'
 /// Probe (added for swift-anydoc): report what the rule primitives make of a
 /// set of horizontal segments. Input lines are `y x_min x_max`, then a blank
 /// line, then optional text items as `x y width font_size text`.
+/// Probe (added for swift-anydoc): the anchor primitives. Shares the rule
+/// case format — `y x_min x_max` lines, a blank line, then items.
+pub fn probe_anchors(input: &str) -> String {
+    use crate::types::{ItemType, TextItem};
+    let mut rules: Vec<(f32, f32, f32)> = Vec::new();
+    let mut items: Vec<TextItem> = Vec::new();
+    let mut in_items = false;
+    for line in input.lines() {
+        if line.trim().is_empty() {
+            in_items = true;
+            continue;
+        }
+        let parts: Vec<&str> = line.split(' ').collect();
+        if !in_items {
+            if parts.len() >= 3 {
+                rules.push((
+                    parts[0].parse().unwrap_or(0.0),
+                    parts[1].parse().unwrap_or(0.0),
+                    parts[2].parse().unwrap_or(0.0),
+                ));
+            }
+        } else if parts.len() >= 5 {
+            items.push(TextItem {
+                text: parts[4..].join(" "),
+                x: parts[0].parse().unwrap_or(0.0),
+                y: parts[1].parse().unwrap_or(0.0),
+                width: parts[2].parse().unwrap_or(0.0),
+                height: parts[3].parse().unwrap_or(0.0),
+                font: "F1".to_string(),
+                font_size: parts[3].parse().unwrap_or(0.0),
+                page: 1,
+                is_bold: false, is_italic: false, is_underline: false, is_strikeout: false,
+                item_type: ItemType::Text, mcid: None,
+            });
+        }
+    }
+    let rows = collect_anchored_rows(&items, &rules, 1);
+    let mut out = format!("rows {}\n", rows.len());
+    for (y, row) in &rows {
+        out.push_str(&format!("r {y:.3}"));
+        for (i, _) in row { out.push_str(&format!(" {i}")); }
+        out.push('\n');
+        let anchors = logical_row_anchors(row);
+        out.push_str("a");
+        for a in &anchors { out.push_str(&format!(" {a:.3}")); }
+        out.push_str(&format!("\nm {}\n", matched_anchor_column_count(row, &anchors)));
+        out.push_str("k");
+        for (_, item) in row {
+            match nearest_anchor_column(item, &anchors) {
+                Some(c) => out.push_str(&format!(" {c}")),
+                None => out.push_str(" -"),
+            }
+        }
+        out.push('\n');
+    }
+    out
+}
+
 pub fn probe_rules(input: &str) -> String {
     use crate::types::{ItemType, TextItem};
     let mut rules: Vec<(f32, f32, f32)> = Vec::new();
@@ -1116,6 +1176,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::detect_lines::probe_hypotheses(&input));
+        return;
+    }
+    if path == "--anchors" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::tables::detect_lines::probe_anchors(&input));
         return;
     }
     if path == "--rules" {
