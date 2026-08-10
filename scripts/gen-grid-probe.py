@@ -753,6 +753,15 @@ def main():
     with open(os.path.join(arguments.directory, "gridbuild-rust.txt"), "w", encoding="utf-8") as f:
         f.write("\n===\n".join(gb_answers))
 
+    stripe_answers = []
+    for b in gb_blocks:
+        r = subprocess.run(
+            [probe, "--stripe"], input=b + "\n", capture_output=True, text=True, check=True
+        )
+        stripe_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "stripe-rust.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(stripe_answers))
+
     cls_answers = []
     for b in gb_blocks:
         r = subprocess.run(

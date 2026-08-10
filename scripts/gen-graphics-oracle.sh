@@ -82,6 +82,8 @@ perl -pi -e 's/^fn try_build_grid\(/pub fn try_build_grid(/; s/^enum GridResult 
     "$crate/src/tables/detect_rects.rs"
 perl -pi -e 's/^fn (is_row_stripe_pattern|without_dominant_page_backgrounds|is_chart_bar_cluster)\(/pub fn $1(/' \
     "$crate/src/tables/detect_rects.rs"
+perl -pi -e 's/^fn (detect_row_stripe_table|cluster_x_positions|has_dominant_prose_cell|row_stripe_is_sparse_prose_outline)\(/pub fn $1(/' \
+    "$crate/src/tables/detect_rects.rs"
 cat >> "$crate/src/tables/mod.rs" <<'RS2'
 
 /// Probe shim (added for swift-anydoc): expose the financial expansion.
@@ -616,6 +618,49 @@ pub fn probe_assign(input: &str) -> String {
     out
 }
 
+/// Probe (added for swift-anydoc): row-stripe table detection.
+/// Same input shape as --gridbuild.
+pub fn probe_stripe(input: &str) -> String {
+    use crate::types::{ItemType, TextItem};
+    let mut rects: Vec<(f32, f32, f32, f32)> = Vec::new();
+    let mut items: Vec<TextItem> = Vec::new();
+    for line in input.lines().skip(1) {
+        let p: Vec<&str> = line.splitn(6, ' ').collect();
+        if p.len() >= 5 && p[0] == "R" {
+            rects.push((
+                p[1].parse().unwrap_or(0.0), p[2].parse().unwrap_or(0.0),
+                p[3].parse().unwrap_or(0.0), p[4].parse().unwrap_or(0.0),
+            ));
+        } else if p.len() >= 6 && p[0] == "I" {
+            items.push(TextItem {
+                text: p[5].to_string(),
+                x: p[1].parse().unwrap_or(0.0), y: p[2].parse().unwrap_or(0.0),
+                width: p[3].parse().unwrap_or(0.0), height: p[4].parse().unwrap_or(0.0),
+                font: "F1".to_string(), font_size: p[4].parse().unwrap_or(0.0), page: 1,
+                is_bold: false, is_italic: false, is_underline: false, is_strikeout: false,
+                item_type: ItemType::Text, mcid: None,
+            });
+        }
+    }
+    let indexed: Vec<(usize, &TextItem)> = items.iter().enumerate().collect();
+    let mut out = String::new();
+    out.push_str("cols");
+    for c in cluster_x_positions(&indexed, 15.0) {
+        out.push_str(&format!(" {c:.3}"));
+    }
+    out.push('\n');
+    match detect_row_stripe_table(&items, &rects, 1) {
+        None => out.push_str("stripe none\n"),
+        Some(t) => {
+            out.push_str(&format!("stripe {} {}\n", t.columns.len(), t.rows.len()));
+            for row in &t.cells {
+                out.push_str(&format!("s\t{}\n", row.join("\t")));
+            }
+        }
+    }
+    out
+}
+
 /// Probe (added for swift-anydoc): classify a rect cluster.
 /// Same input shape as --gridbuild.
 pub fn probe_classify(input: &str) -> String {
@@ -713,6 +758,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::format::probe_format(&input));
+        return;
+    }
+    if path == "--stripe" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::tables::detect_rects::probe_stripe(&input));
         return;
     }
     if path == "--classify" {

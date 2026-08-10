@@ -1232,9 +1232,9 @@ cells field is empty whenever a one-cell grid holds the empty string — Rust's
 
 **Still unported in `detect_rects.rs`:** every table-building strategy
 (`detect_tables_from_rects`, stacked-box, row-stripe, merged-cluster),
-`detect_row_stripe_table`, `detect_stacked_box_table`,
+`detect_stacked_box_table`, `detect_row_stripe_table_from_cell_rects`,
 `detect_merged_cluster_table`, `detect_chart_regions` and the top-level
-`detect_tables_from_rects` — roughly 3,800 of its 4,671 lines.
+`detect_tables_from_rects` — roughly 3,500 of its 4,671 lines.
 
 - **Wave 24 — grid assignment.** `PdfGridAssign.swift` ports
   `assign_items_to_grid` and `remove_inner_delimiter_spaces`. Both ruled
@@ -1308,6 +1308,33 @@ compared 718 cases green with `chart` true 3 times and `stripe` true *once*.
 Randomised stripe and bar generators now straddle the thresholds — the 200pt
 width, the 10% tolerance, the half-breadth bar gap, the 1.3× length variation:
 **1,184 cases, 40 chart and 85 stripe verdicts, all agreeing.**
+
+- **Wave 27 — the row-stripe strategy.** `PdfRowStripeTable.swift` ports
+  `detect_row_stripe_table`, `cluster_x_positions`, `has_dominant_prose_cell`
+  and `row_stripe_is_sparse_prose_outline`. Alternating shading defeats grid
+  detection outright — every stripe shares an x position and width, so the
+  edges give one column — but the stripes carry perfectly good *row*
+  boundaries. Rows come from the rectangles, columns from where the text
+  starts.
+  - That makes it the loosest rect strategy, since geometry supplies only half
+    the grid, so most of the code is what follows: 40% content density (higher
+    than grid building's 25%), a cell-length cap that scales with width, empty
+    outer columns trimmed and empty interior columns fatal.
+  - `cluster_x_positions` counts only where text *starts*, and skips a run
+    that hugs the previous one — a style boundary, a script change, an
+    underline split — because feeding its start position in fabricates a
+    phantom column mid-cell. The negative bound matters too: text overhanging
+    from the next cell overlaps far more than italic kerning ever does and
+    must still open its own column.
+  - Two prose guards, both worth reading as statements of intent. A single
+    cell holding 60 words *and* a third of the table's total is a chart's
+    rectangles having swallowed the page — with deliberately **no** small-table
+    exemption, because the costs are asymmetric: rejecting a real table
+    degrades it to readable prose, accepting a phantom scrambles the page into
+    interleaved cells. And a sparse label column beside a dense column of
+    sentences is a heading sidebar over body text, not a table.
+
+1,184 cases agree, with 79 stripe tables accepted and 1,105 rejected.
 
 ## Phase 6 remaining work — exact inventory
 
