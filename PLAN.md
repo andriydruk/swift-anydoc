@@ -1230,12 +1230,10 @@ cells field is empty whenever a one-cell grid holds the empty string — Rust's
 
 708 cases agree, with 1,232 groups formed and 264 splits taken.
 
-**Still unported in `detect_rects.rs`:** `detect_chart_regions` and the
-rect-hint machinery — roughly 2,100 of its 4,671 lines. Every table-building
-strategy exists and, as of wave 33, is reached from a caller. What remains is
-the *hint* half of `detect_tables_from_rects`: when the loop finds no table it
-turns cluster bounding boxes into regions that scope heuristic detection, and
-that half returns nothing yet.
+**`detect_rects.rs` is complete as of wave 34** — every strategy, the
+orchestrator, the hint machinery and the chart regions. What remains of
+rectangle tables is downstream: nothing yet *consumes* the hints, because the
+heuristic detector they scope has not been wired to them.
 
 - **Wave 24 — grid assignment.** `PdfGridAssign.swift` ports
   `assign_items_to_grid` and `remove_inner_delimiter_spaces`. Both ruled
@@ -1519,6 +1517,43 @@ seven of the ten branches now fire. The three that do not:
   - the **chart-normalisation** acceptance, which needs dominant page fills
     that survive preprocessing; the oversized-width filter and the sub-rect
     dedup jointly remove them in every synthetic shape tried.
+
+- **Wave 34 — hint regions and chart regions.** `PdfRectHints.swift` plus the
+  hint pass in `PdfRectTables.swift` finish `detect_rects.rs`.
+
+  A hint is not a table — it is a boundary. A form drawn with only an outer
+  border and a header divider has no column structure at all, but its bounding
+  box keeps the heuristic detector from sweeping a graph legend into the table
+  beside it. Three sources feed it, in order: large decorative clusters
+  (calendars, forms), clusters that failed grid validation but hold six or
+  more text items, and — only on a rect-sparse page — a small cluster of cell
+  borders. A lone hint is then *discarded* unless it came from a failed
+  cluster: one region on its own is more likely decoration, and scoping to it
+  would hide the rest of the page.
+  - The hint pass re-clusters over **all** the page's rectangles, including
+    the origin-anchored backgrounds the table loop deliberately held out of
+    its adjacency graph. Harmless here, where a bridged region only has to
+    bound something, and fatal there, where it would have bridged two grids.
+  - `merge_overlapping_hints` loops until a pass merges nothing, so a chain
+    A–B–C folds into one region across two passes. The 400pt cap on the merged
+    width is what stops that chain creeping across the page.
+  - Chart regions are the mirror image: a bounding box around text no strategy
+    may grid. Their rectangle filter is deliberately *not* the shared
+    preprocessing — an origin-anchored background is dropped outright rather
+    than merely kept out of clustering, because letting one bridge into a bar
+    cluster would inflate the region to the whole page.
+  - One deviation, in naming only: the reference's region tuple is
+    `(min x, min y, max x, max y)`, so its last two fields are edges, not
+    extents. Ported as `(left, bottom, right, top)` rather than reusing the
+    rectangle tuple, whose `width`/`height` labels would quietly mean
+    something else. A unit test written against the misleading reading was
+    wrong before this was fixed.
+
+1,487 cases agree on the first run. Branch coverage measured again: the first
+run fired only the failed-cluster and sparse-page sources (67 and 299 times),
+with the large-decorative-cluster source and the merge both dead. Two shapes
+fixed that — paired textless calendar grids, and two column groups 20pt apart
+whose merged width stays under the cap — and all five paths now fire.
 
 ## Phase 6 remaining work — exact inventory
 

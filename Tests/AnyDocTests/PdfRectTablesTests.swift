@@ -44,7 +44,7 @@ import Testing
             pdfDetectTablesFromRects(
                 items: gridItems(rows: 1, columns: 5, tag: "v"),
                 rects: grid(rows: 1, columns: 5)
-            ).isEmpty)
+            ).tables.isEmpty)
     }
 
     @Test func twoSeparateGridsBecomeTwoTables() {
@@ -52,7 +52,7 @@ import Testing
         let items =
             gridItems(rows: 3, columns: 3, tag: "a")
             + gridItems(rows: 3, columns: 3, y0: 500, tag: "b")
-        let tables = pdfDetectTablesFromRects(items: items, rects: rects)
+        let tables = pdfDetectTablesFromRects(items: items, rects: rects).tables
         #expect(tables.count == 2)
         #expect(tables.first?.cells.first == ["a00", "a01", "a02"])
         #expect(tables.last?.cells.first == ["b00", "b01", "b02"])
@@ -73,7 +73,7 @@ import Testing
                 }
             }
         }
-        let tables = pdfDetectTablesFromRects(items: items, rects: rects)
+        let tables = pdfDetectTablesFromRects(items: items, rects: rects).tables
         #expect(tables.count == 1)
         #expect((tables.first?.columns.count ?? 0) > 3)
     }
@@ -90,7 +90,7 @@ import Testing
                     item("s\(row)\(column)", 110 + Float(column) * 130, 705 - Float(row) * 30))
             }
         }
-        let tables = pdfDetectTablesFromRects(items: items, rects: rects)
+        let tables = pdfDetectTablesFromRects(items: items, rects: rects).tables
         #expect(tables.count == 1)
         #expect((tables.first?.rows.count ?? 0) >= 10)
     }
@@ -107,7 +107,7 @@ import Testing
                     item("s\(row)\(column)", 110 + Float(column) * 130, 705 - Float(row) * 30))
             }
         }
-        #expect(pdfDetectTablesFromRects(items: items, rects: rects).isEmpty)
+        #expect(pdfDetectTablesFromRects(items: items, rects: rects).tables.isEmpty)
     }
 
     @Test func aBarChartIsDroppedRatherThanGridded() {
@@ -122,7 +122,7 @@ import Testing
             items.append(item("\(bar * 12)", 105 + Float(bar) * 40, 295))
         }
         #expect(pdfIsChartBarCluster(items: items, groupRects: rects))
-        #expect(pdfDetectTablesFromRects(items: items, rects: rects).isEmpty)
+        #expect(pdfDetectTablesFromRects(items: items, rects: rects).tables.isEmpty)
     }
 
     @Test func cellBackgroundsFallThroughToTheCellRectStrategy() {
@@ -134,7 +134,7 @@ import Testing
         var items: [PdfLayoutItem] = [item("header", 110, 725)]
         items += gridItems(rows: 3, columns: 3, x0: 100, tag: "a")
         items += gridItems(rows: 3, columns: 3, x0: 380, tag: "b")
-        let tables = pdfDetectTablesFromRects(items: items, rects: rects)
+        let tables = pdfDetectTablesFromRects(items: items, rects: rects).tables
         #expect(tables.count == 1)
         #expect((tables.first?.rows.count ?? 0) >= 3)
     }

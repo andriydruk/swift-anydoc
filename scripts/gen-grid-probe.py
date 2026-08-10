@@ -677,6 +677,25 @@ def gridbuild_cases(random_count):
                          + fill(3, 3, x0=380, y0=700 - offset, word="w"))
         out.append(block(False, [False] * len(bridged), bridged, bridged_items))
 
+    # Calendar-style decorative clusters carrying no text: no table can be
+    # built, but the bounding boxes still scope the heuristic detector. Two of
+    # them, because a single hint is dropped as probable decoration.
+    calendars = []
+    for g in range(2):
+        for r in range(6):
+            for c in range(6):
+                calendars.append((100 + c * 60, 700 - g * 200 - r * 20, 60, 20))
+    out.append(block(False, [False] * len(calendars), calendars, []))
+
+    # Two such clusters side by side with a gap under 50pt and a combined
+    # width under 400pt, which is what the hint merge exists to fold together.
+    side = []
+    for g in range(2):
+        for r in range(10):
+            for c in range(3):
+                side.append((100 + g * 200 + c * 60, 700 - r * 20, 60, 20))
+    out.append(block(False, [False] * len(side), side, []))
+
     # Three two-column groups: each detects a narrow table on its own, which
     # is the signal that the real table was split across clusters — so the
     # merged fallback replaces all three.

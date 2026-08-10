@@ -648,7 +648,7 @@ pub fn probe_rect_tables(input: &str) -> String {
             });
         }
     }
-    let (tables, _hints) = detect_tables_from_rects(&items, &rects, 1);
+    let (tables, hints) = detect_tables_from_rects(&items, &rects, 1);
     let mut out = format!("tables {}\n", tables.len());
     for t in &tables {
         out.push_str(&format!("t {} {}\nc", t.columns.len(), t.rows.len()));
@@ -662,6 +662,18 @@ pub fn probe_rect_tables(input: &str) -> String {
             out.push('\n');
         }
         out.push_str(&format!("n {}\n", t.item_indices.len()));
+    }
+    out.push_str(&format!("hints {}\n", hints.len()));
+    for h in &hints {
+        out.push_str(&format!(
+            "h {:.3} {:.3} {:.3} {:.3} {}\n",
+            h.y_top, h.y_bottom, h.x_left, h.x_right, h.cluster_rects.len()
+        ));
+    }
+    let charts = detect_chart_regions(&items, &rects, 1);
+    out.push_str(&format!("charts {}\n", charts.len()));
+    for c in &charts {
+        out.push_str(&format!("g {:.3} {:.3} {:.3} {:.3}\n", c.0, c.1, c.2, c.3));
     }
     out
 }

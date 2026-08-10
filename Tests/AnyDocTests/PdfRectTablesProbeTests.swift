@@ -44,7 +44,7 @@ import Testing
                 }
             }
 
-            let tables = pdfDetectTablesFromRects(items: items, rects: rects)
+            let (tables, hints) = pdfDetectTablesFromRects(items: items, rects: rects)
             found += tables.count
             var ours = "tables \(tables.count)\n"
             for table in tables {
@@ -59,6 +59,18 @@ import Testing
                     ours += "\n"
                 }
                 ours += "n \(table.itemIndices.count)\n"
+            }
+            ours += "hints \(hints.count)\n"
+            for hint in hints {
+                ours += "h \(format(hint.yTop)) \(format(hint.yBottom)) "
+                ours += "\(format(hint.xLeft)) \(format(hint.xRight)) "
+                ours += "\(hint.clusterRects.count)\n"
+            }
+            let charts = pdfDetectChartRegions(items: items, rects: rects)
+            ours += "charts \(charts.count)\n"
+            for chart in charts {
+                ours += "g \(format(chart.left)) \(format(chart.bottom)) "
+                ours += "\(format(chart.right)) \(format(chart.top))\n"
             }
 
             if ours != expected[index] {
