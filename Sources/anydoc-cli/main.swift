@@ -9,8 +9,28 @@ import Glibc
 import Musl
 #endif
 
+/// Write to a file descriptor directly rather than through `stdout` and
+/// `stderr`.
+///
+/// On Linux those are mutable globals, which Swift 6's strict concurrency
+/// checking rejects as shared mutable state. Darwin imports them differently,
+/// so this only ever failed on Linux — and only once CI actually ran there.
+/// Writing to the descriptor sidesteps the globals and is portable.
+func write(_ text: String, to descriptor: Int32) {
+    var bytes = Array(text.utf8)[...]
+    while !bytes.isEmpty {
+        let written = bytes.withUnsafeBytes { buffer in
+            write(descriptor, buffer.baseAddress, buffer.count)
+        }
+        // A short write is normal on a pipe; anything else is unrecoverable
+        // and silence is the only option left.
+        if written <= 0 { return }
+        bytes = bytes.dropFirst(written)
+    }
+}
+
 func fail(_ message: String) -> Never {
-    fputs(message + "\n", stderr)
+    write(message + "\n", to: 2)
     exit(1)
 }
 
@@ -49,7 +69,7 @@ do {
     } else {
         markdown = try AnyDoc.markdown(contentsOf: path)
     }
-    fputs(markdown, stdout)
+    write(markdown, to: 1)
 } catch let error as ConvertError {
     fail("ERROR(\(error.code)): \(error.message)")
 }
