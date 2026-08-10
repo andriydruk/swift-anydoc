@@ -624,6 +624,113 @@ pub fn probe_assign(input: &str) -> String {
     out
 }
 
+/// Probe (added for swift-anydoc): wrapped-description-row collapsing.
+pub fn probe_collapse(input: &str) -> String {
+    let mut row_edges: Vec<f32> = Vec::new();
+    let mut col_edges: Vec<f32> = Vec::new();
+    let mut cells: Vec<Vec<String>> = Vec::new();
+    for line in input.lines().skip(1) {
+        if let Some(rest) = line.strip_prefix("E ") {
+            row_edges = rest.split(' ').filter_map(|v| v.parse().ok()).collect();
+        } else if let Some(rest) = line.strip_prefix("X ") {
+            col_edges = rest.split(' ').filter_map(|v| v.parse().ok()).collect();
+        } else if let Some(rest) = line.strip_prefix("R\t") {
+            cells.push(rest.split('\t').map(|c| c.replace('~', " ")).collect());
+        } else if line == "R\t" || line == "R" {
+            cells.push(Vec::new());
+        }
+    }
+    let (out_cells, out_edges, wrapped) =
+        collapse_multiline_description_rows(cells, row_edges, &col_edges);
+    let mut out = format!("wrapped {wrapped}\ne");
+    for v in &out_edges { out.push_str(&format!(" {v:.3}")); }
+    out.push('\n');
+    for row in &out_cells {
+        out.push('r');
+        for c in row { out.push('\t'); out.push_str(c); }
+        out.push('\n');
+    }
+    out
+}
+
+/// Probe (added for swift-anydoc): the row-edge derivation at the head of
+/// `detect_row_stripe_table_from_cell_rects`, reproduced here because that
+/// function is being ported in stages.
+pub fn probe_cell_rows(input: &str) -> String {
+    use crate::types::{ItemType, TextItem};
+    let mut rects: Vec<(f32, f32, f32, f32)> = Vec::new();
+    let mut items: Vec<TextItem> = Vec::new();
+    for line in input.lines().skip(1) {
+        let p: Vec<&str> = line.splitn(6, ' ').collect();
+        if p.len() >= 5 && p[0] == "R" {
+            rects.push((
+                p[1].parse().unwrap_or(0.0), p[2].parse().unwrap_or(0.0),
+                p[3].parse().unwrap_or(0.0), p[4].parse().unwrap_or(0.0),
+            ));
+        } else if p.len() >= 6 && p[0] == "I" {
+            items.push(TextItem {
+                text: p[5].to_string(),
+                x: p[1].parse().unwrap_or(0.0), y: p[2].parse().unwrap_or(0.0),
+                width: p[3].parse().unwrap_or(0.0), height: p[4].parse().unwrap_or(0.0),
+                font: "F1".to_string(), font_size: p[4].parse().unwrap_or(0.0), page: 1,
+                is_bold: false, is_italic: false, is_underline: false, is_strikeout: false,
+                item_type: ItemType::Text, mcid: None,
+            });
+        }
+    }
+    let mut y_edges: Vec<f32> = Vec::new();
+    for &(_, y, _, h) in &rects { y_edges.push(y); y_edges.push(y + h); }
+    let y_edges = snap_edges(&y_edges, 6.0);
+    let row_edges: Option<Vec<f32>> = if y_edges.len() >= 4 {
+        let mut e = y_edges; e.sort_by(|a, b| b.total_cmp(a)); Some(e)
+    } else {
+        let y_min = y_edges.first().copied().unwrap_or(0.0);
+        let y_max = y_edges.last().copied().unwrap_or(0.0);
+        let x_min = rects.iter().map(|r| r.0).reduce(f32::min).unwrap_or(0.0);
+        let x_max = rects.iter().map(|r| r.0 + r.2).reduce(f32::max).unwrap_or(0.0);
+        let region: Vec<&TextItem> = items.iter().filter(|i| {
+            i.page == 1 && i.y >= y_min - 5.0 && i.y <= y_max + 5.0
+                && i.x >= x_min - 5.0 && i.x <= x_max + 5.0
+        }).collect();
+        if region.len() < 4 { None } else {
+            let median_h = {
+                let mut hs: Vec<f32> = region.iter().map(|i| i.height).collect();
+                hs.sort_by(|a, b| a.total_cmp(b));
+                hs[hs.len() / 2]
+            };
+            let mut ys: Vec<f32> = region.iter().map(|i| i.y).collect();
+            ys.sort_by(|a, b| b.total_cmp(a));
+            let mut edges = Vec::new();
+            let threshold = median_h * 0.8;
+            let mut cluster_sum = ys[0];
+            let mut cluster_count = 1.0f32;
+            for &y in &ys[1..] {
+                if (cluster_sum / cluster_count - y).abs() > threshold {
+                    let c = cluster_sum / cluster_count;
+                    edges.push(c + median_h * 0.5);
+                    edges.push(c - median_h * 0.5);
+                    cluster_sum = y; cluster_count = 1.0;
+                } else { cluster_sum += y; cluster_count += 1.0; }
+            }
+            let c = cluster_sum / cluster_count;
+            edges.push(c + median_h * 0.5);
+            edges.push(c - median_h * 0.5);
+            let mut e = snap_edges(&edges, 3.0);
+            e.sort_by(|a, b| b.total_cmp(a));
+            if e.len() < 4 { None } else { Some(e) }
+        }
+    };
+    match row_edges {
+        None => "rows none\n".to_string(),
+        Some(e) => {
+            let mut out = String::from("rows");
+            for v in &e { out.push_str(&format!(" {v:.3}")); }
+            out.push('\n');
+            out
+        }
+    }
+}
+
 /// Probe (added for swift-anydoc): the rect preprocessing pipeline, mirroring
 /// the filtering inline at the top of `detect_tables_from_rects`.
 pub fn probe_prepare(input: &str) -> String {
@@ -836,6 +943,20 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::format::probe_format(&input));
+        return;
+    }
+    if path == "--collapse" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::tables::detect_rects::probe_collapse(&input));
+        return;
+    }
+    if path == "--cellrows" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::tables::detect_rects::probe_cell_rows(&input));
         return;
     }
     if path == "--prepare" {

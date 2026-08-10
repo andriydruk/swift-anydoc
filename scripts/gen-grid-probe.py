@@ -624,6 +624,15 @@ def gridbuild_cases(random_count):
         bg = [(0, 0, 600, 780)] * count + cell_grid(3, 3)
         out.append(block(False, [False] * len(bg), bg, fill(3, 3)))
 
+    # Too few rect y-edges, so rows must come from the text instead.
+    out.append(block(False, [False] * 3,
+                     [(100, 700, 60, 20), (160, 700, 60, 20), (220, 700, 60, 20)],
+                     [(110 + c * 60, 705 - r * 14, 30, 10, f"t{r}{c}")
+                      for r in range(5) for c in range(3)]))
+    out.append(block(False, [False] * 2,
+                     [(100, 700, 60, 20), (160, 700, 60, 20)],
+                     [(110, 705, 30, 10, "a"), (110, 690, 30, 10, "b")]))
+
     # Preprocessing shapes: negative extents, decoration, an oversized fill,
     # and cell-internal shading inside a cell.
     out.append(block(False, [False] * 4, [
@@ -799,6 +808,74 @@ def gridbuild_cases(random_count):
     return out
 
 
+
+def collapse_cases(count):
+    """Cases for collapse_multiline_description_rows.
+
+    The function only acts on one narrow shape — a label column, a much wider
+    description column, and continuation bands with text in that column alone
+    — so purely random grids would never reach the merging loop. Half the
+    cases are built to that shape and then perturbed; half are random, to
+    exercise the early returns.
+    """
+    rng = random.Random(31_2026)
+    words = ["Alpha", "Beta", "value", "a~long~wrapped~description~line", "12.5", "x", ""]
+
+    def block(col_edges, row_edges, rows):
+        out = ["#collapse"]
+        out.append("E " + " ".join(f"{v:.3f}" for v in row_edges))
+        out.append("X " + " ".join(f"{v:.3f}" for v in col_edges))
+        for r in rows:
+            out.append("R\t" + "\t".join(r))
+        return "\n".join(out)
+
+    out = []
+    for case in range(count):
+        shaped = case % 2 == 0
+        cols = rng.randint(2, 5)
+        if shaped:
+            # Narrow label columns, then one dominant description column.
+            widths = [rng.uniform(20, 40) for _ in range(cols - 1)]
+            widths.insert(rng.randrange(1, cols), rng.uniform(120, 260))
+            widths = widths[:cols]
+        else:
+            widths = [rng.uniform(10, 200) for _ in range(cols)]
+        col_edges = [50.0]
+        for w in widths:
+            col_edges.append(col_edges[-1] + w)
+        widest = max(range(cols), key=lambda c: col_edges[c + 1] - col_edges[c])
+
+        rows_n = rng.randint(1, 8)
+        rows = []
+        for r in range(rows_n):
+            if shaped and r > 0 and rng.random() < 0.45:
+                # A continuation band: description column only.
+                row = ["" for _ in range(cols)]
+                row[widest] = rng.choice(words[2:5]) or "cont"
+            elif shaped and r > 0 and rng.random() < 0.15:
+                # A header continuation: short text in column 0 alone.
+                row = ["" for _ in range(cols)]
+                row[0] = rng.choice(["Version", "Controls", "x" * rng.randint(20, 30)])
+            else:
+                row = [rng.choice(words) for _ in range(cols)]
+            rows.append(row)
+
+        # Row edges usually match, sometimes deliberately do not.
+        edge_n = len(rows) + 1 if rng.random() < 0.85 else len(rows) + rng.choice([0, 2])
+        row_edges = [700.0 - i * rng.uniform(10, 20) for i in range(max(edge_n, 0))]
+        out.append(block(col_edges, row_edges, rows))
+
+    # Degenerate shapes the random generator will not reach.
+    out.append(block([50.0, 50.0, 50.0, 50.0], [700.0, 690.0, 680.0, 670.0],
+                     [["a", "b", "c"], ["", "", "d"], ["e", "", ""]]))
+    out.append(block([50.0, 100.0, 150.0, 400.0], [700.0, 690.0, 680.0, 670.0],
+                     [["l1", "", "desc one"], ["", "", "wrapped two"],
+                      ["l2", "", "desc three"]]))
+    out.append(block([50.0, 300.0, 320.0, 340.0], [700.0, 690.0, 680.0, 670.0],
+                     [["wide", "b", "c"], ["", "", "d"], ["e", "f", "g"]]))
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -856,6 +933,27 @@ def main():
         gb_answers.append(r.stdout)
     with open(os.path.join(arguments.directory, "gridbuild-rust.txt"), "w", encoding="utf-8") as f:
         f.write("\n===\n".join(gb_answers))
+
+    cr_answers = []
+    for b in gb_blocks:
+        r = subprocess.run(
+            [probe, "--cellrows"], input=b + "\n", capture_output=True, text=True, check=True
+        )
+        cr_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "cellrows-rust.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(cr_answers))
+
+    co_blocks = collapse_cases(max(arguments.cases // 2, 60))
+    with open(os.path.join(arguments.directory, "collapse-cases.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(co_blocks))
+    co_answers = []
+    for b in co_blocks:
+        r = subprocess.run(
+            [probe, "--collapse"], input=b + "\n", capture_output=True, text=True, check=True
+        )
+        co_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "collapse-rust.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(co_answers))
 
     prep_answers = []
     for b in gb_blocks:

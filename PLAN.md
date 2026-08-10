@@ -1230,14 +1230,13 @@ cells field is empty whenever a one-cell grid holds the empty string — Rust's
 
 708 cases agree, with 1,232 groups formed and 264 splits taken.
 
-**Still unported in `detect_rects.rs`:** every table-building strategy
-(`detect_tables_from_rects`, stacked-box, row-stripe, merged-cluster),
-`detect_row_stripe_table_from_cell_rects`,
-`collapse_multiline_description_rows`, `detect_chart_regions`, the rect-hint
-machinery, and the cluster loop of `detect_tables_from_rects` — roughly 3,100
-of its 4,671 lines. **The strategies of waves 23–30 still have no caller**:
-what remains of the orchestrator is the loop that clusters, tries each
-strategy per cluster, and collects hint regions.
+**Still unported in `detect_rects.rs`:** the middle of
+`detect_row_stripe_table_from_cell_rects` (its two row-shaping ends landed in
+wave 31), `detect_chart_regions`, the rect-hint machinery, and the cluster loop
+of `detect_tables_from_rects` — roughly 2,900 of its 4,671 lines. **The
+strategies of waves 23–31 still have no caller**: what remains of the
+orchestrator is the loop that clusters, tries each strategy per cluster, and
+collects hint regions.
 
 - **Wave 24 — grid assignment.** `PdfGridAssign.swift` ports
   `assign_items_to_grid` and `remove_inner_delimiter_spaces`. Both ruled
@@ -1408,6 +1407,41 @@ coverage this time: **531 accepts spanning 2 to 6 columns, 893 rejects.**
 was 31 cases in 1,228 and is now **160 in 1,428**, after adding randomised
 flipped, tiny, oversized and nested shapes; the direct chain accepts 306 times
 across 1 to 5 columns.
+
+- **Wave 31 — the two row-shaping ends of the cell-rect strategy.**
+  `PdfCellRectRows.swift` ports the row-edge derivation at the head of
+  `detect_row_stripe_table_from_cell_rects` and
+  `collapse_multiline_description_rows`, which reshapes its rows afterwards.
+
+  The strategy itself is 473 lines and needs `collapse_…` to exist before it
+  can be assembled at all, so it is being landed across two waves. These two
+  stages bracket it, each is a pure function with a verifiable interface, and
+  **nothing calls the strategy until the middle lands** — this is not the wave
+  16 mistake, where a piece already on the core path was deferred silently.
+  - Rows normally come straight from the rectangles' y-edges. When those snap
+    down to fewer than four — variable-height cell backgrounds, decoration
+    fills — the rows are read off the text instead, clustering baselines at
+    four fifths of the median glyph height and turning each cluster *centre*
+    into a one-glyph-tall band. The fallback scopes its region with y bounds
+    taken from the snapped edges but x bounds taken from the rectangles;
+    mixed sources, reproduced as written.
+  - `collapse_…` repairs exports that emit one y band per wrapped *line*
+    rather than per row. It acts only on a narrow shape — label column, one
+    much wider description column, continuation bands populated in that
+    column alone — so framed prose still reaches the strategy's prose guards
+    instead of being tidied into a table.
+  - Two upstream quirks reproduced: `max_by` keeps the *last* maximum, so a
+    table of equal-width columns nominates its rightmost as the description;
+    and the bail-out returns the *reshaped* cells with the *original* edges,
+    which disagree in length when merging leaves fewer than two rows. Both
+    are pinned by unit tests, the second harmlessly — the caller's own
+    two-row gate rejects that table immediately after.
+
+1,430 row-edge cases and 303 collapse cases agree on the first run. Collapse
+coverage needed a purpose-built generator, since random grids never reach the
+merging loop: 49 of the 303 cases now merge at least one row, and header
+continuations fire distinctly from description ones (8 cases drop four rows
+while only 5 report four *wrapped* rows).
 
 ## Phase 6 remaining work — exact inventory
 
