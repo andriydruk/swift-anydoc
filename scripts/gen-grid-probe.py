@@ -624,6 +624,71 @@ def gridbuild_cases(random_count):
         bg = [(0, 0, 600, 780)] * count + cell_grid(3, 3)
         out.append(block(False, [False] * len(bg), bg, fill(3, 3)))
 
+    # Prose-shaped content, which the cell-rect strategy gates on and no
+    # other case reaches: `v00`-style filler contains no English function
+    # words, so its whole prose block would never run. Tildes stand in for
+    # spaces in the case format and are word separators to the splitter
+    # either way, so the fragments read the same to it.
+    prose_rng = random.Random(32_2026)
+    short_prose = ["the~total", "of~each", "is~set", "in~use", "by~hand", "a~note"]
+    long_prose = [
+        "this~is~a~description~of~the~control~and~how~it~is~applied~in~practice",
+        "the~value~was~set~by~hand~and~has~not~been~reviewed~since~that~time",
+        "each~of~these~items~is~a~fragment~of~a~sentence~that~wrapped~in~a~frame",
+    ]
+    for case in range(40):
+        rows = prose_rng.randint(3, 6)
+        cols = prose_rng.randint(2, 4)
+        long_cells = prose_rng.random() < 0.5
+        rects = cell_grid(rows, cols)
+        items = []
+        for r in range(rows):
+            for c in range(cols):
+                if prose_rng.random() < 0.15:
+                    continue
+                if c == 0 and prose_rng.random() < 0.7:
+                    text = f"{r + 1}"
+                elif long_cells:
+                    text = prose_rng.choice(long_prose)
+                else:
+                    text = prose_rng.choice(short_prose)
+                items.append((100 + c * 60 + 10, 700 - r * 20 + 5, 30, 10, text))
+        out.append(block(False, [False] * len(rects), rects, items))
+
+    # Shapes aimed at the gates the randomised prose cases never reach:
+    # a paragraph-length cell in a short table, a tall skinny grid, and
+    # uniformly long prose across enough columns to pass the distribution
+    # test and be caught on mean cell length alone.
+    wall = "the~quick~brown~fox~jumps~over~the~lazy~dog~again~and~again~" * 10
+    short_rects = cell_grid(3, 3)
+    out.append(block(False, [False] * len(short_rects), short_rects,
+                     fill(3, 3) + [(110, 665, 30, 10, wall)]))
+    tall_rects = cell_grid(25, 2)
+    out.append(block(False, [False] * len(tall_rects), tall_rects, fill(25, 2)))
+    tall_rects = cell_grid(25, 4)
+    out.append(block(False, [False] * len(tall_rects), tall_rects, fill(25, 4)))
+    for cols in (3, 4):
+        rects = cell_grid(4, cols)
+        items = [
+            (100 + c * 60 + 10, 700 - r * 20 + 5, 30, 10,
+             long_prose[(r + c) % len(long_prose)])
+            for r in range(4) for c in range(cols)
+        ]
+        out.append(block(False, [False] * len(rects), rects, items))
+
+    # A wide description column beside a narrow label column, which is the
+    # only shape the wrapped-row collapse repairs.
+    desc_rects = [(100, 700 - r * 20, 40, 20) for r in range(4)]
+    desc_rects += [(140, 700 - r * 20, 260, 20) for r in range(4)]
+    desc_items = []
+    for r in range(4):
+        if r % 2 == 0:
+            desc_items.append((110, 705 - r * 20, 20, 10, f"{r + 1}"))
+        desc_items.append(
+            (150, 705 - r * 20, 240, 10,
+             "the~description~continues~onto~the~next~band~of~this~row"))
+    out.append(block(False, [False] * len(desc_rects), desc_rects, desc_items))
+
     # Too few rect y-edges, so rows must come from the text instead.
     out.append(block(False, [False] * 3,
                      [(100, 700, 60, 20), (160, 700, 60, 20), (220, 700, 60, 20)],
@@ -942,6 +1007,15 @@ def main():
         cr_answers.append(r.stdout)
     with open(os.path.join(arguments.directory, "cellrows-rust.txt"), "w", encoding="utf-8") as f:
         f.write("\n===\n".join(cr_answers))
+
+    cs_answers = []
+    for b in gb_blocks:
+        r = subprocess.run(
+            [probe, "--cellstripe"], input=b + "\n", capture_output=True, text=True, check=True
+        )
+        cs_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "cellstripe-rust.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(cs_answers))
 
     co_blocks = collapse_cases(max(arguments.cases // 2, 60))
     with open(os.path.join(arguments.directory, "collapse-cases.txt"), "w", encoding="utf-8") as f:

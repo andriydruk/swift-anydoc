@@ -1230,13 +1230,11 @@ cells field is empty whenever a one-cell grid holds the empty string — Rust's
 
 708 cases agree, with 1,232 groups formed and 264 splits taken.
 
-**Still unported in `detect_rects.rs`:** the middle of
-`detect_row_stripe_table_from_cell_rects` (its two row-shaping ends landed in
-wave 31), `detect_chart_regions`, the rect-hint machinery, and the cluster loop
-of `detect_tables_from_rects` — roughly 2,900 of its 4,671 lines. **The
-strategies of waves 23–31 still have no caller**: what remains of the
-orchestrator is the loop that clusters, tries each strategy per cluster, and
-collects hint regions.
+**Still unported in `detect_rects.rs`:** `detect_chart_regions`, the rect-hint
+machinery, and the cluster loop of `detect_tables_from_rects` — roughly 2,500
+of its 4,671 lines. Every table-building *strategy* now exists. **They still
+have no caller**: what remains of the orchestrator is the loop that clusters,
+tries each strategy per cluster, and collects hint regions.
 
 - **Wave 24 — grid assignment.** `PdfGridAssign.swift` ports
   `assign_items_to_grid` and `remove_inner_delimiter_spaces`. Both ruled
@@ -1442,6 +1440,41 @@ coverage needed a purpose-built generator, since random grids never reach the
 merging loop: 49 of the 303 cases now merge at least one row, and header
 continuations fire distinctly from description ones (8 cases drop four rows
 while only 5 report four *wrapped* rows).
+
+- **Wave 32 — the cell-rect stripe strategy itself.**
+  `PdfCellRectTable.swift` ports the middle of
+  `detect_row_stripe_table_from_cell_rects`, closing the function wave 31
+  opened. This is the last resort among the rectangle strategies and the one
+  most exposed to false positives: it runs when a cluster has enough drawn
+  cells to look like a table but too little regular geometry for the grid
+  builder, so rows *and* columns may both have to be inferred. Most of its
+  length is therefore gates.
+  - Columns come from text-start clustering or from the rectangles' own
+    x-edges, and the choice between them is four-armed. Rect edges win
+    outright when every rect column holds two or more items — the case that
+    matters is a centred header over left-aligned data, where text clustering
+    drops the header-only cluster and silently loses a column. When the rect
+    columns are *not* well populated the rectangles are decoration, and
+    preferring them would split one logical column into several.
+  - The prose test is the subtle part: a page frame full of wrapped text
+    produces the same surface signal as a real label/value table. Once a fifth
+    of the cells hold an English function word, three layered checks apply —
+    mean cell length over 65 characters, a two-column scaffold inferred from
+    text alone, and columns that are not well distributed. Only the first is
+    excused by collapsed rows, since those explain the length honestly.
+  - `len()` is bytes in the reference, so the 500-byte paragraph gate sits
+    lower for non-ASCII text; ported as `utf8.count`, not character count.
+
+1,476 cases agree on the first run, with 629 accepts. **Coverage was checked by
+instrumenting each gate and counting**, not by reading the pass: the first pass
+had `v00`-style filler text containing no English function words at all, so the
+whole prose block — the largest and most delicate part of the function — never
+executed. After adding prose cases the three prose branches fire 47, 40 and 4
+times, and targeted shapes were needed again for the paragraph-length and
+disproportionate-grid gates, which fire once each. Six gates remain unfired;
+five are provably unreachable (the extent, text-edge, column-count and
+edge-mismatch guards all follow from checks already made above them), and only
+the empty-assignment gate is reachable but unexercised.
 
 ## Phase 6 remaining work — exact inventory
 

@@ -624,6 +624,48 @@ pub fn probe_assign(input: &str) -> String {
     out
 }
 
+/// Probe (added for swift-anydoc): the whole cell-rect stripe strategy.
+pub fn probe_cell_stripe(input: &str) -> String {
+    use crate::types::{ItemType, TextItem};
+    let mut rects: Vec<(f32, f32, f32, f32)> = Vec::new();
+    let mut items: Vec<TextItem> = Vec::new();
+    for line in input.lines().skip(1) {
+        let p: Vec<&str> = line.splitn(6, ' ').collect();
+        if p.len() >= 5 && p[0] == "R" {
+            rects.push((
+                p[1].parse().unwrap_or(0.0), p[2].parse().unwrap_or(0.0),
+                p[3].parse().unwrap_or(0.0), p[4].parse().unwrap_or(0.0),
+            ));
+        } else if p.len() >= 6 && p[0] == "I" {
+            items.push(TextItem {
+                text: p[5].to_string(),
+                x: p[1].parse().unwrap_or(0.0), y: p[2].parse().unwrap_or(0.0),
+                width: p[3].parse().unwrap_or(0.0), height: p[4].parse().unwrap_or(0.0),
+                font: "F1".to_string(), font_size: p[4].parse().unwrap_or(0.0), page: 1,
+                is_bold: false, is_italic: false, is_underline: false, is_strikeout: false,
+                item_type: ItemType::Text, mcid: None,
+            });
+        }
+    }
+    match detect_row_stripe_table_from_cell_rects(&items, &rects, 1) {
+        None => "cellstripe none\n".to_string(),
+        Some(t) => {
+            let mut out = format!("cellstripe {} {}\nc", t.columns.len(), t.rows.len());
+            for v in &t.columns { out.push_str(&format!(" {v:.3}")); }
+            out.push_str("\nw");
+            for v in &t.rows { out.push_str(&format!(" {v:.3}")); }
+            out.push('\n');
+            for row in &t.cells {
+                out.push('x');
+                for c in row { out.push('\t'); out.push_str(c); }
+                out.push('\n');
+            }
+            out.push_str(&format!("n {}\n", t.item_indices.len()));
+            out
+        }
+    }
+}
+
 /// Probe (added for swift-anydoc): wrapped-description-row collapsing.
 pub fn probe_collapse(input: &str) -> String {
     let mut row_edges: Vec<f32> = Vec::new();
@@ -943,6 +985,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::format::probe_format(&input));
+        return;
+    }
+    if path == "--cellstripe" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::tables::detect_rects::probe_cell_stripe(&input));
         return;
     }
     if path == "--collapse" {
