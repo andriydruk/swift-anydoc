@@ -84,6 +84,8 @@ perl -pi -e 's/^fn (is_row_stripe_pattern|without_dominant_page_backgrounds|is_c
     "$crate/src/tables/detect_rects.rs"
 perl -pi -e 's/^fn (detect_row_stripe_table|cluster_x_positions|has_dominant_prose_cell|row_stripe_is_sparse_prose_outline)\(/pub fn $1(/' \
     "$crate/src/tables/detect_rects.rs"
+perl -pi -e 's/^fn detect_stacked_box_table\(/pub fn detect_stacked_box_table(/' \
+    "$crate/src/tables/detect_rects.rs"
 cat >> "$crate/src/tables/mod.rs" <<'RS2'
 
 /// Probe shim (added for swift-anydoc): expose the financial expansion.
@@ -649,6 +651,15 @@ pub fn probe_stripe(input: &str) -> String {
         out.push_str(&format!(" {c:.3}"));
     }
     out.push('\n');
+    match detect_stacked_box_table(&items, &rects, 1) {
+        None => out.push_str("stack none\n"),
+        Some(t) => {
+            out.push_str(&format!("stack {}\n", t.rows.len()));
+            for row in &t.cells {
+                out.push_str(&format!("k\t{}\n", row.join("\t")));
+            }
+        }
+    }
     match detect_row_stripe_table(&items, &rects, 1) {
         None => out.push_str("stripe none\n"),
         Some(t) => {

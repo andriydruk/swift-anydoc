@@ -624,8 +624,74 @@ def gridbuild_cases(random_count):
         bg = [(0, 0, 600, 780)] * count + cell_grid(3, 3)
         out.append(block(False, [False] * len(bg), bg, fill(3, 3)))
 
+    # Stacked boxes: a framed list, and the prose shapes that must be
+    # rejected. The random tail almost never produces a clean stack.
+    def stack(n, h=24, gap=2, width=300):
+        return [(100, 700 - i * (h + gap), width, h) for i in range(n)]
+
+    #   a clean framed list
+    boxes = stack(5)
+    out.append(block(False, [False] * len(boxes), boxes,
+                     [(110, b[1] + 8, 120, 10, f"Item {i}") for i, b in enumerate(boxes)]))
+    #   prose wrapping across the boxes
+    prose = [
+        "the quick brown fox jumps over the lazy dog and then,",
+        "continues running for a while before it finally stops",
+        "at the edge of the field where the fence has a gap in",
+        "it that leads through to the neighbouring property and",
+        "onwards to the road beyond the hill",
+    ]
+    out.append(block(False, [False] * len(boxes), boxes,
+                     [(110, b[1] + 8, 250, 10, prose[i]) for i, b in enumerate(boxes)]))
+    #   numbered list items behind stripes
+    out.append(block(False, [False] * len(boxes), boxes,
+                     [(110, b[1] + 8, 120, 10, f"{i+1}) something here")
+                      for i, b in enumerate(boxes)]))
+    #   boxes flanked by text — one column of something wider
+    out.append(block(False, [False] * len(boxes), boxes,
+                     [(110, b[1] + 8, 80, 10, f"Item {i}") for i, b in enumerate(boxes)]
+                     + [(450, b[1] + 8, 60, 10, f"v{i}") for i, b in enumerate(boxes)]))
+    #   two runs per box — multi-column content
+    out.append(block(False, [False] * len(boxes), boxes,
+                     [(110, b[1] + 8, 60, 10, f"L{i}") for i, b in enumerate(boxes)]
+                     + [(220, b[1] + 8, 60, 10, f"R{i}") for i, b in enumerate(boxes)]))
+    #   too few boxes, and boxes with a gap larger than a row
+    out.append(block(False, [False, False], stack(2),
+                     [(110, 708, 80, 10, "a"), (110, 682, 80, 10, "b")]))
+    gapped = [(100, 700, 300, 24), (100, 600, 300, 24), (100, 500, 300, 24)]
+    out.append(block(False, [False] * 3, gapped,
+                     [(110, b[1] + 8, 80, 10, f"g{i}") for i, b in enumerate(gapped)]))
+
     generator = random.Random(4242)
     words = ["a", "bb", "12", "", "3.50", "total"]
+
+    # Randomised framed stacks, straddling the gates: box count, the 120-char
+    # cell cap, the 60-char prose mean, the continuation and list-marker
+    # tests, and the flanking checks.
+    labels = ["Overview", "Scope", "Method", "Results", "Summary", "Appendix",
+              "Introduction to the topic", "Findings and discussion"]
+    for _ in range(random_count // 3):
+        n = generator.randint(2, 7)
+        h = generator.choice([16, 24, 40])
+        gapv = generator.choice([0, 2, 6, 30])
+        boxes = [(100, 700 - i * (h + gapv), generator.choice([200, 300, 420]), h)
+                 for i in range(n)]
+        style = generator.choice(["label", "prose", "list", "flanked", "tworuns"])
+        its = []
+        for i, b in enumerate(boxes):
+            y = b[1] + h / 2
+            if style == "prose":
+                its.append((110, y, 250, 10,
+                            "the quick brown fox jumps over the lazy dog and then,"))
+            elif style == "list":
+                its.append((110, y, 120, 10, f"{i+1}) {generator.choice(labels)}"))
+            else:
+                its.append((110, y, 100, 10, generator.choice(labels)))
+            if style == "flanked":
+                its.append((b[0] + b[2] + 40, y, 60, 10, f"v{i}"))
+            if style == "tworuns":
+                its.append((110 + 120, y, 60, 10, f"R{i}"))
+        out.append(block(False, [False] * len(boxes), boxes, its))
 
     # Randomised stripes and bar charts straddling their thresholds — the
     # 200pt median width, the 10% width tolerance, the 0.5-breadth bar gap
@@ -752,6 +818,15 @@ def main():
         gb_answers.append(r.stdout)
     with open(os.path.join(arguments.directory, "gridbuild-rust.txt"), "w", encoding="utf-8") as f:
         f.write("\n===\n".join(gb_answers))
+
+    stack_answers = []
+    for b in gb_blocks:
+        r = subprocess.run(
+            [probe, "--stripe"], input=b + "\n", capture_output=True, text=True, check=True
+        )
+        stack_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "stack-rust.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(stack_answers))
 
     stripe_answers = []
     for b in gb_blocks:

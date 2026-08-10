@@ -1232,7 +1232,7 @@ cells field is empty whenever a one-cell grid holds the empty string — Rust's
 
 **Still unported in `detect_rects.rs`:** every table-building strategy
 (`detect_tables_from_rects`, stacked-box, row-stripe, merged-cluster),
-`detect_stacked_box_table`, `detect_row_stripe_table_from_cell_rects`,
+`detect_row_stripe_table_from_cell_rects`,
 `detect_merged_cluster_table`, `detect_chart_regions` and the top-level
 `detect_tables_from_rects` — roughly 3,500 of its 4,671 lines.
 
@@ -1335,6 +1335,32 @@ width, the 10% tolerance, the half-breadth bar gap, the 1.3× length variation:
     sentences is a heading sidebar over body text, not a table.
 
 1,184 cases agree, with 79 stripe tables accepted and 1,105 rejected.
+
+- **Wave 28 — the stacked-box strategy.** `PdfStackedBoxTable.swift` ports
+  `detect_stacked_box_table`. Some documents present a list as framed rows
+  stacked down the page: no columns at all, so no grid strategy applies, but
+  the boxes are real structure.
+  - Roughly a fifth of the code finds the stack; the rest argues about whether
+    it is a table, because a stack of boxes is also what callout panels,
+    sidebar frames and striped backgrounds behind prose look like. Five
+    separate ways of recognising prose in a table's geometry: function-word
+    density with a 60-character mean, sentences wrapping across boxes (a row
+    ending in a comma, or an unterminated row followed by a lowercase one),
+    numbered list markers, two text runs on one baseline, and boxes flanked
+    by anything at the same height.
+  - The flanking test is the interesting one: a box with a sibling beside it
+    is one column of something wider, and belongs to the grid strategies —
+    collapsing it here would lose the other columns silently.
+
+1,424 cases agree. **Coverage was thin and was improved, though it remains
+asymmetric**: 2 accepts in the first run, 10 after adding randomised framed
+stacks. That is a small positive sample, and worth stating plainly — the
+function is dominated by its rejection paths, which are well covered, but the
+accepting path rests on ten generated cases plus the unit tests.
+
+**A fourth harness ordering bug**, same class as wave 20's: the Swift dump
+emitted its blocks in a different order than the Rust probe. Caught in the
+first run, fixed in the harness, not the port.
 
 ## Phase 6 remaining work — exact inventory
 

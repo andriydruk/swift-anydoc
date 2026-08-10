@@ -3,8 +3,9 @@ import Testing
 
 @testable import AnyDoc
 
-/// Differential check of row-stripe table detection against
-/// `detect_row_stripe_table`. Shares the grid-build case file.
+/// Differential check of the stacked-box and row-stripe strategies against
+/// `detect_stacked_box_table` and `detect_row_stripe_table`. Shares the
+/// grid-build case file.
 @Suite struct PdfRowStripeProbeTests {
     private func format(_ value: Float) -> String { String(format: "%.3f", value) }
 
@@ -15,7 +16,7 @@ import Testing
             let caseText = try? String(
                 contentsOfFile: path + "/gridbuild-cases.txt", encoding: .utf8),
             let expectedText = try? String(
-                contentsOfFile: path + "/stripe-rust.txt", encoding: .utf8)
+                contentsOfFile: path + "/stack-rust.txt", encoding: .utf8)
         else { return }
 
         let blocks = caseText.components(separatedBy: "\n===\n")
@@ -47,6 +48,13 @@ import Testing
                 ours += " " + format(column)
             }
             ours += "\n"
+            // The reference's probe emits cols, then stack, then stripe.
+            if let stacked = pdfDetectStackedBoxTable(items: items, groupRects: rects) {
+                ours += "stack \(stacked.rows.count)\n"
+                for row in stacked.cells { ours += "k\t" + row.joined(separator: "\t") + "\n" }
+            } else {
+                ours += "stack none\n"
+            }
             if let table = pdfDetectRowStripeTable(items: items, groupRects: rects) {
                 ours += "stripe \(table.columns.count) \(table.rows.count)\n"
                 for row in table.cells { ours += "s\t" + row.joined(separator: "\t") + "\n" }
@@ -66,7 +74,7 @@ import Testing
                 mismatches.append("case \(index)\n" + diff.prefix(3).joined(separator: "\n"))
             }
         }
-        print("pdf row stripe probe: \(blocks.count) cases compared")
+        print("pdf stripe/stack probe: \(blocks.count) cases compared")
         let report = mismatches.prefix(3).joined(separator: "\n")
         #expect(mismatches.isEmpty, "\(mismatches.count) stripe divergences:\n\(report)")
     }
