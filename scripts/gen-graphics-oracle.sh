@@ -86,6 +86,8 @@ perl -pi -e 's/^fn (detect_row_stripe_table|cluster_x_positions|has_dominant_pro
     "$crate/src/tables/detect_rects.rs"
 perl -pi -e 's/^fn detect_stacked_box_table\(/pub fn detect_stacked_box_table(/' \
     "$crate/src/tables/detect_rects.rs"
+perl -pi -e 's/^fn detect_merged_cluster_table\(/pub fn detect_merged_cluster_table(/' \
+    "$crate/src/tables/detect_rects.rs"
 cat >> "$crate/src/tables/mod.rs" <<'RS2'
 
 /// Probe shim (added for swift-anydoc): expose the financial expansion.
@@ -651,6 +653,15 @@ pub fn probe_stripe(input: &str) -> String {
         out.push_str(&format!(" {c:.3}"));
     }
     out.push('\n');
+    match detect_merged_cluster_table(&items, &rects, 1) {
+        None => out.push_str("merged none\n"),
+        Some(t) => {
+            out.push_str(&format!("merged {} {}\n", t.columns.len(), t.rows.len()));
+            for row in &t.cells {
+                out.push_str(&format!("m\t{}\n", row.join("\t")));
+            }
+        }
+    }
     match detect_stacked_box_table(&items, &rects, 1) {
         None => out.push_str("stack none\n"),
         Some(t) => {

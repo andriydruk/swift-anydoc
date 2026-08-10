@@ -48,7 +48,14 @@ import Testing
                 ours += " " + format(column)
             }
             ours += "\n"
-            // The reference's probe emits cols, then stack, then stripe.
+            // The reference's probe emits cols, merged, stack, stripe — in
+            // that order. Four harness bugs this phase have been ordering.
+            if let merged = pdfDetectMergedClusterTable(items: items, allRects: rects) {
+                ours += "merged \(merged.columns.count) \(merged.rows.count)\n"
+                for row in merged.cells { ours += "m\t" + row.joined(separator: "\t") + "\n" }
+            } else {
+                ours += "merged none\n"
+            }
             if let stacked = pdfDetectStackedBoxTable(items: items, groupRects: rects) {
                 ours += "stack \(stacked.rows.count)\n"
                 for row in stacked.cells { ours += "k\t" + row.joined(separator: "\t") + "\n" }

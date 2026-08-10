@@ -1233,8 +1233,10 @@ cells field is empty whenever a one-cell grid holds the empty string — Rust's
 **Still unported in `detect_rects.rs`:** every table-building strategy
 (`detect_tables_from_rects`, stacked-box, row-stripe, merged-cluster),
 `detect_row_stripe_table_from_cell_rects`,
-`detect_merged_cluster_table`, `detect_chart_regions` and the top-level
-`detect_tables_from_rects` — roughly 3,500 of its 4,671 lines.
+`collapse_multiline_description_rows`, `detect_chart_regions`, the rect-hint
+machinery, and the top-level `detect_tables_from_rects` that orchestrates all
+of them — roughly 3,300 of its 4,671 lines. **The strategies ported in waves
+23–29 have no caller yet**; that orchestrator is what makes them reachable.
 
 - **Wave 24 — grid assignment.** `PdfGridAssign.swift` ports
   `assign_items_to_grid` and `remove_inner_delimiter_spaces`. Both ruled
@@ -1361,6 +1363,22 @@ accepting path rests on ten generated cases plus the unit tests.
 **A fourth harness ordering bug**, same class as wave 20's: the Swift dump
 emitted its blocks in a different order than the Rust probe. Caught in the
 first run, fixed in the harness, not the port.
+
+- **Wave 29 — the merged-cluster strategy.** `PdfMergedClusterTable.swift`
+  ports `detect_merged_cluster_table`, the last resort: it runs once the
+  clusters have been merged back together and none formed a grid on its own.
+  Rows come from every rectangle's y-edges, columns from where the text
+  starts — the same halves-from-different-places approach as the row-stripe
+  path, but without requiring the stripe shape first.
+  - Being the loosest strategy, it carries the strictest gates. The sharpest
+    is that **an empty column anywhere is fatal**, where grid building merely
+    trims empty *outer* columns. The reason is structural: nothing backs the
+    column positions but the text clustering itself, so an empty column means
+    the clustering was wrong rather than that the table has a blank margin.
+  - Density must clear 40% against grid building's 25%, for the same reason.
+
+1,424 cases agree on the first run, ordering included — with genuinely broad
+coverage this time: **531 accepts spanning 2 to 6 columns, 893 rejects.**
 
 ## Phase 6 remaining work — exact inventory
 
