@@ -104,10 +104,18 @@ jobs:
     # A hung sanitizer must fail loudly, not eat the 6-hour job limit: on
     # macOS this exact command deadlocks inside ASan's own initialization
     # (its malloc interceptor re-enters init via dyld and spins forever).
-    # Linux ships a different ASan runtime and is expected to be fine, but
-    # that is untested here — hence the cap.
+    # Linux ships a different ASan runtime and does work — confirmed once CI
+    # first ran, with all 493 tests passing under it — but the cap stays.
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Test under ASan
-        run: swift test --sanitize=address
+        # LeakSanitizer is on by default alongside ASan on Linux and reports
+        # at exit, which failed this job while every test passed. All six
+        # reports were *indirect* leaks — 368 bytes — bottoming out in
+        # libXCTest and libswiftCore: the runner's own teardown, not the
+        # library, which allocates nothing manually. Leak detection is off so
+        # the job reports what it was added for: memory-safety errors in the
+        # binary parsers. Re-enable with detect_leaks=1 if the library ever
+        # takes on manual allocation.
+        run: ASAN_OPTIONS=detect_leaks=0 swift test --sanitize=address
