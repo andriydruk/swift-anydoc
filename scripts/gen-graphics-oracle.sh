@@ -72,6 +72,10 @@ perl -pi -e 's/^fn (merge_horizontal_segments|group_rules_by_span|numbered_table
     "$crate/src/tables/detect_lines.rs"
 perl -pi -e 's/^fn (table_evidence_score|select_non_overlapping_hypotheses|tables_share_items|overlaps_multiple_tables|select_table_hypothesis)\(/pub fn $1(/' \
     "$crate/src/tables/detect_lines.rs"
+perl -pi -e 's/^pub\(crate\) mod detect_rects;/pub mod detect_rects;/; s/^mod detect_rects;/pub mod detect_rects;/' \
+    "$crate/src/tables/mod.rs"
+perl -pi -e 's/^pub\(crate\) fn (rects_overlap|cluster_rects)\(/pub fn $1(/; s/^fn split_wide_cluster\(/pub fn split_wide_cluster(/' \
+    "$crate/src/tables/detect_rects.rs"
 cat >> "$crate/src/tables/mod.rs" <<'RS2'
 
 /// Probe shim (added for swift-anydoc): expose the financial expansion.
@@ -521,6 +525,50 @@ pub fn probe_hypotheses(input: &str) -> String {
 }
 RUSTEOF
 
+cat >> "$crate/src/tables/detect_rects.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): cluster rects and report the grouping.
+/// Input lines are `x y w h`; the first line is `tol min_size gap min_group`.
+pub fn probe_clusters(input: &str) -> String {
+    let mut lines = input.lines();
+    let header: Vec<f32> = lines
+        .next()
+        .unwrap_or("")
+        .split_whitespace()
+        .filter_map(|t| t.parse().ok())
+        .collect();
+    if header.len() < 4 {
+        return String::new();
+    }
+    let (tol, min_size, gap, min_group) =
+        (header[0], header[1] as usize, header[2], header[3] as usize);
+
+    let mut rects: Vec<(f32, f32, f32, f32)> = Vec::new();
+    for line in lines {
+        let v: Vec<f32> = line.split_whitespace().filter_map(|t| t.parse().ok()).collect();
+        if v.len() >= 4 {
+            rects.push((v[0], v[1], v[2], v[3]));
+        }
+    }
+
+    let mut out = String::new();
+    for (i, g) in cluster_rects(&rects, tol, min_size).iter().enumerate() {
+        out.push_str(&format!("group {i} {:?}\n", g));
+    }
+    if rects.len() >= 2 {
+        out.push_str(&format!(
+            "overlap {}\n",
+            rects_overlap(&rects[0], &rects[1], tol) as u8
+        ));
+    }
+    match split_wide_cluster(&rects, gap, min_group) {
+        None => out.push_str("split none\n"),
+        Some((l, r)) => out.push_str(&format!("split {} {}\n", l.len(), r.len())),
+    }
+    out
+}
+RUSTEOF
+
 mkdir -p "$crate/src/bin"
 cat > "$crate/src/bin/graphicsprobe.rs" <<'RUSTEOF'
 // Dumps the reference's path-extraction output for one PDF.
@@ -532,6 +580,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::format::probe_format(&input));
+        return;
+    }
+    if path == "--rects" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::tables::detect_rects::probe_clusters(&input));
         return;
     }
     if path == "--hyp" {

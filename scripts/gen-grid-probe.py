@@ -417,6 +417,79 @@ def hypothesis_cases(random_count):
     return out
 
 
+def rect_cases(random_count):
+    """Rect sets for clustering. First line is `tol min_size gap min_group`,
+    then `x y w h` per rect."""
+    def block(header, rects):
+        return " ".join(str(h) for h in header) + "\n" + "\n".join(
+            f"{x:g} {y:g} {w:g} {h:g}" for x, y, w, h in rects
+        )
+
+    out = [
+        # Two tables side by side, far apart: two clusters, and a clean split.
+        block((2, 2, 40, 2), [(100, 700, 50, 20), (150, 700, 50, 20),
+                              (300, 700, 50, 20), (350, 700, 50, 20)]),
+        # A grid of abutting cells: one cluster.
+        block((2, 4, 40, 2),
+              [(100 + c * 50, 700 - r * 20, 50, 20) for r in range(4) for c in range(4)]),
+        # Cells separated by more than the tolerance: no cluster survives.
+        block((1, 4, 40, 2),
+              [(100 + c * 60, 700 - r * 30, 50, 20) for r in range(4) for c in range(4)]),
+        # Nested rects (a border around cells) — all one component.
+        block((2, 2, 40, 2), [(100, 700, 200, 80), (110, 710, 50, 20), (170, 710, 50, 20)]),
+        # A gap too narrow to split on.
+        block((2, 2, 200, 2), [(100, 700, 50, 20), (160, 700, 50, 20)]),
+        # Lopsided split: one side too small.
+        block((2, 2, 40, 3), [(100, 700, 20, 20), (300, 700, 20, 20),
+                              (330, 700, 20, 20), (360, 700, 20, 20)]),
+        block((2, 1, 40, 1), []),
+        block((2, 1, 40, 1), [(100, 700, 50, 20)]),
+    ]
+
+    generator = random.Random(1357)
+    for _ in range(random_count):
+        n = generator.randint(0, 24)
+        style = generator.choice(["grid", "scatter", "twogrids", "nested"])
+        rects = []
+        if style == "grid":
+            cols, rows = generator.randint(2, 5), generator.randint(2, 5)
+            cw = generator.choice([40, 50, 60])
+            ch = generator.choice([15, 20, 25])
+            pad = generator.choice([0, 0, 1, 4, 12])
+            rects = [
+                (100 + c * (cw + pad), 700 - r * (ch + pad), cw, ch)
+                for r in range(rows) for c in range(cols)
+            ]
+        elif style == "twogrids":
+            for base in (100, generator.choice([260, 320, 400])):
+                for r in range(generator.randint(2, 4)):
+                    for c in range(2):
+                        rects.append((base + c * 50, 700 - r * 20, 50, 20))
+        elif style == "nested":
+            rects = [(100, 650, 250, 100)] + [
+                (110 + c * 60, 660 + r * 30, 55, 25)
+                for r in range(2) for c in range(3)
+            ]
+        else:
+            rects = [
+                (
+                    generator.randrange(50, 500),
+                    generator.randrange(300, 720),
+                    generator.choice([10, 30, 50]),
+                    generator.choice([10, 20]),
+                )
+                for _ in range(n)
+            ]
+        header = (
+            generator.choice([0.5, 1, 2, 5]),
+            generator.choice([1, 2, 4, 8]),
+            generator.choice([10, 40, 100]),
+            generator.choice([1, 2, 3]),
+        )
+        out.append(block(header, rects))
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -462,6 +535,18 @@ def main():
         detect_answers.append(result.stdout)
     with open(os.path.join(arguments.directory, "detect-rust.txt"), "w", encoding="utf-8") as f:
         f.write("\n---\n".join(detect_answers))
+
+    rect_blocks = rect_cases(arguments.cases)
+    with open(os.path.join(arguments.directory, "rect-cases.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(rect_blocks) + "\n")
+    rect_answers = []
+    for b in rect_blocks:
+        r = subprocess.run(
+            [probe, "--rects"], input=b + "\n", capture_output=True, text=True, check=True
+        )
+        rect_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "rect-rust.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(rect_answers))
 
     hyp_blocks = hypothesis_cases(arguments.cases)
     with open(os.path.join(arguments.directory, "hyp-cases.txt"), "w", encoding="utf-8") as f:

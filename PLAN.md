@@ -1207,6 +1207,34 @@ cells field is empty whenever a one-cell grid holds the empty string — Rust's
 `omittingEmptySubsequences: false`. Worth adding to the drill: **Rust's
 `splitn` and Swift's `split` disagree on empty fields by default.**
 
+- **Wave 23 — rectangle clustering.** `PdfRectCluster.swift` ports the
+  foundation of `tables/detect_rects.rs`: union-find, `rects_overlap`,
+  `cluster_rects` and `split_wide_cluster`. Many PDFs draw a table by stroking
+  one `re` per cell — a table page carries a hundred or more rectangles where
+  a plain page carries under thirty — but they arrive unordered, so working
+  out which belong to the same drawing is a connected-components problem.
+  - The tolerance matters because abutting cell borders *touch* rather than
+    overlap; both rectangles are grown before the test.
+  - The 2,000-rectangle component cap is what keeps a chart-heavy page from
+    taking minutes: a rectangle already in an oversized component stops being
+    compared. The loop stays quadratic and becomes effectively linear on
+    pathological pages.
+  - `pdfSplitWideCluster` is the fallback when grid detection fails on a
+    whole cluster — two tables side by side cluster together when their
+    borders abut, so it cuts at the widest empty column band, but only if
+    both halves are substantial.
+  - **One deliberate deviation:** `find` is iterative here where the
+    reference recurses. A pathological page could otherwise drive the stack
+    as deep as the rectangle count, and this port has no `catch_unwind` (§2
+    gotcha 2). Behaviour is identical; 708 probe cases confirm it.
+
+708 cases agree, with 1,232 groups formed and 264 splits taken.
+
+**Still unported in `detect_rects.rs`:** every table-building strategy
+(`detect_tables_from_rects`, stacked-box, row-stripe, merged-cluster),
+`assign_items_to_grid`, chart-region detection, and the page-background
+filter — roughly 4,400 of its 4,671 lines.
+
 ## Phase 6 remaining work — exact inventory
 
 Measured against the vendored reference at wave 20. `Sources/AnyDoc/Pdf/` is
