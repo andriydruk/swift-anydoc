@@ -19,7 +19,7 @@ enum PdfTableKind: Equatable {
 
 /// A detected table, classified on construction as the reference's
 /// `Table::new` does — see `PdfTableOfContents.swift`.
-struct PdfTable {
+struct PdfTable: Equatable {
     /// Column boundaries, as x positions.
     var columns: [Float] = []
     /// Row boundaries, as y positions, descending.

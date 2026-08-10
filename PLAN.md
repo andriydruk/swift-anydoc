@@ -1232,8 +1232,8 @@ cells field is empty whenever a one-cell grid holds the empty string — Rust's
 
 **Still unported in `detect_rects.rs`:** every table-building strategy
 (`detect_tables_from_rects`, stacked-box, row-stripe, merged-cluster),
-`try_build_grid`, `propagate_merged_cells`, chart-region detection, and the
-page-background filter — roughly 4,300 of its 4,671 lines.
+chart-region detection, and the page-background filter — roughly 4,000 of its
+4,671 lines.
 
 - **Wave 24 — grid assignment.** `PdfGridAssign.swift` ports
   `assign_items_to_grid` and `remove_inner_delimiter_spaces`. Both ruled
@@ -1252,6 +1252,32 @@ page-background filter — roughly 4,300 of its 4,671 lines.
 
 707 cases agree, with 2,171 cells emitted and 589 cases placing at least one
 item.
+
+- **Wave 25 — grid building from rectangles.** `PdfRectGrid.swift` ports
+  `try_build_grid` and `propagate_merged_cells`. Wave 23 worked out which
+  rectangles belong together; this decides whether the cluster is really a
+  *grid*. The rectangles' own edges become the boundaries, then a cumulative
+  series of mostly-negative tests asks whether the result is a table or a
+  form's scattered field boxes.
+  - Three verdicts, and the distinction matters: `.failed` is structural and
+    final, `.fewNonEmptyRows` means the grid was sound but the text thin —
+    often because merged-cell propagation collapsed it upward — so the caller
+    can retry. A unit test written expecting `.failed` for a drawn-but-empty
+    grid was wrong, and the correction is the clearest statement of what
+    separates them.
+  - `skipRects` excludes page backgrounds from *column* edges only. They
+    still count for rows and cell coverage; without the exclusion they
+    contribute page-boundary edges and manufacture empty margin columns.
+  - `strict` is the retry mode after backgrounds are dropped: half the rows
+    must carry content instead of two, 40% of cells instead of 25%, and any
+    cell over 200 bytes means a paragraph was swept in.
+  - `propagate_merged_cells` demands **real overlap**, not tolerance slack. A
+    rectangle whose top merely meets a row's bottom lies entirely below it,
+    and a bounds-with-slack test would call that a span — cascading unrelated
+    rows into one merged cell. Pinned by test.
+
+711 cases agree, with all three verdicts firing: 262 ok, 439 failed, 10
+`fewNonEmptyRows`.
 
 ## Phase 6 remaining work — exact inventory
 

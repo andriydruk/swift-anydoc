@@ -78,6 +78,8 @@ perl -pi -e 's/^pub\(crate\) fn (rects_overlap|cluster_rects)\(/pub fn $1(/; s/^
     "$crate/src/tables/detect_rects.rs"
 perl -pi -e 's/^pub\(crate\) fn assign_items_to_grid\(/pub fn assign_items_to_grid(/; s/^fn remove_inner_delimiter_spaces\(/pub fn remove_inner_delimiter_spaces(/' \
     "$crate/src/tables/detect_rects.rs"
+perl -pi -e 's/^fn try_build_grid\(/pub fn try_build_grid(/; s/^enum GridResult \{/pub enum GridResult {/' \
+    "$crate/src/tables/detect_rects.rs"
 cat >> "$crate/src/tables/mod.rs" <<'RS2'
 
 /// Probe shim (added for swift-anydoc): expose the financial expansion.
@@ -611,6 +613,58 @@ pub fn probe_assign(input: &str) -> String {
     }
     out
 }
+
+/// Probe (added for swift-anydoc): build a grid from a rect cluster.
+/// Line 1: `strict skip0,skip1,...`. Then `R x y w h` rects and
+/// `I x y w size text` items.
+pub fn probe_grid_build(input: &str) -> String {
+    use crate::types::{ItemType, TextItem};
+    let mut lines = input.lines();
+    let header: Vec<&str> = lines.next().unwrap_or("").split_whitespace().collect();
+    let strict = header.first().map_or(false, |t| *t == "1");
+    let skip_spec: Vec<bool> = header
+        .get(1)
+        .map(|s| s.split(',').map(|t| t == "1").collect())
+        .unwrap_or_default();
+
+    let mut rects: Vec<(f32, f32, f32, f32)> = Vec::new();
+    let mut items: Vec<TextItem> = Vec::new();
+    for line in lines {
+        let p: Vec<&str> = line.splitn(6, ' ').collect();
+        if p.len() >= 5 && p[0] == "R" {
+            rects.push((
+                p[1].parse().unwrap_or(0.0), p[2].parse().unwrap_or(0.0),
+                p[3].parse().unwrap_or(0.0), p[4].parse().unwrap_or(0.0),
+            ));
+        } else if p.len() >= 6 && p[0] == "I" {
+            items.push(TextItem {
+                text: p[5].to_string(),
+                x: p[1].parse().unwrap_or(0.0), y: p[2].parse().unwrap_or(0.0),
+                width: p[3].parse().unwrap_or(0.0), height: p[4].parse().unwrap_or(0.0),
+                font: "F1".to_string(), font_size: p[4].parse().unwrap_or(0.0), page: 1,
+                is_bold: false, is_italic: false, is_underline: false, is_strikeout: false,
+                item_type: ItemType::Text, mcid: None,
+            });
+        }
+    }
+    let mut skip = vec![false; rects.len()];
+    for (i, v) in skip_spec.iter().enumerate() {
+        if i < skip.len() { skip[i] = *v }
+    }
+
+    match try_build_grid(&items, &rects, 1, &skip, strict) {
+        GridResult::Failed => "failed\n".to_string(),
+        GridResult::FewNonEmptyRows => "fewrows\n".to_string(),
+        GridResult::Ok(t) => {
+            let mut out = format!("ok {} {} {:?}\n", t.columns.len(), t.rows.len(), t.kind);
+            for row in &t.cells {
+                out.push_str(&format!("c\t{}\n", row.join("\t")));
+            }
+            out.push_str(&format!("idx {:?}\n", t.item_indices));
+            out
+        }
+    }
+}
 RUSTEOF
 
 mkdir -p "$crate/src/bin"
@@ -624,6 +678,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::format::probe_format(&input));
+        return;
+    }
+    if path == "--gridbuild" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::tables::detect_rects::probe_grid_build(&input));
         return;
     }
     if path == "--assign" {

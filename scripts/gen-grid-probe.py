@@ -550,6 +550,83 @@ def assign_cases(random_count):
     return out
 
 
+def gridbuild_cases(random_count):
+    """Rect clusters for grid building. Line 1 is `strict skipflags`, then
+    `R x y w h` rects and `I x y w size text` items."""
+    def block(strict, skips, rects, items):
+        head = f"{1 if strict else 0} " + (",".join("1" if s else "0" for s in skips) or "")
+        body = [f"R {x:g} {y:g} {w:g} {h:g}" for x, y, w, h in rects]
+        body += [f"I {x:g} {y:g} {w:g} {s:g} {t}" for x, y, w, s, t in items]
+        return head + "\n" + "\n".join(body)
+
+    def cell_grid(rows, cols, cw=60, ch=20, x0=100, y0=700):
+        return [(x0 + c * cw, y0 - r * ch, cw, ch) for r in range(rows) for c in range(cols)]
+
+    def fill(rows, cols, cw=60, ch=20, x0=100, y0=700, word="v"):
+        return [
+            (x0 + c * cw + 10, y0 - r * ch + 5, 30, 10, f"{word}{r}{c}")
+            for r in range(rows) for c in range(cols)
+        ]
+
+    out = []
+    # A well-formed grid, loose and strict.
+    for strict in (False, True):
+        rects = cell_grid(3, 3)
+        out.append(block(strict, [False] * len(rects), rects, fill(3, 3)))
+    # Too few edges.
+    out.append(block(False, [False, False], cell_grid(1, 2), fill(1, 2)))
+    # Sparse: cells drawn but no text.
+    rects = cell_grid(4, 3)
+    out.append(block(False, [False] * len(rects), rects, fill(1, 1)))
+    # A page background that would manufacture margin columns unless skipped.
+    rects = [(50, 400, 500, 340)] + cell_grid(3, 3)
+    out.append(block(False, [True] + [False] * (len(rects) - 1), rects, fill(3, 3)))
+    # ...and the same without the skip flag.
+    out.append(block(False, [False] * len(rects), rects, fill(3, 3)))
+    # A merged label spanning three rows in column 0.
+    rects = [(100, 640, 60, 60)] + cell_grid(3, 3)[1:]
+    out.append(block(False, [False] * len(rects), rects, fill(3, 3)))
+    # A paragraph swept into a cell — rejected in strict mode only.
+    rects = cell_grid(3, 3)
+    long_items = fill(3, 3) + [(110, 665, 30, 10, "x" * 240)]
+    for strict in (False, True):
+        out.append(block(strict, [False] * len(rects), rects, long_items))
+    # Empty outer columns (rect edges beyond the text).
+    rects = cell_grid(3, 4)
+    out.append(block(False, [False] * len(rects), rects,
+                     fill(3, 2, x0=160) ))
+    # Too many columns.
+    rects = cell_grid(3, 28, cw=20)
+    out.append(block(False, [False] * len(rects), rects, fill(3, 28, cw=20)))
+
+    generator = random.Random(4242)
+    words = ["a", "bb", "12", "", "3.50", "total"]
+    for _ in range(random_count):
+        rows = generator.randint(1, 6)
+        cols = generator.randint(1, 6)
+        cw = generator.choice([30, 60, 90])
+        ch = generator.choice([15, 20, 30])
+        jitter = generator.choice([0, 0, 2, 8])
+        rects = [
+            (100 + c * cw + generator.uniform(0, jitter),
+             700 - r * ch + generator.uniform(0, jitter), cw, ch)
+            for r in range(rows) for c in range(cols)
+        ]
+        # Occasionally drop some cells, or add a spanning rect.
+        if generator.random() < 0.3 and len(rects) > 3:
+            rects = rects[: -generator.randint(1, 3)]
+        if generator.random() < 0.25:
+            rects.insert(0, (100, 700 - (rows - 1) * ch, cw, ch * rows))
+        items = [
+            (100 + c * cw + 10, 700 - r * ch + 5, 25, 10, generator.choice(words))
+            for r in range(rows) for c in range(cols)
+            if generator.random() < 0.8
+        ]
+        skips = [generator.random() < 0.1 for _ in rects]
+        out.append(block(generator.random() < 0.5, skips, rects, items))
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -595,6 +672,18 @@ def main():
         detect_answers.append(result.stdout)
     with open(os.path.join(arguments.directory, "detect-rust.txt"), "w", encoding="utf-8") as f:
         f.write("\n---\n".join(detect_answers))
+
+    gb_blocks = gridbuild_cases(arguments.cases)
+    with open(os.path.join(arguments.directory, "gridbuild-cases.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(gb_blocks) + "\n")
+    gb_answers = []
+    for b in gb_blocks:
+        r = subprocess.run(
+            [probe, "--gridbuild"], input=b + "\n", capture_output=True, text=True, check=True
+        )
+        gb_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "gridbuild-rust.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(gb_answers))
 
     assign_blocks = assign_cases(arguments.cases)
     with open(os.path.join(arguments.directory, "assign-cases.txt"), "w", encoding="utf-8") as f:
