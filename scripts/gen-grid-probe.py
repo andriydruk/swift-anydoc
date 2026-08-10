@@ -599,8 +599,76 @@ def gridbuild_cases(random_count):
     rects = cell_grid(3, 28, cw=20)
     out.append(block(False, [False] * len(rects), rects, fill(3, 28, cw=20)))
 
+    # Shapes the classifiers exist to recognise, which the random tail below
+    # produces only by accident.
+    #   full-width shaded bands (row stripes)
+    stripes = [(100, 700 - r * 20, 400, 18) for r in range(6)]
+    out.append(block(False, [False] * len(stripes), stripes,
+                     [(110 + c * 100, 705 - r * 20, 40, 10, f"s{r}{c}")
+                      for r in range(6) for c in range(3)]))
+    #   bands of varying width — not stripes
+    ragged = [(100, 700 - r * 20, 400 - r * 60, 18) for r in range(6)]
+    out.append(block(False, [False] * len(ragged), ragged, []))
+    #   a vertical bar chart: equal widths, spaced, data-driven heights
+    bars = [(100 + i * 60, 400, 30, 40 + i * 35) for i in range(6)]
+    out.append(block(False, [False] * len(bars), bars,
+                     [(105 + i * 60, 395, 20, 8, str(10 * i)) for i in range(6)]))
+    #   the same bars but labelled with words — a table, not a chart
+    out.append(block(False, [False] * len(bars), bars,
+                     [(105 + i * 60, 395, 20, 8, "category") for i in range(6)]))
+    #   a horizontal bar chart
+    hbars = [(100, 400 + i * 40, 60 + i * 45, 20) for i in range(6)]
+    out.append(block(False, [False] * len(hbars), hbars, []))
+    #   many page backgrounds, and too few to count
+    for count in (9, 3):
+        bg = [(0, 0, 600, 780)] * count + cell_grid(3, 3)
+        out.append(block(False, [False] * len(bg), bg, fill(3, 3)))
+
     generator = random.Random(4242)
     words = ["a", "bb", "12", "", "3.50", "total"]
+
+    # Randomised stripes and bar charts straddling their thresholds — the
+    # 200pt median width, the 10% width tolerance, the 0.5-breadth bar gap
+    # and the 1.3x length variation. The general tail below produces these
+    # only by accident.
+    for _ in range(random_count // 3):
+        rows = generator.randint(2, 8)
+        width = generator.choice([120, 190, 205, 300, 450])
+        wobble = generator.choice([0, 0, 0.05, 0.12, 0.4])
+        rects = [
+            (100, 700 - r * 20, width * (1 + generator.uniform(-wobble, wobble)), 18)
+            for r in range(rows)
+        ]
+        items = [
+            (110 + c * 90, 705 - r * 20, 40, 10, generator.choice(words))
+            for r in range(rows) for c in range(generator.randint(1, 3))
+        ]
+        out.append(block(False, [False] * len(rects), rects, items))
+
+    for _ in range(random_count // 3):
+        count = generator.randint(3, 8)
+        breadth = generator.choice([15, 30, 45])
+        gap = generator.choice([0, 5, 20, 40])
+        vary = generator.choice([1.0, 1.2, 1.5, 3.0])
+        horizontal = generator.random() < 0.5
+        rects = []
+        for i in range(count):
+            length = 40 * (1 + (vary - 1) * i / max(count - 1, 1))
+            if horizontal:
+                rects.append((100, 400 + i * (breadth + gap), length, breadth))
+            else:
+                rects.append((100 + i * (breadth + gap), 400, breadth, length))
+        labelled = generator.random() < 0.5
+        items = [
+            (
+                105 + (0 if horizontal else i * (breadth + gap)),
+                395 + (i * (breadth + gap) if horizontal else 0),
+                20, 8,
+                str(10 * i) if labelled else "category",
+            )
+            for i in range(count)
+        ]
+        out.append(block(False, [False] * len(rects), rects, items))
     for _ in range(random_count):
         rows = generator.randint(1, 6)
         cols = generator.randint(1, 6)
@@ -684,6 +752,15 @@ def main():
         gb_answers.append(r.stdout)
     with open(os.path.join(arguments.directory, "gridbuild-rust.txt"), "w", encoding="utf-8") as f:
         f.write("\n===\n".join(gb_answers))
+
+    cls_answers = []
+    for b in gb_blocks:
+        r = subprocess.run(
+            [probe, "--classify"], input=b + "\n", capture_output=True, text=True, check=True
+        )
+        cls_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "classify-rust.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(cls_answers))
 
     assign_blocks = assign_cases(arguments.cases)
     with open(os.path.join(arguments.directory, "assign-cases.txt"), "w", encoding="utf-8") as f:

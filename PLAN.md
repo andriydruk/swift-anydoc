@@ -1232,8 +1232,9 @@ cells field is empty whenever a one-cell grid holds the empty string — Rust's
 
 **Still unported in `detect_rects.rs`:** every table-building strategy
 (`detect_tables_from_rects`, stacked-box, row-stripe, merged-cluster),
-chart-region detection, and the page-background filter — roughly 4,000 of its
-4,671 lines.
+`detect_row_stripe_table`, `detect_stacked_box_table`,
+`detect_merged_cluster_table`, `detect_chart_regions` and the top-level
+`detect_tables_from_rects` — roughly 3,800 of its 4,671 lines.
 
 - **Wave 24 — grid assignment.** `PdfGridAssign.swift` ports
   `assign_items_to_grid` and `remove_inner_delimiter_spaces`. Both ruled
@@ -1278,6 +1279,35 @@ item.
 
 711 cases agree, with all three verdicts firing: 262 ok, 439 failed, 10
 `fewNonEmptyRows`.
+
+- **Wave 26 — rect-cluster classifiers.** `PdfRectClassify.swift` ports
+  `is_row_stripe_pattern`, `without_dominant_page_backgrounds` and
+  `is_chart_bar_cluster` — the tests that say what a cluster *is* before any
+  table is built from it.
+  - **Row stripes.** Alternating shading gives rectangles that all share an x
+    position and width, so grid detection sees two x-edges and concludes there
+    is one column. Recognising the pattern is what lets the columns be
+    recovered from the text instead. The bands must span more than 200pt and
+    three quarters of them agree on width within a tenth.
+  - **Page backgrounds** are dropped only when the producer stamps *many* —
+    eight or more. One full-page backdrop is harmless; eight means one per
+    element, and they would otherwise add page-boundary edges to every grid.
+  - **Bar charts** are the subtle one: bars drawn as filled rectangles are
+    indistinguishable from cell backgrounds by shape alone, and without this
+    a chart's axis labels get gridded into a phantom table. The signature is a
+    family of equal-*breadth* rectangles standing in separated columns —
+    table cells touch, bars do not — whose *length* varies because it encodes
+    data, containing only figures if anything. The whole test runs twice with
+    the axes swapped, which is what catches a horizontal chart.
+    - Its sharpest test: a table's cell rectangles have same-extent partners
+      in other columns, because rows are uniform. Chart segments start where
+      the previous datum ended, so they rarely pair up.
+
+**Coverage was thin again and was fixed, not accepted.** The first run
+compared 718 cases green with `chart` true 3 times and `stripe` true *once*.
+Randomised stripe and bar generators now straddle the thresholds — the 200pt
+width, the 10% tolerance, the half-breadth bar gap, the 1.3× length variation:
+**1,184 cases, 40 chart and 85 stripe verdicts, all agreeing.**
 
 ## Phase 6 remaining work — exact inventory
 
