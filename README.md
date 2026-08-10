@@ -96,5 +96,5 @@ PDF stack.
 ## Licence
 
 MIT — see [LICENSE](LICENSE). This is a reimplementation of firecrawl/anydoc and
-firecrawl/pdf-inspector, both MIT licensed; their notice and attribution are included
-there. No upstream source is redistributed.
+firecrawl/pdf-inspector, both MIT licensed; their notice and the attribution are in
+[NOTICE](NOTICE). No upstream source is redistributed.
