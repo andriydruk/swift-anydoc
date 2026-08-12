@@ -2123,3 +2123,32 @@ those cases now set the second item's x directly.
 
 220 cases agree, 28 of them repaired. My own unit tests were written expecting
 the *correct* behaviour and failed — which is how the bug surfaced at all.
+
+- **Wave 48 — the structure tree and its walks.** `PdfStructTree.swift` ports
+  `StructRole`, `StructElement`, the tagged-table types and the four pure
+  operations over them: `collect_tables`, `collect_rows`,
+  `collect_mcids_recursive` and `flatten_recursive`.
+
+  A tagged PDF carries a parallel tree saying what its content *means* — this
+  is a heading, that is a table cell — and where it exists it beats any
+  geometric heuristic, because it is what the author declared rather than what
+  the layout suggests.
+  - A `Table` element **stops the descent**: a table nested inside a cell is
+    not collected separately, because the outer table already owns it.
+  - Rows are found through `THead`/`TBody`/`TFoot`, which carry none of their
+    own but are where real documents put them.
+  - An empty row is still appended, so it counts toward the two-row minimum
+    even though the "any row has cells" test then decides the outcome.
+  - A marked-content reference whose page will not resolve is dropped rather
+    than kept with a guessed page — the id alone is meaningless without
+    knowing which stream it indexes.
+  - **`Figure` is deliberately absent from the non-heading set.** Cover pages
+    routinely tag the document title inside a Figure next to a seal or logo,
+    and that title is a real heading; `Formula` and `Form` stay, because a
+    line tagged as an equation or a form field never is.
+
+  Building a tree from a document is a separate concern — it needs the
+  `/RoleMap`, kid resolution and object-reference chasing — and comes later.
+
+165 cases agree on the first run, covering nested tables, grouping elements,
+unresolvable pages and every role in and out of the non-heading set.

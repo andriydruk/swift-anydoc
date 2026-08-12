@@ -41,6 +41,8 @@ cp -R "$reference" "$crate"
 chmod -R u+w "$crate"
 
 # `structure_tree` is private as well.
+perl -pi -e "s/^fn (collect_tables|collect_rows|collect_mcids_recursive|flatten_recursive)/pub fn \$1/; s/^    fn from_name/    pub fn from_name/" \
+    "$crate/src/structure_tree.rs"
 perl -pi -e "s/^mod structure_tree;/pub mod structure_tree;/; s/^pub\\(crate\\) mod structure_tree;/pub mod structure_tree;/" \
     "$crate/src/lib.rs"
 
@@ -454,6 +456,96 @@ pub fn probe_detect(input: &str) -> String {
 RUSTEOF
 
 cat >> "$crate/src/structure_tree.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): the pure tree walks. A case is a list of
+/// `depth role mcid:page,...` lines describing the tree in document order.
+pub fn probe_structtree(input: &str) -> String {
+    fn build(lines: &[(usize, StructElement)], index: &mut usize, depth: usize)
+        -> Vec<StructElement>
+    {
+        let mut out = Vec::new();
+        while *index < lines.len() && lines[*index].0 == depth {
+            let mut element = lines[*index].1.clone();
+            *index += 1;
+            element.children = build(lines, index, depth + 1);
+            out.push(element);
+        }
+        out
+    }
+
+    let mut flat: Vec<(usize, StructElement)> = Vec::new();
+    let mut obj_to_page: std::collections::HashMap<ObjectId, u32> =
+        std::collections::HashMap::new();
+    for line in input.lines() {
+        let parts: Vec<&str> = line.split(' ').collect();
+        if parts.len() < 2 { continue; }
+        let depth: usize = parts[0].parse().unwrap_or(0);
+        let mut element = StructElement {
+            role: StructRole::from_name(parts[1]),
+            alt_text: if parts.len() > 3 && parts[3] != "-" {
+                Some(parts[3].to_string())
+            } else { None },
+            actual_text: None,
+            lang: None,
+            content_refs: Vec::new(),
+            children: Vec::new(),
+        };
+        if parts.len() > 2 && parts[2] != "-" {
+            for entry in parts[2].split(',') {
+                let bits: Vec<&str> = entry.split(':').collect();
+                if bits.len() != 2 { continue; }
+                let mcid: i64 = bits[0].parse().unwrap_or(0);
+                let page: u32 = bits[1].parse().unwrap_or(0);
+                let id = (page as u32, 0u16);
+                if page > 0 {
+                    obj_to_page.insert(id, page);
+                    element.content_refs.push(MarkedContentRef { mcid, page_id: Some(id) });
+                } else {
+                    element.content_refs.push(MarkedContentRef { mcid, page_id: None });
+                }
+            }
+        }
+        flat.push((depth, element));
+    }
+
+    let mut index = 0usize;
+    let tree = build(&flat, &mut index, 0);
+
+    let mut out = String::new();
+    let mut tables = Vec::new();
+    collect_tables(&tree, &obj_to_page, &mut tables);
+    out.push_str(&format!("tables {}\n", tables.len()));
+    for table in &tables {
+        out.push_str(&format!("t {}\n", table.rows.len()));
+        for row in &table.rows {
+            out.push_str(&format!("r {}", row.cells.len()));
+            for cell in &row.cells {
+                out.push_str(&format!(" {}", cell.is_header as u8));
+                for (mcid, page) in &cell.mcids {
+                    out.push_str(&format!(":{mcid}/{page}"));
+                }
+            }
+            out.push('\n');
+        }
+    }
+    let mut flattened = Vec::new();
+    flatten_recursive(&tree, &mut flattened, 0);
+    out.push_str(&format!("flat {}\n", flattened.len()));
+    for element in &flattened {
+        out.push_str(&format!(
+            "e {} {:?} {} {}\n",
+            element.depth,
+            element.role,
+            element.child_count,
+            element.alt_text.as_deref().unwrap_or("-")
+        ));
+    }
+    out.push_str(&format!(
+        "nonheading {}\n",
+        tree.iter().filter(|e| e.role.is_non_heading_content()).count()
+    ));
+    out
+}
 
 /// Probe (added for swift-anydoc): the bare-struct-name repair. One
 /// hex-encoded buffer per line; the answer is the repaired buffer, also hex.
@@ -1623,6 +1715,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::detect_lines::probe_hypotheses(&input));
+        return;
+    }
+    if path == "--structtree" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::structure_tree::probe_structtree(&input));
         return;
     }
     if path == "--structnames" {

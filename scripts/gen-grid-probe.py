@@ -2032,6 +2032,112 @@ def structname_cases(random_count):
     return [c.encode("utf-8").hex() for c in cases]
 
 
+
+def structtree_cases(random_count):
+    """Cases for the structure-tree walks.
+
+    A case is `depth role mcids alt` lines in document order; mcids are
+    `id:page` pairs, and a page of 0 means the element declared no page.
+    """
+    rng = random.Random(48_2026)
+
+    def line(depth, role, mcids="-", alt="-"):
+        return f"{depth} {role} {mcids} {alt}"
+
+    cases = [
+        "",
+        line(0, "P"),
+        # A proper two-row table.
+        "\n".join([
+            line(0, "Table"),
+            line(1, "TR"), line(2, "TH", "1:1"), line(2, "TH", "2:1"),
+            line(1, "TR"), line(2, "TD", "3:1"), line(2, "TD", "4:1"),
+        ]),
+        # One row only: not a table.
+        "\n".join([line(0, "Table"), line(1, "TR"), line(2, "TD", "1:1")]),
+        # Two rows but no cells at all.
+        "\n".join([line(0, "Table"), line(1, "TR"), line(1, "TR")]),
+        # Rows behind THead/TBody/TFoot grouping.
+        "\n".join([
+            line(0, "Table"),
+            line(1, "THead"), line(2, "TR"), line(3, "TH", "1:1"),
+            line(1, "TBody"), line(2, "TR"), line(3, "TD", "2:1"),
+            line(1, "TFoot"), line(2, "TR"), line(3, "TD", "3:1"),
+        ]),
+        # A table nested inside another: the outer one owns the descent.
+        "\n".join([
+            line(0, "Table"),
+            line(1, "TR"), line(2, "TD", "1:1"),
+            line(2, "TD"), line(3, "Table"),
+            line(4, "TR"), line(5, "TD", "2:1"),
+            line(4, "TR"), line(5, "TD", "3:1"),
+            line(1, "TR"), line(2, "TD", "4:1"),
+        ]),
+        # A table buried under containers.
+        "\n".join([
+            line(0, "Document"), line(1, "Sect"), line(2, "Div"),
+            line(3, "Table"),
+            line(4, "TR"), line(5, "TD", "1:1"),
+            line(4, "TR"), line(5, "TD", "2:1"),
+        ]),
+        # Two tables side by side.
+        "\n".join([
+            line(0, "Table"), line(1, "TR"), line(2, "TD", "1:1"),
+            line(1, "TR"), line(2, "TD", "2:1"),
+            line(0, "Table"), line(1, "TR"), line(2, "TD", "3:2"),
+            line(1, "TR"), line(2, "TD", "4:2"),
+        ]),
+        # MCIDs gathered from descendants of a cell.
+        "\n".join([
+            line(0, "Table"),
+            line(1, "TR"), line(2, "TD", "1:1"), line(3, "Span", "2:1"),
+            line(4, "Span", "3:1"),
+            line(1, "TR"), line(2, "TD", "4:1"),
+        ]),
+        # A reference with no page is dropped.
+        "\n".join([
+            line(0, "Table"),
+            line(1, "TR"), line(2, "TD", "1:0,2:1"),
+            line(1, "TR"), line(2, "TD", "3:0"),
+        ]),
+        # Non-cell children of a row are ignored.
+        "\n".join([
+            line(0, "Table"),
+            line(1, "TR"), line(2, "Span", "1:1"), line(2, "TD", "2:1"),
+            line(1, "TR"), line(2, "TD", "3:1"),
+        ]),
+        # Deep nesting for the flattened view.
+        "\n".join([
+            line(0, "Document", "-", "cover"),
+            line(1, "Sect"), line(2, "H1", "1:1"), line(2, "P", "2:1"),
+            line(1, "Figure", "3:1", "a-seal"),
+        ]),
+        # Every non-heading role at the top level.
+        "\n".join(line(0, r) for r in
+                   ["L", "LI", "Lbl", "LBody", "BlockQuote", "Quote", "Caption", "TOC",
+                    "TOCI", "Index", "Note", "Reference", "BibEntry", "Code", "Formula",
+                    "Form", "Table", "TR", "TH", "TD", "THead", "TBody", "TFoot"]),
+        # And the roles that are deliberately not in that set.
+        "\n".join(line(0, r) for r in
+                   ["Figure", "H", "H1", "P", "Div", "Sect", "Span", "Link", "Annot",
+                    "Custom"]),
+    ]
+
+    roles = ["Document", "Sect", "Div", "Table", "TR", "TD", "TH", "THead", "TBody",
+             "TFoot", "P", "H1", "Span", "Figure", "L", "LI", "Weird"]
+    for _ in range(random_count):
+        lines = []
+        depth = 0
+        for _ in range(rng.randint(0, 14)):
+            depth = max(0, min(depth + rng.choice([-1, 0, 0, 1, 1]), 5))
+            mcids = "-" if rng.random() < 0.5 else ",".join(
+                f"{rng.randint(0, 5)}:{rng.randint(0, 3)}"
+                for _ in range(rng.randint(1, 3)))
+            lines.append(line(depth, rng.choice(roles), mcids))
+        cases.append("\n".join(lines))
+    return cases
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -2202,6 +2308,21 @@ def main():
         f.write("\n===\n".join(hyp_answers))
 
     rule_blocks = rule_cases(arguments.cases)
+    st_blocks = structtree_cases(max(arguments.cases // 4, 60))
+    with open(os.path.join(arguments.directory, "structtree-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n===\n".join(st_blocks))
+    st_answers = []
+    for b in st_blocks:
+        r = subprocess.run(
+            [probe, "--structtree"], input=b + "\n", capture_output=True, text=True,
+            check=True
+        )
+        st_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "structtree-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n===\n".join(st_answers))
+
     sn_lines = structname_cases(max(arguments.cases // 3, 100))
     with open(os.path.join(arguments.directory, "structname-cases.txt"), "w",
               encoding="utf-8") as f:
