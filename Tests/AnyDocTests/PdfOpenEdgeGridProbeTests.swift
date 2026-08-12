@@ -42,6 +42,7 @@ import Testing
         var mismatches: [String] = []
         var anchorAccepts = 0
         var bandAccepts = 0
+        var denseAccepts = 0
         var stackedAccepts = 0
         var gridAccepts = 0
         for (index, block) in blocks.enumerated() where index < expected.count {
@@ -95,6 +96,15 @@ import Testing
             } else {
                 ours += "stacked none\n"
             }
+            if let dense = pdfBuildDenseRowAnchorTable(
+                items: items, horizontals: rules, verticals: verticals)
+            {
+                denseAccepts += 1
+                ours += emit("dense", dense)
+            } else {
+                ours += "dense none\n"
+            }
+
             let bands = pdfDetectTextAnchorRuleTables(
                 items: items, horizontals: rules, verticals: verticals, pathLines: pathLines)
             bandAccepts += bands.count
@@ -125,7 +135,7 @@ import Testing
         }
         print(
             "pdf open-edge probe: \(blocks.count) cases, \(anchorAccepts) anchor, "
-                + "\(stackedAccepts) stacked, \(bandAccepts) bands, \(gridAccepts) grids")
+                + "\(stackedAccepts) stacked, \(bandAccepts) bands, \(denseAccepts) dense, \(gridAccepts) grids")
         let report = mismatches.prefix(3).joined(separator: "\n")
         #expect(mismatches.isEmpty, "\(mismatches.count) open-edge divergences:\n\(report)")
     }

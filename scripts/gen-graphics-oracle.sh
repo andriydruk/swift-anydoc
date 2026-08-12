@@ -70,6 +70,8 @@ perl -pi -e 's/^pub\(crate\) mod detect_lines;/pub mod detect_lines;/; s/^mod de
     "$crate/src/tables/mod.rs"
 perl -pi -e 's/^fn (merge_horizontal_segments|group_rules_by_span|numbered_table_caption|split_independent_rule_runs|rules_are_uniform_grid|derive_columns_from_horizontal_segments)\(/pub fn $1(/' \
     "$crate/src/tables/detect_lines.rs"
+perl -pi -e "s/^fn (build_dense_row_anchor_table)/pub fn \$1/" \
+    "$crate/src/tables/detect_lines.rs"
 perl -pi -e "s/^fn (detect_text_anchor_rule_tables|line_overlaps_text_anchor_band)/pub fn \$1/; s/^struct TextAnchorTable/pub struct TextAnchorTable/" \
     "$crate/src/tables/detect_lines.rs"
 perl -pi -e "s/^    table: Table,/    pub table: Table,/; s/^    x_left: f32,/    pub x_left: f32,/; s/^    x_right: f32,/    pub x_right: f32,/; s/^    y_bottom: f32,/    pub y_bottom: f32,/; s/^    y_top: f32,/    pub y_top: f32,/" \
@@ -518,6 +520,10 @@ pub fn probe_openedge(input: &str) -> String {
     match build_stacked_token_table(&anchored, &rules) {
         None => out.push_str("stacked none\n"),
         Some(t) => emit(&mut out, "stacked", &t),
+    }
+    match build_dense_row_anchor_table(&items, &rules, &verticals, 1) {
+        None => out.push_str("dense none\n"),
+        Some(t) => emit(&mut out, "dense", &t),
     }
     let bands = detect_text_anchor_rule_tables(&items, &rules, &verticals, &path_lines, 1);
     out.push_str(&format!("bands {}\n", bands.len()));

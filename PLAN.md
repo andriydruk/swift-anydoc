@@ -1698,6 +1698,43 @@ scoping shapes were added, each paired with its just-under-threshold twin —
 199 path lines, five strokes, two spanning verticals — so the thresholds are
 pinned from both sides rather than merely crossed.
 
+- **Wave 39 — the dense-row anchor strategy.**
+  `PdfDenseRowAnchorTable.swift` ports `build_dense_row_anchor_table`, the
+  last strategy in `detect_lines.rs`.
+
+  It exists because wave 37 reads the *first* row as the schema, and a
+  multi-level booktabs header puts one or two spanning labels there while only
+  a later row exposes every real column. So this one takes the **widest**
+  schema any row exposes, and pays for that licence with corroboration:
+  - Two rows must independently reproduce three quarters of the anchors. One
+    busy line inside a chart or form is not evidence of a table.
+  - The body must hold numbers — at least three, and in a quarter of its
+    filled cells. Prose bracketed by rules passes every geometric test above
+    it; what it lacks is data.
+  - Four evenly spaced levels *anywhere* in the band is ruled paper, even when
+    the band as a whole is uneven.
+  - A gap far larger than the median means two stacked bands, not one table —
+    a page of charts contributes one dense numeric row each, and they must not
+    be merged into a synthetic page-wide table.
+
+220 cases agree on the first run. All 15 gates fire, but four of the shapes
+written for them initially reached a *different* gate, and each miss was worth
+recording:
+  - 40pt-wide items spaced 40pt apart touch within the 6pt join gap and
+    collapse to one anchor, so the "anchors too narrow" case needs narrow
+    items.
+  - Rows at the default 20pt spacing fall below the bottom rule and are never
+    collected, so the "too many rows" case needs tight spacing to stay inside
+    the band.
+  - A body row that reproduces the schema counts as dense alongside the
+    header, so the "one dense row" case needs every body row to be a stub.
+  - Three numeric cells clears the floor; to fail the *ratio* the body needs a
+    fourth row of text.
+
+**`detect_lines.rs` now has all six strategies.** What remains there is
+`detect_tables_from_lines_inner` — the orchestrator that runs them, scores the
+hypotheses (waves 21–22 built the scorer), and picks between them.
+
 ## Phase 6 remaining work — exact inventory
 
 Measured against the vendored reference at wave 20. `Sources/AnyDoc/Pdf/` is

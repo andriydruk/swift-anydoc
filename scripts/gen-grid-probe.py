@@ -1301,6 +1301,101 @@ def openedge_cases(random_count):
                             [(110, 40, "z" * 120), (250, 20, "34"), (390, 20, "9%")]]),
     ]
 
+    # Dense-row anchor shapes. Nothing above reaches this strategy: it wants
+    # four or more non-uniform rules, four or more anchors spanning most of
+    # the table, two rows independently reproducing the schema, and a body
+    # that actually holds numbers.
+    def dense_case(rules=None, verticals=(), body=None, header=None, x1=500, width=40,
+                   row_gap=20):
+        rules = rules if rules is not None else [
+            (700, 100, x1), (685, 100, x1), (655, 100, x1), (610, 100, x1)]
+        header = header if header is not None else [
+            (110, "Name"), (200, "Q1"), (300, "Q2"), (400, "Q3")]
+        body = body if body is not None else [
+            [(110, "alpha"), (200, "10"), (300, "20"), (400, "30")],
+            [(110, "beta"), (200, "11"), (300, "21"), (400, "31")],
+            [(110, "gamma"), (200, "12"), (300, "22"), (400, "32")],
+        ]
+        items = [(x, 690, width, 10, tx) for x, tx in header]
+        for row_index, row in enumerate(body):
+            for x, tx in row:
+                items.append((x, 670 - row_index * row_gap, width, 10, tx))
+        return block(rules, list(verticals), items)
+
+    even = [(700, 100, 500), (680, 100, 500), (660, 100, 500), (640, 100, 500),
+            (620, 100, 500)]
+    out += [
+        # The shape it is for.
+        dense_case(),
+        # Accepting variants: five anchors, and a numeric body that only just
+        # clears the quarter-of-filled-cells floor.
+        dense_case(width=20,
+                   header=[(110, "Name"), (190, "Q1"), (270, "Q2"), (350, "Q3"),
+                           (430, "Q4")],
+                   body=[[(110, f"r{i}"), (190, f"{i}0"), (270, f"{i}1"), (350, f"{i}2"),
+                          (430, f"{i}3")] for i in range(4)]),
+        dense_case(body=[[(110, "alpha"), (200, "10"), (300, "aa"), (400, "bb")],
+                         [(110, "beta"), (200, "11"), (300, "cc"), (400, "dd")],
+                         [(110, "gamma"), (200, "12"), (300, "ee"), (400, "ff")]]),
+        # Three rules: under the minimum.
+        dense_case(rules=[(700, 100, 500), (685, 100, 500), (655, 100, 500)]),
+        # Five evenly spaced rules: ruled paper.
+        dense_case(rules=even),
+        # A gap far larger than the rest — two stacked bands, not one table.
+        dense_case(rules=[(700, 100, 500), (685, 100, 500), (655, 100, 500),
+                          (200, 100, 500)]),
+        # Four evenly spaced levels inside an otherwise uneven band.
+        dense_case(rules=[(700, 100, 500), (680, 100, 500), (660, 100, 500),
+                          (640, 100, 500), (500, 100, 500)]),
+        # A table under 100pt wide.
+        dense_case(rules=[(700, 100, 180), (685, 100, 180), (655, 100, 180),
+                          (610, 100, 180)],
+                   header=[(105, "N"), (125, "A"), (145, "B"), (165, "C")],
+                   body=[[(105, "a"), (125, "1"), (145, "2"), (165, "3")],
+                         [(105, "b"), (125, "4"), (145, "5"), (165, "6")]]),
+        # Two vertical strokes inside the band.
+        dense_case(verticals=[(250, 610, 700), (350, 610, 700)]),
+        # One is still allowed.
+        dense_case(verticals=[(250, 610, 700)]),
+        # Only one rule spans most of the width.
+        dense_case(rules=[(700, 100, 500), (685, 100, 200), (655, 100, 200),
+                          (610, 100, 200)]),
+        # Three anchors, one short of the minimum.
+        dense_case(header=[(110, "Name"), (200, "Q1"), (400, "Q2")],
+                   body=[[(110, "alpha"), (200, "10"), (400, "30")],
+                         [(110, "beta"), (200, "11"), (400, "31")],
+                         [(110, "gamma"), (200, "12"), (400, "32")]]),
+        # Four anchors crammed into less than 60% of the table width. The
+        # items have to be narrow: 40pt-wide ones spaced 40pt apart touch
+        # within the 6pt join gap and collapse to a single anchor, which is
+        # how the first attempt at this case reached a different gate.
+        dense_case(width=15,
+                   header=[(110, "N"), (150, "A"), (190, "B"), (230, "C")],
+                   body=[[(110, "a"), (150, "1"), (190, "2"), (230, "3")],
+                         [(110, "b"), (150, "4"), (190, "5"), (230, "6")],
+                         [(110, "c"), (150, "7"), (190, "8"), (230, "9")]]),
+        # Only the header reproduces the schema; every body row is a stub.
+        dense_case(body=[[(110, "alpha")], [(110, "beta")], [(110, "gamma")]]),
+        # A body with no numbers in it at all.
+        dense_case(body=[[(110, "alpha"), (200, "aa"), (300, "bb"), (400, "cc")],
+                         [(110, "beta"), (200, "dd"), (300, "ee"), (400, "ff")],
+                         [(110, "gamma"), (200, "gg"), (300, "hh"), (400, "ii")]]),
+        # Three numbers — enough to clear the floor — but under a quarter of
+        # the sixteen filled body cells.
+        dense_case(body=[[(110, "alpha"), (200, "aa"), (300, "bb"), (400, "1")],
+                         [(110, "beta"), (200, "dd"), (300, "ee"), (400, "2")],
+                         [(110, "gamma"), (200, "gg"), (300, "hh"), (400, "3")],
+                         [(110, "delta"), (200, "jj"), (300, "kk"), (400, "ll")]]),
+        # More text rows than the rule levels corroborate.
+        # More text rows than the rule levels corroborate. The rows have to
+        # sit *inside* the band — at the default 20pt spacing ten of them fall
+        # below the bottom rule and are never collected, which is how the
+        # first attempt at this case quietly reached a different gate.
+        dense_case(row_gap=6,
+                   body=[[(110, f"r{i}"), (200, f"{i}0"), (300, f"{i}1"), (400, f"{i}2")]
+                         for i in range(10)]),
+    ]
+
     # Band-scoping shapes for the text-anchor pass. Text-anchor inference is
     # the fallback of last resort, so what matters here is what disqualifies a
     # band: dense line art, or verticals that suggest a real drawn grid.
