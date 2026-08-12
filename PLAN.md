@@ -1911,3 +1911,32 @@ the same underlying reason — an earlier gate caught them:
 The one gate never fired is provably unreachable: three column edges force at
 least two columns and three row edges at least two rows, so the final
 `num_rows < 2 || num_cols < 2` cannot hold.
+
+- **Wave 41 — the standalone detector helpers.** `PdfDetector.swift` starts
+  `detector.rs`, which decides whether a PDF carries real text or is a scan
+  needing OCR. This wave takes the parts that stand alone, with no lopdf
+  dependency: the byte-level page-count fallback, the page sampling, and the
+  rule turning one page's analysis into a reason.
+  - `estimate_page_count_from_bytes` scans raw bytes for `/Type /Page` in
+    files too broken to parse. The entire exclusion of the page-tree node
+    `/Type /Pages` is the delimiter test after `Page` — `s` is not one — and a
+    name running to the very end of the buffer counts, since no byte follows
+    to disqualify it. PDF whitespace here is six bytes including NUL but *not*
+    vertical tab.
+  - `distribute_pages` always samples the first and last page and spaces the
+    rest evenly. The spacing is integer division, so on a short document
+    computed indices collide and the result is simply shorter than asked for —
+    reproduced, not smoothed.
+  - `page_ocr_reasons` puts undecodable fonts and vector-outlined text ahead
+    of missing text, because those persist *even when a text layer exists*:
+    extracting it yields garbage rather than nothing, which is the harder
+    failure to notice. Both can apply at once, which is why it returns a list.
+
+301 cases agree on the first run, covering all five reason outcomes including
+the two-reason one, and page counts from 0 to 40.
+
+**A harness lesson:** the first attempt widened `PageAnalysis`'s fields with a
+blanket `perl` over field names, which also rewrote a *function parameter*
+called `has_images` and broke the build. The probe lives inside `detector.rs`,
+so it can construct the private struct directly and **no widening was needed at
+all** — the fix was deleting three lines rather than narrowing the pattern.

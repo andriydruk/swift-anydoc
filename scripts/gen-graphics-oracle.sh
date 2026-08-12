@@ -40,6 +40,9 @@ rm -rf "$crate"
 cp -R "$reference" "$crate"
 chmod -R u+w "$crate"
 
+# `detector` is already a public module and the probe below lives inside it,
+# so its private helpers and `PageAnalysis` need no widening at all.
+
 # Reach the path walker without widening a dozen private items.
 perl -pi -e 's/^pub\(crate\) mod content_stream;/pub mod content_stream;/' \
     "$crate/src/extractor/mod.rs"
@@ -432,6 +435,56 @@ pub fn probe_detect(input: &str) -> String {
                     out.push_str(&format!("{label}cell\t{}\n", row.join("\t")));
                 }
             }
+        }
+    }
+    out
+}
+RUSTEOF
+
+cat >> "$crate/src/detector.rs" <<'RUSTEOF'
+/// Probe (added for swift-anydoc): the standalone detector helpers. Each
+/// case is three lines — `D count total`, `A <seven analysis flags>`, and
+/// `B <hex bytes>`.
+pub fn probe_detector(input: &str) -> String {
+    let mut out = String::new();
+    for line in input.lines() {
+        let parts: Vec<&str> = line.split(' ').collect();
+        match parts[0] {
+            "D" if parts.len() >= 3 => {
+                let n: u32 = parts[1].parse().unwrap_or(0);
+                let total: u32 = parts[2].parse().unwrap_or(0);
+                out.push_str("d");
+                for index in distribute_pages(n, total) {
+                    out.push_str(&format!(" {index}"));
+                }
+                out.push('\n');
+            }
+            "A" if parts.len() >= 8 => {
+                let flag = |i: usize| parts[i] == "1";
+                let analysis = PageAnalysis {
+                    text_operator_count: parts[1].parse().unwrap_or(0),
+                    has_images: flag(2),
+                    has_template_image: flag(3),
+                    unique_text_chars: parts[4].parse().unwrap_or(0),
+                    has_vector_text: flag(5),
+                    has_identity_h_no_tounicode: flag(6),
+                    has_only_type3_fonts: flag(7),
+                    ..Default::default()
+                };
+                out.push_str("a");
+                for reason in page_ocr_reasons(&analysis) {
+                    out.push_str(&format!(" {reason}"));
+                }
+                out.push('\n');
+            }
+            "B" => {
+                let hex = parts.get(1).copied().unwrap_or("");
+                let bytes: Vec<u8> = (0..hex.len() / 2)
+                    .map(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).unwrap_or(0))
+                    .collect();
+                out.push_str(&format!("b {}\n", estimate_page_count_from_bytes(&bytes)));
+            }
+            _ => {}
         }
     }
     out
@@ -1369,6 +1422,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::detect_lines::probe_hypotheses(&input));
+        return;
+    }
+    if path == "--detector" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::detector::probe_detector(&input));
         return;
     }
     if path == "--linetables" {

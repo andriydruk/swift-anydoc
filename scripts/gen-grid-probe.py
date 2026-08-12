@@ -1580,6 +1580,77 @@ def linetable_cases(random_count):
     return out
 
 
+
+def detector_cases(random_count):
+    """Cases for the standalone detector helpers.
+
+    Each case is three lines: page distribution, an OCR-reason analysis, and a
+    hex byte buffer for the malformed-file page count.
+    """
+    rng = random.Random(41_2026)
+
+    def block(d, a, b):
+        return f"D {d[0]} {d[1]}\nA " + " ".join(str(v) for v in a) + f"\nB {b}"
+
+    def hexed(text):
+        return text.encode("latin-1").hex()
+
+    out = []
+    # Distribution edges, paired with a plain analysis and buffer.
+    plain = (5, 0, 0, 9, 0, 0, 0)
+    for d in [(0, 10), (1, 10), (2, 10), (3, 10), (5, 10), (10, 10), (11, 10),
+              (3, 3), (3, 2), (3, 1), (1, 1), (2, 1), (4, 5), (7, 100), (2, 0),
+              (1, 0), (0, 0), (50, 7), (6, 6), (4, 4)]:
+        out.append(block(d, plain, hexed("/Type /Page\n")))
+
+    # Every combination of the flags the OCR reason rule reads.
+    for bits in range(64):
+        analysis = (
+            (bits & 1) * 5,          # text operators
+            (bits >> 1) & 1,         # images
+            (bits >> 2) & 1,         # template image
+            ((bits >> 3) & 1) * 9,   # unique characters
+            (bits >> 4) & 1,         # vector text
+            (bits >> 5) & 1,         # identity-h without ToUnicode
+            0,
+        )
+        out.append(block((3, 10), analysis, hexed("/Type/Page")))
+    for type3 in (0, 1):
+        out.append(block((3, 10), (0, 0, 0, 0, 0, 0, type3), hexed("")))
+
+    # Byte-scan shapes.
+    buffers = [
+        "/Type /Page\n/Type /Pages\n/Type /Page\n",   # the Pages exclusion
+        "/Type/Page/Type/Page",                        # no space, delimiter is /
+        "/Type  \t\r\n /Page ",                        # every whitespace byte
+        "/Type /Page",                                 # name runs to the end
+        "/Type /Pages",                                # only the tree node
+        "/Type /PageX",                                # a longer name
+        "/Type/Page(",                                 # bracket delimiter
+        "/Type/Page%",                                 # comment delimiter
+        "/Type",                                       # truncated
+        "/Typ",                                        # shorter than the needle
+        "",                                            # empty
+        "/Type /Font /Type /Page /Type /XObject",
+        "/Type/Page" * 40,
+        "no types here at all",
+        "/Type\0/Page",                                # null as whitespace
+    ]
+    for text in buffers:
+        out.append(block((3, 10), plain, hexed(text)))
+
+    for _ in range(random_count):
+        n = rng.randint(0, 30)
+        total = rng.randint(0, 40)
+        analysis = (rng.choice([0, 1, 7]), rng.randint(0, 1), rng.randint(0, 1),
+                    rng.choice([0, 3]), rng.randint(0, 1), rng.randint(0, 1),
+                    rng.randint(0, 1))
+        fragments = ["/Type", " ", "/Page", "/Pages", "s", "x", "\n", "/", "(", "%"]
+        text = "".join(rng.choice(fragments) for _ in range(rng.randint(0, 20)))
+        out.append(block((n, total), analysis, hexed(text)))
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -1750,6 +1821,20 @@ def main():
         f.write("\n===\n".join(hyp_answers))
 
     rule_blocks = rule_cases(arguments.cases)
+    dt_blocks = detector_cases(max(arguments.cases // 3, 80))
+    with open(os.path.join(arguments.directory, "detector-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n===\n".join(dt_blocks))
+    dt_answers = []
+    for b in dt_blocks:
+        r = subprocess.run(
+            [probe, "--detector"], input=b + "\n", capture_output=True, text=True, check=True
+        )
+        dt_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "detector-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n===\n".join(dt_answers))
+
     lt_blocks = linetable_cases(max(arguments.cases // 4, 60))
     with open(os.path.join(arguments.directory, "linetable-cases.txt"), "w",
               encoding="utf-8") as f:
