@@ -2089,3 +2089,37 @@ on a gap under 1% of font size and then tests 15% — pinned as such, so a chang
 to either constant surfaces. The second passed a `gap` to a fallback-path case,
 where the *estimated* width dominates and the parameter had no effect at all;
 those cases now set the second item's x directly.
+
+- **Wave 47 — bare struct names, and an upstream data-loss bug.**
+  `PdfStructNames.swift` ports `fix_bare_struct_names` and `sort_line_items`.
+
+  Some generators write `/S Code` where the grammar requires `/S /Code`. A
+  bare token makes the whole dictionary unparseable, so the element is
+  silently dropped and a tagged PDF quietly loses its tagging. The repair
+  patches the bytes before parsing, and only for real structure types —
+  patching any bare word would corrupt dictionaries where `S` means something
+  else. `H` is listed before `H1`, which is safe only because the
+  delimiter check rejects the `1`.
+
+  **The finding:** the function *deletes the byte immediately after every name
+  it repairs.*
+
+      /S Code>          →  /S /Code            the `>` is gone
+      /S Code\nNEXT     →  /S /CodeNEXT        the newline is gone
+      /S Code /S Table  →  /S /Code/S /Table   the space is gone
+
+  The cause is that the output buffer's length doubles as the input cursor,
+  and each repair writes one byte more than it reads — the inserted `/` — so
+  the cursor runs permanently one ahead. It normally goes unnoticed because
+  the lost byte is the whitespace that terminated the bare name, which the
+  lexer does not miss; but when the terminator is `>` or `/` it corrupts the
+  very dictionary the function set out to save.
+
+  This was **verified against the reference binary directly**, not inferred
+  from reading. It is reproduced deliberately, per §1: silently fixing it
+  would make the port disagree with the reference on exactly the malformed
+  files the function exists for. Pinned in three unit tests and documented at
+  the call site.
+
+220 cases agree, 28 of them repaired. My own unit tests were written expecting
+the *correct* behaviour and failed — which is how the bug surfaced at all.

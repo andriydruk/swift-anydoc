@@ -40,6 +40,10 @@ rm -rf "$crate"
 cp -R "$reference" "$crate"
 chmod -R u+w "$crate"
 
+# `structure_tree` is private as well.
+perl -pi -e "s/^mod structure_tree;/pub mod structure_tree;/; s/^pub\\(crate\\) mod structure_tree;/pub mod structure_tree;/" \
+    "$crate/src/lib.rs"
+
 # `text_utils` is private too.
 perl -pi -e "s/^mod text_utils;/pub mod text_utils;/; s/^pub\\(crate\\) mod text_utils;/pub mod text_utils;/" \
     "$crate/src/lib.rs"
@@ -444,6 +448,28 @@ pub fn probe_detect(input: &str) -> String {
                 }
             }
         }
+    }
+    out
+}
+RUSTEOF
+
+cat >> "$crate/src/structure_tree.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): the bare-struct-name repair. One
+/// hex-encoded buffer per line; the answer is the repaired buffer, also hex.
+pub fn probe_structnames(input: &str) -> String {
+    let mut out = String::new();
+    for line in input.lines() {
+        let hex = line.trim();
+        let bytes: Vec<u8> = (0..hex.len() / 2)
+            .map(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).unwrap_or(0))
+            .collect();
+        let fixed = fix_bare_struct_names(&bytes);
+        let mut encoded = String::with_capacity(fixed.len() * 2);
+        for b in fixed.iter() {
+            encoded.push_str(&format!("{b:02x}"));
+        }
+        out.push_str(&format!("n {} {}\n", matches!(fixed, Cow::Owned(_)) as u8, encoded));
     }
     out
 }
@@ -1597,6 +1623,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::detect_lines::probe_hypotheses(&input));
+        return;
+    }
+    if path == "--structnames" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::structure_tree::probe_structnames(&input));
         return;
     }
     if path == "--join" {

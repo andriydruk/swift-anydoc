@@ -1994,6 +1994,44 @@ def join_cases(random_count):
     return out
 
 
+
+def structname_cases(random_count):
+    """Cases for the bare-struct-name repair. One hex buffer per case."""
+    rng = random.Random(47_2026)
+    root = "/StructTreeRoot"
+    names = ["Document", "Part", "H", "H1", "H6", "P", "L", "LI", "Lbl", "LBody",
+             "Table", "TR", "TH", "TD", "Span", "Code", "Figure", "Formula", "WP"]
+
+    cases = [
+        "",
+        "no struct tree here /S Code",              # the quick check bails
+        root + " /S /Code",                          # already correct
+        root + " /S Code",                           # the motivating case
+        root + " /S Code\n/S P\n",
+        root + " /S H1 /S H /S H6",                  # the H prefix trap
+        root + " /S LI /S L /S LBody",               # and the L one
+        root + " /S Unknown",                        # not a struct type
+        root + " /S Codex",                          # a longer word
+        root + " /S Code>",                          # each delimiter
+        root + " /S Code/",
+        root + " /S Code\r",
+        root + " /S Code",                           # ends the buffer
+        root + " /S ",                               # nothing after
+        root + " /S",                                # no trailing space
+        root + " /S  Code",                          # two spaces
+        root + " /S Code /S Code /S Code",           # repeated repairs
+        root + " /S /Code /S Table",                 # mixed
+        root,
+        "/S Code" + root,                            # the marker after the fault
+    ]
+
+    fragments = ["/S ", "/S /", root, " ", "\n", "Code", "P", "H", "H1", "x", ">", "/"]
+    for _ in range(random_count):
+        cases.append("".join(rng.choice(fragments) for _ in range(rng.randint(0, 24))))
+
+    return [c.encode("utf-8").hex() for c in cases]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -2164,6 +2202,18 @@ def main():
         f.write("\n===\n".join(hyp_answers))
 
     rule_blocks = rule_cases(arguments.cases)
+    sn_lines = structname_cases(max(arguments.cases // 3, 100))
+    with open(os.path.join(arguments.directory, "structname-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n".join(sn_lines))
+    r = subprocess.run(
+        [probe, "--structnames"], input="\n".join(sn_lines) + "\n", capture_output=True,
+        text=True, check=True
+    )
+    with open(os.path.join(arguments.directory, "structname-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write(r.stdout)
+
     jn_lines = join_cases(max(arguments.cases // 2, 200))
     with open(os.path.join(arguments.directory, "join-cases.txt"), "w", encoding="utf-8") as f:
         f.write("\n".join(jn_lines))
