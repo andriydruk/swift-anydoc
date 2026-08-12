@@ -1072,6 +1072,176 @@ def collapse_cases(count):
     return out
 
 
+
+def openedge_cases(random_count):
+    """Cases for the stacked-token and open-edge grid strategies.
+
+    A separate file from `rule_cases`, deliberately: these carry `v x y_min
+    y_max` vertical-rule lines, and feeding those to the wave-21 and wave-35
+    probes would have them parsed as a horizontal rule at y=0 on the Rust side
+    (`unwrap_or(0.0)`) and skipped on the Swift side — a divergence in the
+    harness rather than the port.
+    """
+    rng = random.Random(36_2026)
+
+    def block(rules, verticals, items):
+        head = [f"{y:g} {a:g} {b:g}" for y, a, b in rules]
+        head += [f"v {x:g} {lo:g} {hi:g}" for x, lo, hi in verticals]
+        body = [f"{x:g} {y:g} {w:g} {s:g} {t}" for x, y, w, s, t in items]
+        return "\n".join(head) + "\n\n" + "\n".join(body)
+
+    def grid_case(cols, body_rows, x0=100, width=400, y0=700, row_gap=20,
+                  header=True, vertical_span=1.0, first_header=True):
+        colw = width / cols
+        rules = [(y0 - r * row_gap, x0, x0 + width) for r in range(body_rows + 1)]
+        y_bottom = y0 - body_rows * row_gap
+        height = y0 - y_bottom
+        verticals = [
+            (x0 + c * colw, y_bottom, y_bottom + height * vertical_span)
+            for c in range(1, cols)
+        ]
+        items = []
+        if header:
+            for c in range(cols):
+                if c == 0 and not first_header:
+                    continue
+                items.append((x0 + c * colw + 10, y0 + 12, colw - 30, 10, f"H{c}"))
+        for r in range(body_rows):
+            for c in range(cols):
+                items.append(
+                    (x0 + c * colw + 10, y0 - r * row_gap - 10, colw - 30, 10, f"d{r}{c}"))
+        return block(rules, verticals, items)
+
+    out = [
+        # A textbook open-edge grid: three rules, one interior vertical.
+        grid_case(2, 3),
+        grid_case(3, 4),
+        grid_case(5, 5),
+        # The header stub case: first column unlabelled.
+        grid_case(3, 4, first_header=False),
+        # No header above the band at all.
+        grid_case(3, 4, header=False),
+        # Verticals too short to be column edges (60% of the band).
+        grid_case(3, 4, vertical_span=0.6),
+        # Band too narrow, and too short.
+        grid_case(3, 3, width=80),
+        grid_case(3, 3, row_gap=5),
+        # Only two rules — below the run minimum.
+        block([(700, 100, 500), (680, 100, 500)],
+              [(300, 680, 700)],
+              [(110, 690, 60, 10, "a"), (310, 690, 60, 10, "b")]),
+        # No verticals at all: a ruled band, not a grid.
+        block([(700, 100, 500), (680, 100, 500), (660, 100, 500)], [],
+              [(110, 690, 60, 10, "a"), (310, 690, 60, 10, "b")]),
+
+        # Twenty-five interior verticals: hatching, not columns.
+        block([(700, 100, 500), (680, 100, 500), (660, 100, 500)],
+              [(110 + i * 15, 660, 700) for i in range(25)],
+              [(110 + i * 15, 690, 10, 10, f"h{i}") for i in range(25)]),
+        # Rules that snap down to two row edges while still spanning 28pt.
+        block([(700, 100, 500), (703, 100, 500), (725, 100, 500), (728, 100, 500)],
+              [(300, 700, 728)],
+              [(110, 715, 60, 10, "a"), (310, 715, 60, 10, "b")]),
+        # Only one body row carries text.
+        block([(700, 100, 500), (680, 100, 500), (660, 100, 500), (640, 100, 500)],
+              [(300, 640, 700)],
+              [(110, 712, 60, 10, "H0"), (310, 712, 60, 10, "H1"),
+               (110, 690, 60, 10, "only"), (310, 690, 60, 10, "row")]),
+        # A column with no text in it at all.
+        block([(700, 100, 500), (680, 100, 500), (660, 100, 500)],
+              [(233, 660, 700), (366, 660, 700)],
+              [(110, 712, 60, 10, "H0"), (243, 712, 60, 10, "H1"), (376, 712, 60, 10, "H2"),
+               (110, 690, 60, 10, "a"), (376, 690, 60, 10, "c"),
+               (110, 670, 60, 10, "d"), (376, 670, 60, 10, "f")]),
+        # A header item whose centre falls left of the first column edge.
+        block([(700, 100, 500), (680, 100, 500), (660, 100, 500)],
+              [(300, 660, 700)],
+              [(95, 712, 2, 10, "x"), (110, 712, 60, 10, "H0"), (310, 712, 60, 10, "H1"),
+               (110, 690, 60, 10, "a"), (310, 690, 60, 10, "b"),
+               (110, 670, 60, 10, "c"), (310, 670, 60, 10, "d")]),
+        # A header missing its second cell.
+        block([(700, 100, 500), (680, 100, 500), (660, 100, 500)],
+              [(300, 660, 700)],
+              [(110, 712, 60, 10, "H0"),
+               (110, 690, 60, 10, "a"), (310, 690, 60, 10, "b"),
+               (110, 670, 60, 10, "c"), (310, 670, 60, 10, "d")]),
+        # A fully populated header alongside a logical rule of a different
+        # span inside the band: better left to the physical-grid detector.
+        block([(700, 100, 500), (680, 100, 500), (660, 100, 500), (670, 150, 450)],
+              [(300, 660, 700)],
+              [(110, 712, 60, 10, "H0"), (310, 712, 60, 10, "H1"),
+               (110, 690, 60, 10, "a"), (310, 690, 60, 10, "b"),
+               (110, 665, 60, 10, "c"), (310, 665, 60, 10, "d")]),
+
+        # A stacked-token table: three rules, six single-token rows carrying
+        # underscores, all starting at the same x.
+        block([(700, 100, 400), (600, 100, 400), (500, 100, 400)], [],
+              [(120, 690 - i * 12, 80, 10, t) for i, t in enumerate(
+                  ["Field_name", "first_value", "second_value", "third_value",
+                   "fourth:value", "fifth_value"])]),
+        # The same, but the tokens carry neither underscore nor colon.
+        block([(700, 100, 400), (600, 100, 400), (500, 100, 400)], [],
+              [(120, 690 - i * 12, 80, 10, f"plain{i}") for i in range(6)]),
+        # The same, but one row holds two items.
+        block([(700, 100, 400), (600, 100, 400), (500, 100, 400)],
+              [],
+              [(120, 690 - i * 12, 80, 10, f"tok_{i}") for i in range(6)]
+              + [(300, 690, 40, 10, "extra")]),
+        # The same, but the rows are not left-aligned.
+        block([(700, 100, 400), (600, 100, 400), (500, 100, 400)], [],
+              [(120 + i * 9, 690 - i * 12, 80, 10, f"tok_{i}") for i in range(6)]),
+        # Accepting variants: exactly five rows (the minimum), colons rather
+        # than underscores, and the 3/4 token ratio from both sides.
+        block([(700, 100, 400), (600, 100, 400), (500, 100, 400)], [],
+              [(120, 690 - i * 12, 80, 10, t) for i, t in enumerate(
+                  ["Label:", "a_1", "b_2", "c_3", "d_4"])]),
+        block([(700, 100, 400), (600, 100, 400), (500, 100, 400)], [],
+              [(120, 690 - i * 12, 80, 10, t) for i, t in enumerate(
+                  ["Name", "x:1", "y:2", "z:3", "w:4", "v:5", "u:6"])]),
+        # Four of five body rows are tokens: 4*4 >= 5*3, accepted.
+        block([(700, 100, 400), (600, 100, 400), (500, 100, 400)], [],
+              [(120, 690 - i * 12, 80, 10, t) for i, t in enumerate(
+                  ["Head", "a_1", "b_2", "c_3", "plain"])]),
+        # Three of five: 3*4 < 5*3, refused by one row.
+        block([(700, 100, 400), (600, 100, 400), (500, 100, 400)], [],
+              [(120, 690 - i * 12, 80, 10, t) for i, t in enumerate(
+                  ["Head", "a_1", "b_2", "plain", "plainer"])]),
+        # A token row holding two words, which does not count.
+        block([(700, 100, 400), (600, 100, 400), (500, 100, 400)], [],
+              [(120, 690 - i * 12, 80, 10, t) for i, t in enumerate(
+                  ["Head", "two words_x", "b_2", "c_3", "d_4", "e_5"])]),
+        # Exactly four rows: one short of the minimum.
+        block([(700, 100, 400), (600, 100, 400), (500, 100, 400)], [],
+              [(120, 690 - i * 12, 80, 10, t) for i, t in enumerate(
+                  ["Head", "a_1", "b_2", "c_3"])]),
+        # Alignment right at the 6pt join gap, and just past it.
+        block([(700, 100, 400), (600, 100, 400), (500, 100, 400)], [],
+              [(120 + (6 if i == 3 else 0), 690 - i * 12, 80, 10, f"t_{i}")
+               for i in range(6)]),
+        block([(700, 100, 400), (600, 100, 400), (500, 100, 400)], [],
+              [(120 + (7 if i == 3 else 0), 690 - i * 12, 80, 10, f"t_{i}")
+               for i in range(6)]),
+        # Four rules instead of three.
+        block([(700, 100, 400), (640, 100, 400), (580, 100, 400), (500, 100, 400)], [],
+              [(120, 690 - i * 12, 80, 10, f"tok_{i}") for i in range(6)]),
+    ]
+
+    for _ in range(random_count):
+        cols = rng.randint(2, 6)
+        rows_n = rng.randint(1, 6)
+        out.append(
+            grid_case(
+                cols, rows_n,
+                x0=rng.choice([60, 100, 140]),
+                width=rng.choice([80, 200, 400, 460]),
+                row_gap=rng.choice([5, 12, 20, 30]),
+                header=rng.random() < 0.8,
+                vertical_span=rng.choice([0.5, 0.75, 0.85, 1.0]),
+                first_header=rng.random() < 0.7,
+            ))
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -1242,6 +1412,18 @@ def main():
         f.write("\n===\n".join(hyp_answers))
 
     rule_blocks = rule_cases(arguments.cases)
+    oe_blocks = openedge_cases(max(arguments.cases // 4, 60))
+    with open(os.path.join(arguments.directory, "openedge-cases.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(oe_blocks))
+    oe_answers = []
+    for b in oe_blocks:
+        r = subprocess.run(
+            [probe, "--openedge"], input=b + "\n", capture_output=True, text=True, check=True
+        )
+        oe_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "openedge-rust.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(oe_answers))
+
     an_answers = []
     for b in rule_blocks:
         r = subprocess.run(

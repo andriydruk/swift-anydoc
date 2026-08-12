@@ -1588,6 +1588,46 @@ cases exist for rule *geometry* and carry almost no text; six text-bearing
 bands were added for joined and separated columns, drifting baselines,
 coincident points, out-of-band text and negative widths.
 
+- **Wave 36 — the open-edge grid and stacked-token strategies.**
+  `PdfOpenEdgeGrid.swift` ports `build_stacked_token_table`,
+  `build_open_edge_grid_table_for_rules` and `build_open_edge_grid_tables`.
+
+  An *open-edge* grid is the scientific-paper shape: horizontal rules above,
+  below and under the header, verticals between the columns, and nothing
+  closing the left and right sides. The horizontals give the rows, the
+  verticals the interior column edges, and the outer edges come from how far
+  the rules themselves run — which is why **every column must carry text**: an
+  empty one means those inferred outer edges are wrong, not that a cell is
+  blank.
+  - Only verticals spanning 80% of the band count. One that stops short is a
+    cell divider or decoration.
+  - The header sits *above* the top rule, in a 30pt band synthesised as a pair
+    of rules so the wave-35 row collector can be reused unchanged.
+  - A header item whose centre falls outside every column rejects the **whole
+    table**, not just that item — the reference's `?` on the column search.
+  - A fully populated first header cell is the *less* distinctive case, so it
+    is only accepted when every logical rule in the band agrees on the same
+    span; mixed spans belong to the physical-grid detector.
+  - The stacked-token table is a narrow shape that would otherwise be built as
+    a one-column table of noise: exactly three rules, five or more rows, every
+    row a single left-aligned item, and three quarters of the body lone tokens
+    carrying an underscore or colon. A two-word row is not disqualifying — it
+    simply fails the token test and the ratio must be carried by the rest. A
+    unit test asserting otherwise was wrong.
+
+  **A harness decision worth recording:** these cases need vertical rules, and
+  adding `v x y_min y_max` lines to the wave-21 rule case file would have had
+  Rust parse them as a horizontal rule at y=0 (`unwrap_or(0.0)`) while Swift
+  skipped them (`Float?`) — a divergence manufactured by the harness rather
+  than found in the port. They live in their own case file instead.
+
+180 cases agree on the first run. Gate coverage measured as usual: the first
+pass fired only 4 of 9 gates (interior edges, band size, accepted, missing
+header). Seven targeted shapes brought the rest in — 25 hatching verticals,
+rules that snap to two edges while still spanning 28pt, a single occupied body
+row, an empty column, a header item centred left of the first edge, a header
+gap, and a mixed-span logical rule inside the band.
+
 ## Phase 6 remaining work — exact inventory
 
 Measured against the vendored reference at wave 20. `Sources/AnyDoc/Pdf/` is
