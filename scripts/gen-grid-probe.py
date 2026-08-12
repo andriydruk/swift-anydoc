@@ -1758,6 +1758,63 @@ def textquality_cases(random_count):
     return [text.encode("utf-8").hex() for text in cases]
 
 
+
+def bidi_cases(random_count):
+    """Cases for script classification and visual-order reversal.
+
+    One hex-encoded UTF-8 string per case. The reversal is the interesting
+    part: mixed Arabic and Latin has to keep the Latin runs running the other
+    way, so most of these carry both.
+    """
+    rng = random.Random(44_2026)
+    arabic = "\u0645\u0631\u062d\u0628\u0627"          # marhaba
+    hebrew = "\u05e9\u05dc\u05d5\u05dd"                # shalom
+    forms = "\ufb50\ufe70\ufdf2"                       # presentation forms
+    cjk = "\u65e5\u672c\u8a9e"
+
+    cases = [
+        "",
+        "plain latin text",
+        arabic,
+        arabic + " " + arabic,
+        hebrew,
+        forms,
+        forms + arabic,
+        "\ufeff",                                        # BOM: not a form
+        "\ufefe",                                        # the last real form
+        cjk,
+        cjk + arabic,
+        cjk + "latin",
+        arabic + " 2024",
+        "2024 " + arabic,
+        arabic + " 3.5 " + arabic,
+        arabic + " A/B " + arabic,
+        arabic + " ABC " + hebrew,
+        "3.5",
+        ".",
+        "..." + arabic,
+        arabic + "!",
+        "C2_0",                                          # CID font prefixes
+        "C0_1",
+        "C3_0",
+        "Helvetica",
+        arabic + " C2_0 " + arabic,
+        "a" + arabic + "b",
+        "\u0600\u06ff\u0700\u074f\u0750\u077f",         # block boundaries
+        "\u0780\u07bf\u07c0\u07ff\u0800\u083f",
+        "\u0840\u085f\u08a0\u08ff\ufb1d\ufb4f",
+        "\u1100\u11ff\u3000\u303f\u3040\u309f",
+        "\u30a0\u30ff\u3130\u318f\u4e00\u9fff",
+        "\uac00\ud7af\uf900\ufaff\uff00\uffef",
+    ]
+
+    alphabet = list(arabic + hebrew + cjk + "abcXYZ019 ./-,!") + ["\ufb50", "\ufe70"]
+    for _ in range(random_count):
+        cases.append("".join(rng.choice(alphabet) for _ in range(rng.randint(0, 40))))
+
+    return [c.encode("utf-8").hex() for c in cases]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -1928,6 +1985,18 @@ def main():
         f.write("\n===\n".join(hyp_answers))
 
     rule_blocks = rule_cases(arguments.cases)
+    bd_blocks = bidi_cases(max(arguments.cases // 3, 80))
+    with open(os.path.join(arguments.directory, "bidi-cases.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(bd_blocks))
+    bd_answers = []
+    for b in bd_blocks:
+        r = subprocess.run(
+            [probe, "--bidi"], input=b + "\n", capture_output=True, text=True, check=True
+        )
+        bd_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "bidi-rust.txt"), "w", encoding="utf-8") as f:
+        f.write("\n===\n".join(bd_answers))
+
     tq_blocks = textquality_cases(max(arguments.cases // 3, 80))
     with open(os.path.join(arguments.directory, "textquality-cases.txt"), "w",
               encoding="utf-8") as f:

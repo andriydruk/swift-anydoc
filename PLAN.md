@@ -2000,3 +2000,33 @@ fifty-character floor. The reference agrees it is *not* garbage. This is
 upstream behaviour that has drifted from its own documentation, and a unit
 test written from the comment rather than the code was wrong; it is now
 pinned, with the reason, in both the source and the test.
+
+- **Wave 44 — bidirectional text and script classification.**
+  `PdfBidiText.swift` ports the script-block predicates, RTL detection,
+  visual-order reversal and the small text-string helpers from
+  `text_utils.rs`.
+
+  A PDF stores glyphs in the order they are *drawn*, which for Arabic and
+  Hebrew is left-to-right screen order rather than reading order.
+  - Direction is a **strict majority** of RTL characters over LTR ones, with
+    CJK excluded from both counts — so an Arabic line with a Japanese caption
+    still reverses, while five Arabic letters against five Latin ones does
+    *not*. A unit test asserting the tie went the other way was wrong.
+  - Reversal cannot be a simple reversal once anything is mixed in: an
+    embedded number or Latin word reads left to right *inside* a
+    right-to-left line. The text splits into runs, the run order reverses, and
+    only the non-LTR runs reverse internally — so `2024` survives as `2024`
+    rather than becoming `4202`. Punctuation joins whichever run it touches,
+    which is what keeps `3.5` and `A/B` intact while a bare `!` after Arabic
+    moves with the Arabic.
+  - `is_arabic_presentation_form` stops at U+FEFE rather than U+FEFF: the last
+    codepoint of Presentation Forms-B is the byte-order mark, which is RTL by
+    block but is not a glyph.
+
+233 cases agree on the first run, 175 of them right-to-left.
+
+**Deliberately not ported: `expand_ligatures`.** It applies NFKC normalisation
+when Arabic presentation forms are present, and NFKC needs a Unicode
+decomposition table this port does not have. Everything the function *calls*
+is now in place, so the remaining work is the table — a generator wave, on the
+`gen-shiftjis-table.py` precedent, not a hand-written one.

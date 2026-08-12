@@ -40,6 +40,10 @@ rm -rf "$crate"
 cp -R "$reference" "$crate"
 chmod -R u+w "$crate"
 
+# `text_utils` is private too.
+perl -pi -e "s/^mod text_utils;/pub mod text_utils;/; s/^pub\\(crate\\) mod text_utils;/pub mod text_utils;/" \
+    "$crate/src/lib.rs"
+
 # `text_quality` is private, and the probe below reads CipherGarbleStats.
 perl -pi -e "s/^mod text_quality;/pub mod text_quality;/; s/^pub\\(crate\\) mod text_quality;/pub mod text_quality;/" \
     "$crate/src/lib.rs"
@@ -442,6 +446,50 @@ pub fn probe_detect(input: &str) -> String {
         }
     }
     out
+}
+RUSTEOF
+
+cat >> "$crate/src/text_utils.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): script classification, RTL detection and
+/// visual-order reversal. One hex-encoded UTF-8 string per line.
+pub fn probe_bidi(input: &str) -> String {
+    let mut out = String::new();
+    for line in input.lines() {
+        let hex = line.trim();
+        let bytes: Vec<u8> = (0..hex.len() / 2)
+            .map(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).unwrap_or(0))
+            .collect();
+        let text = String::from_utf8_lossy(&bytes).to_string();
+        let cjk = text.chars().filter(|c| is_cjk_char(*c)).count();
+        let rtl = text.chars().filter(|c| is_rtl_char(*c)).count();
+        let forms = text.chars().filter(|c| is_arabic_presentation_form(*c)).count();
+        let reversed = reverse_visual_arabic(&text);
+        out.push_str(&format!(
+            "t {} {} {} {} {} {}\n",
+            cjk,
+            rtl,
+            forms,
+            is_rtl_text(std::iter::once(&text)) as u8,
+            is_cid_font(&text) as u8,
+            hex::encode(reversed.as_bytes()),
+        ));
+        out.push_str(&format!(
+            "d {}\n",
+            hex::encode(decode_text_string(&bytes).as_bytes())
+        ));
+    }
+    out
+}
+
+mod hex {
+    pub fn encode(bytes: &[u8]) -> String {
+        let mut out = String::with_capacity(bytes.len() * 2);
+        for b in bytes {
+            out.push_str(&format!("{b:02x}"));
+        }
+        out
+    }
 }
 RUSTEOF
 
@@ -1487,6 +1535,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::detect_lines::probe_hypotheses(&input));
+        return;
+    }
+    if path == "--bidi" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::text_utils::probe_bidi(&input));
         return;
     }
     if path == "--textquality" {
