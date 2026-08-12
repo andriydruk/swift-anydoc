@@ -1903,6 +1903,97 @@ def letterspacing_cases(random_count):
     return cases
 
 
+
+def join_cases(random_count):
+    """Cases for the join decision.
+
+    One line per case: `threshold prev_x prev_w prev_size prev_font prev_text
+    curr_x curr_w curr_size curr_font curr_text`. Tildes stand in for spaces
+    inside the texts so the field split stays simple.
+    """
+    rng = random.Random(46_2026)
+
+    def case(prev_text, curr_text, gap=2.0, threshold=0.10, prev_w=20.0, size=10.0,
+             font="F1", curr_w=20.0, rtl=False):
+        prev_x = 100.0
+        curr_x = prev_x + prev_w + gap
+        if rtl:
+            prev_x, curr_x = curr_x, prev_x
+            prev_x, curr_x = curr_x + curr_w + gap, 100.0
+        return (f"{threshold:g} {prev_x:g} {prev_w:g} {size:g} {font} {prev_text} "
+                f"{curr_x:g} {curr_w:g} {size:g} F1 {curr_text}")
+
+    out = [
+        # Explicit spaces win outright.
+        case("word~", "next"),
+        case("word", "~next"),
+        # Punctuation that never takes a leading space.
+        *[case("www", p) for p in [".com", ",x", ";x", "!x", "?x", ")x", "]x", "}x", "'x"]],
+        # A colon before a value.
+        case("Clave:", "T9N2I6"),
+        case("Clave:", "-x"),
+        # Column-scale gaps and large overlaps.
+        case("word", "next", gap=31),
+        case("word", "next", gap=-11),
+        case("word", "next", gap=-9),
+        # CID fonts: a zero gap means a space.
+        case("word", "next", gap=0.0, font="C2_0"),
+        case("one~two~three", "next", gap=0.0, font="C2_0"),
+        case("one~two~three", "next", gap=1.6, font="C2_0"),
+        case("word", "next", gap=0.0, font="F1"),
+        case("\u65e5", "\u672c", gap=0.0, font="C2_0"),
+        # Numeric continuity.
+        case("34,20", "8", gap=2),
+        case("34,20", "8", gap=4),
+        case("+13.", "0", gap=2),
+        case("-13", "0", gap=2),
+        case("13", "%", gap=2),
+        # Letter-spaced pages.
+        case("a", "b", gap=5, threshold=0.8, prev_w=5),
+        case("a", "b", gap=7, threshold=0.8, prev_w=5),
+        case("abc", "d", gap=5, threshold=0.8, prev_w=15),
+        case("abc", "def", gap=5, threshold=0.8, prev_w=15),
+        # Single against multi.
+        case("b", "illion", gap=1),
+        case("b", "illion", gap=3),
+        case("illion", "b", gap=1),
+        # Both single.
+        case("a", "b", gap=0.5),
+        case("a", "b", gap=2),
+        case("1", "2", gap=2),
+        case(",", "5", gap=2),
+        # Multi against multi, by case.
+        case("enterta", "inment", gap=1.7),
+        case("enterta", "inment", gap=1.9),
+        case("LCOE", "WITH", gap=1.4),
+        case("LCOE", "WITH", gap=1.6),
+        # Right-to-left ordering.
+        case("word", "next", gap=2, rtl=True),
+        # The fallback path: no measured width.
+        case("CONST", "ANCIA", gap=2, prev_w=0),
+        case("presente", "CONSTANCIA", gap=0.1, prev_w=0),
+        case("REGISTRO", "para", gap=1, prev_w=0),
+        case("REGISTRO", "para", gap=2, prev_w=0),
+        case("word", "next", gap=100, prev_w=0),
+        case("\u65e5", "\u672c", gap=2, prev_w=0),
+        case("1", "2", gap=1, prev_w=0),
+    ]
+
+    texts = ["word", "next", "a", "b", "1", "2", ",", ".", "%", "+", ":", "www", ".com",
+             "\u65e5", "ABC", "abc", "Abc", "enterta", "inment", "~x", "x~", "one~two~three"]
+    fonts = ["F1", "C2_0", "C0_1"]
+    for _ in range(random_count):
+        out.append(case(
+            rng.choice(texts), rng.choice(texts),
+            gap=rng.choice([-12.0, -5.0, 0.0, 0.5, 1.0, 1.6, 2.0, 3.0, 5.0, 31.0]),
+            threshold=rng.choice([0.10, 0.25, 0.8, 1.5]),
+            prev_w=rng.choice([0.0, 5.0, 20.0]),
+            size=rng.choice([8.0, 10.0]),
+            font=rng.choice(fonts),
+            curr_w=rng.choice([5.0, 20.0])))
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -2073,6 +2164,16 @@ def main():
         f.write("\n===\n".join(hyp_answers))
 
     rule_blocks = rule_cases(arguments.cases)
+    jn_lines = join_cases(max(arguments.cases // 2, 200))
+    with open(os.path.join(arguments.directory, "join-cases.txt"), "w", encoding="utf-8") as f:
+        f.write("\n".join(jn_lines))
+    r = subprocess.run(
+        [probe, "--join"], input="\n".join(jn_lines) + "\n", capture_output=True, text=True,
+        check=True
+    )
+    with open(os.path.join(arguments.directory, "join-rust.txt"), "w", encoding="utf-8") as f:
+        f.write(r.stdout)
+
     ls_blocks = letterspacing_cases(max(arguments.cases // 4, 60))
     with open(os.path.join(arguments.directory, "letterspacing-cases.txt"), "w",
               encoding="utf-8") as f:

@@ -2060,3 +2060,32 @@ raise it, spanning 0.62 to the 2.0 upper clamp, which fires three times.
 The **lower** clamp of 0.50 is provably unreachable: the smallest ratio must
 be at least 0.40 to get that far, so the median is too, and 0.40 × 1.55 =
 0.62 already exceeds it.
+
+- **Wave 46 — the join decision.** `PdfJoinItems.swift` ports
+  `should_join_items`, which answers the one question a PDF never does: is the
+  space between two glyphs a *space*, or just the gap between letters?
+
+  The order of the tests is the design. Cheap textual signals come first and
+  override geometry outright — a leading `.` joins whatever the distance,
+  because `www` and `.com` are one word however they were positioned.
+  - **A CID font inverts the usual meaning of a zero gap.** Those fonts emit
+    one word per text operator, so touching items are *separate words*. Unless
+    the operator carried three or more words, in which case it was a whole
+    phrase and a zero gap is mid-word again. CJK is exempt from all of it.
+  - On a letter-spaced page the comparison switches from font size to
+    **character width**, averaged over the previous item so a mix of wide and
+    narrow glyphs normalises.
+  - A lowercase-to-lowercase junction between two multi-character items gets a
+    wider bar than any junction involving a capital: imprecise CID metrics
+    split `enterta` + `inment`, while `LCOE` + `WITH` really is a boundary.
+  - In the no-width fallback, lowercase→uppercase is a boundary *regardless of
+    distance* — words do not change case mid-word.
+
+349 cases agree on the first run, 241 joined against 108 not.
+
+Two unit tests of mine were wrong in instructive ways. The first assumed the
+CID phrase branch could return false; it cannot, because it is already guarded
+on a gap under 1% of font size and then tests 15% — pinned as such, so a change
+to either constant surfaces. The second passed a `gap` to a fallback-path case,
+where the *estimated* width dominates and the parameter had no effect at all;
+those cases now set the second item's x directly.

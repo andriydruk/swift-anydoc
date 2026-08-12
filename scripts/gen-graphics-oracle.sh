@@ -451,6 +451,35 @@ RUSTEOF
 
 cat >> "$crate/src/text_utils.rs" <<'RUSTEOF'
 
+/// Probe (added for swift-anydoc): the join decision. Each case is one line
+/// of `threshold | prev-fields | curr-fields`, fields separated by spaces and
+/// tildes standing in for spaces inside the texts.
+pub fn probe_join(input: &str) -> String {
+    use crate::types::{ItemType, TextItem};
+    let mut out = String::new();
+    for line in input.lines() {
+        let p: Vec<&str> = line.split(' ').collect();
+        if p.len() < 11 { continue; }
+        let make = |base: usize| TextItem {
+            text: p[base + 4].replace('~', " "),
+            x: p[base].parse().unwrap_or(0.0),
+            y: 700.0,
+            width: p[base + 1].parse().unwrap_or(0.0),
+            height: p[base + 2].parse().unwrap_or(0.0),
+            font: p[base + 3].to_string(),
+            font_size: p[base + 2].parse().unwrap_or(0.0),
+            page: 1,
+            is_bold: false, is_italic: false, is_underline: false, is_strikeout: false,
+            item_type: ItemType::Text, mcid: None,
+        };
+        let threshold: f32 = p[0].parse().unwrap_or(0.10);
+        let prev = make(1);
+        let curr = make(6);
+        out.push_str(&format!("j {}\n", should_join_items(&prev, &curr, threshold) as u8));
+    }
+    out
+}
+
 /// Probe (added for swift-anydoc): letter-spacing repair. Each case is a
 /// block of `x y width font_size text` item lines.
 pub fn probe_letterspacing(input: &str) -> String {
@@ -1568,6 +1597,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::detect_lines::probe_hypotheses(&input));
+        return;
+    }
+    if path == "--join" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::text_utils::probe_join(&input));
         return;
     }
     if path == "--letterspacing" {
