@@ -451,6 +451,39 @@ RUSTEOF
 
 cat >> "$crate/src/text_utils.rs" <<'RUSTEOF'
 
+/// Probe (added for swift-anydoc): letter-spacing repair. Each case is a
+/// block of `x y width font_size text` item lines.
+pub fn probe_letterspacing(input: &str) -> String {
+    use crate::types::{ItemType, TextItem};
+    let mut items: Vec<TextItem> = Vec::new();
+    for line in input.lines() {
+        let parts: Vec<&str> = line.split(' ').collect();
+        if parts.len() < 5 { continue; }
+        items.push(TextItem {
+            text: parts[4..].join(" ").replace('~', " "),
+            x: parts[0].parse().unwrap_or(0.0),
+            y: parts[1].parse().unwrap_or(0.0),
+            width: parts[2].parse().unwrap_or(0.0),
+            height: parts[3].parse().unwrap_or(0.0),
+            font: "F1".to_string(),
+            font_size: parts[3].parse().unwrap_or(0.0),
+            page: 1,
+            is_bold: false, is_italic: false, is_underline: false, is_strikeout: false,
+            item_type: ItemType::Text, mcid: None,
+        });
+    }
+    let ratios = collect_gap_ratios(&items);
+    let mut out = format!("r {}", ratios.len());
+    for value in &ratios { out.push_str(&format!(" {value:.6}")); }
+    out.push_str(&format!("\nc {:.6}\n", compute_canva_join_threshold(&items)));
+    let threshold = fix_letterspaced_items(&mut items);
+    out.push_str(&format!("f {threshold:.6}\n"));
+    for item in &items {
+        out.push_str(&format!("i {}\n", item.text.replace(' ', "~")));
+    }
+    out
+}
+
 /// Probe (added for swift-anydoc): script classification, RTL detection and
 /// visual-order reversal. One hex-encoded UTF-8 string per line.
 pub fn probe_bidi(input: &str) -> String {
@@ -1535,6 +1568,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::detect_lines::probe_hypotheses(&input));
+        return;
+    }
+    if path == "--letterspacing" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::text_utils::probe_letterspacing(&input));
         return;
     }
     if path == "--bidi" {

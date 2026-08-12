@@ -1815,6 +1815,94 @@ def bidi_cases(random_count):
     return [c.encode("utf-8").hex() for c in cases]
 
 
+
+def letterspacing_cases(random_count):
+    """Cases for Canva-style letter-spacing repair.
+
+    Each block is `x y width font_size text` item lines; tildes stand in for
+    spaces so the field split stays simple.
+    """
+    rng = random.Random(45_2026)
+
+    def block(items):
+        return "\n".join(f"{x:g} {y:g} {w:g} {s:g} {t}" for x, y, w, s, t in items)
+
+    def spaced(words, x0=100, size=10, gap=6):
+        """Items carrying the `a~b~c` pattern."""
+        out = []
+        x = x0
+        for word in words:
+            text = "~".join(word)
+            width = len(text) * size * 0.5
+            out.append((x, 700, width, size, text))
+            x += width + gap
+        return out
+
+    def per_char(text, x0=100, size=10, gap=6):
+        """One item per character, no spaces inside them."""
+        out = []
+        x = x0
+        for ch in text:
+            width = size * 0.5
+            out.append((x, 700, width, size, ch))
+            x += width + gap
+        return out
+
+    cases = [
+        block([]),
+        block(spaced(["arib", "text", "here", "again"])),
+        block(spaced(["ab"])),                       # too few substantial items
+        block(spaced(["arib", "text"]) + [(400, 700, 40, 10, "normal~words~here")]),
+        block(per_char("abcdefghijkl")),             # the per-character variant
+        block(per_char("abcdefghijkl", gap=1)),      # gaps too small to qualify
+        block(per_char("abcdefgh")),                 # under ten items
+        block([(100, 700, 40, 10, "ordinary"), (150, 700, 40, 10, "words")]),
+        # CJK pairs are skipped when collecting ratios.
+        block([(100 + i * 30, 700, 20, 10, "\u65e5") for i in range(12)]),
+        block([(100 + i * 30, 700, 20, 10, "a" if i % 2 else "\u65e5")
+               for i in range(12)]),
+        # Zero width and zero font size are skipped.
+        block([(100 + i * 30, 700, 0, 10, "a") for i in range(12)]),
+        block([(100 + i * 30, 700, 20, 0, "a") for i in range(12)]),
+        # Right-to-left ordering: the gap is measured the other way.
+        block([(400 - i * 30, 700, 20, 10, "a") for i in range(12)]),
+        # Ratios beyond three are discarded as column jumps.
+        block([(100 + i * 200, 700, 20, 10, "a") for i in range(12)]),
+        # Exactly at the 0.40 floor, and just under it.
+        block([(100 + i * 24, 700, 20, 10, "a") for i in range(12)]),
+        block([(100 + i * 23, 700, 20, 10, "a") for i in range(12)]),
+        # A three-byte CJK item, which is substantial by byte length but one
+        # character long.
+        block([(100 + i * 30, 700, 20, 10, "\u65e5") for i in range(4)]
+              + spaced(["arib", "text", "here"], x0=500)),
+    ]
+
+    # Accepting shapes across the threshold's range, since the default is
+    # otherwise almost the only answer seen.
+    for gap in (5, 6, 8, 10, 12, 15, 25):
+        # Per-character items at a fixed gap: ratio is gap / font_size.
+        cases.append(block([(100 + i * (5 + gap), 700, 5, 10, "a") for i in range(14)]))
+        # The `a~b~c` variant at the same spacing.
+        cases.append(
+            block(spaced(["arib", "text", "here", "again", "more"], gap=gap)))
+    # A gap of 15 on a 10pt font gives a median ratio of 1.5, so the raw
+    # threshold of 2.325 is cut by the upper clamp.
+    cases.append(block([(100 + i * 20, 700, 5, 10, "a") for i in range(14)]))
+
+    for _ in range(random_count):
+        count = rng.randint(0, 16)
+        items = []
+        x = rng.choice([50.0, 100.0])
+        for _ in range(count):
+            size = rng.choice([0.0, 8.0, 10.0, 14.0])
+            width = rng.choice([0.0, 5.0, 20.0, 40.0])
+            text = rng.choice(["a", "ab", "a~b", "a~b~c", "word", "\u65e5", "~", "abc"])
+            items.append((x, 700.0, width, size, text))
+            x += width + rng.choice([0.0, 2.0, 6.0, 20.0, 300.0])
+        cases.append(block(items))
+    return cases
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -1985,6 +2073,21 @@ def main():
         f.write("\n===\n".join(hyp_answers))
 
     rule_blocks = rule_cases(arguments.cases)
+    ls_blocks = letterspacing_cases(max(arguments.cases // 4, 60))
+    with open(os.path.join(arguments.directory, "letterspacing-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n===\n".join(ls_blocks))
+    ls_answers = []
+    for b in ls_blocks:
+        r = subprocess.run(
+            [probe, "--letterspacing"], input=b + "\n", capture_output=True, text=True,
+            check=True
+        )
+        ls_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "letterspacing-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n===\n".join(ls_answers))
+
     bd_blocks = bidi_cases(max(arguments.cases // 3, 80))
     with open(os.path.join(arguments.directory, "bidi-cases.txt"), "w", encoding="utf-8") as f:
         f.write("\n===\n".join(bd_blocks))

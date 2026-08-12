@@ -2030,3 +2030,33 @@ when Arabic presentation forms are present, and NFKC needs a Unicode
 decomposition table this port does not have. Everything the function *calls*
 is now in place, so the remaining work is the table — a generator wave, on the
 `gen-shiftjis-table.py` precedent, not a hand-written one.
+
+- **Wave 45 — Canva letter-spacing repair.** `PdfLetterSpacing.swift` ports
+  `fix_letterspaced_items`, `compute_canva_join_threshold` and
+  `collect_gap_ratios`.
+
+  Canva renders text with CSS letter-spacing, which reaches the PDF as one
+  glyph per positioning operation. The extractor's `TJ` handler then inserts a
+  space at every gap, so a word arrives as `"a r i b"` — or, on the other
+  variant, as one item per character with no spaces at all.
+  - Both variants need the same second thing, and it is the less obvious half:
+    a **raised join threshold**. Every gap on such a page is wide by ordinary
+    standards, so the default 0.10 would refuse to join anything and the page
+    would come out one letter per word. The per-character variant rewrites no
+    text at all — the threshold *is* its entire output.
+  - The threshold is computed **before** the spaces are stripped, since the
+    gaps are what it measures.
+  - Both the largest *and* smallest gap ratio must clear 0.40. One ordinary
+    pair is enough to say the page is not uniformly letter-spaced, and raising
+    the threshold there would glue real words together.
+  - `len() < 3` on the substantial-item test is **bytes** in the reference, so
+    a one-character CJK item counts as substantial where a one-character ASCII
+    one does not.
+
+182 cases agree on the first run. The first pass raised the threshold in only
+3 cases of 167, so fourteen shapes were added across the gap range: eleven now
+raise it, spanning 0.62 to the 2.0 upper clamp, which fires three times.
+
+The **lower** clamp of 0.50 is provably unreachable: the smallest ratio must
+be at least 0.40 to get that far, so the median is too, and 0.40 × 1.55 =
+0.62 already exceeds it.
