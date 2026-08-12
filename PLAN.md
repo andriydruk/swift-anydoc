@@ -2179,3 +2179,28 @@ unresolvable pages and every role in and out of the non-heading set.
     the first.
 
 169 cases and 212 alignments agree on the first run.
+
+- **Wave 50 — row alignment for tagged tables.** `PdfStructRows.swift` ports
+  `align_struct_rows` and `left_align_struct_rows`.
+
+  The structure tree gives rows of varying length; Markdown needs them
+  rectangular. The two strategies differ in more than their name:
+  - The positioned one trusts x **only when every present cell has one** — a
+    partial set would misplace the rest — and a cell counts as present if it
+    has text, items, *or* a position, so an empty but positioned cell still
+    holds its column open.
+  - Cells past the available columns are dropped **along with their item
+    indices**, so those items stay unclaimed rather than being attributed to a
+    cell that was never emitted. The left-aligned strategy does the opposite:
+    it claims every index even past the truncation point.
+  - Both take a row's baseline as the *highest* y any cell reported, since a
+    row sits at the top of its tallest cell.
+
+164 cases agree on the first run. Two more of my unit tests were wrong, and
+the second found something:
+  - Skipping a wholly absent cell does *not* shift the following cells left —
+    position still decides where they go.
+  - **The space-joining branch is unreachable.** Both assignment paths give
+    strictly increasing column indices — the dynamic program by construction,
+    the fallback because it is the identity — so no column is ever written
+    twice. Ported anyway, with the reason recorded at the line.

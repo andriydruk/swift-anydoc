@@ -43,7 +43,7 @@ chmod -R u+w "$crate"
 # `structure_tree` is private as well.
 perl -pi -e "s/^pub\\(crate\\) mod detect_struct;/pub mod detect_struct;/; s/^mod detect_struct;/pub mod detect_struct;/" \
     "$crate/src/tables/mod.rs"
-perl -pi -e "s/^fn (infer_column_positions|align_positions_to_columns)/pub fn \$1/" \
+perl -pi -e "s/^fn (infer_column_positions|align_positions_to_columns|align_struct_rows|left_align_struct_rows)/pub fn \$1/" \
     "$crate/src/tables/detect_struct.rs"
 perl -pi -e "s/^fn (collect_tables|collect_rows|collect_mcids_recursive|flatten_recursive)/pub fn \$1/; s/^    fn from_name/    pub fn from_name/" \
     "$crate/src/structure_tree.rs"
@@ -460,6 +460,67 @@ pub fn probe_detect(input: &str) -> String {
 RUSTEOF
 
 cat >> "$crate/src/tables/detect_struct.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): the two row-alignment strategies. A case
+/// is `C x,x` column positions, `N count`, then `R` rows of
+/// `text:items:x:y` cells (`-` for absent).
+pub fn probe_structrows(input: &str) -> String {
+    let mut columns: Vec<f32> = Vec::new();
+    let mut num_cols = 0usize;
+    let mut rows: Vec<Vec<MatchedCell>> = Vec::new();
+
+    for line in input.lines() {
+        let (tag, rest) = line.split_at(line.find(' ').map(|i| i + 1).unwrap_or(line.len()));
+        match tag.trim() {
+            "C" => {
+                columns = rest.trim().split(',').filter_map(|v| v.parse().ok()).collect()
+            }
+            "N" => num_cols = rest.trim().parse().unwrap_or(0),
+            "R" => {
+                let mut row = Vec::new();
+                if !rest.trim().is_empty() {
+                    for spec in rest.trim().split(' ') {
+                        let f: Vec<&str> = spec.split(':').collect();
+                        if f.len() < 4 { continue; }
+                        row.push(MatchedCell {
+                            text: if f[0] == "-" { String::new() } else { f[0].replace('~', " ") },
+                            item_indices: if f[1] == "-" {
+                                Vec::new()
+                            } else {
+                                f[1].split('.').filter_map(|v| v.parse().ok()).collect()
+                            },
+                            x: if f[2] == "-" { None } else { f[2].parse().ok() },
+                            y: if f[3] == "-" { None } else { f[3].parse().ok() },
+                        });
+                    }
+                }
+                rows.push(row);
+            }
+            _ => {}
+        }
+    }
+
+    fn dump(out: &mut String, tag: &str,
+            result: (Vec<Vec<String>>, Vec<f32>, Vec<usize>)) {
+        let (cells, positions, indices) = result;
+        out.push_str(&format!("{tag} {}\n", cells.len()));
+        for row in &cells {
+            out.push('c');
+            for cell in row { out.push('\t'); out.push_str(cell); }
+            out.push('\n');
+        }
+        out.push('y');
+        for value in &positions { out.push_str(&format!(" {value:.3}")); }
+        out.push_str("\nx");
+        for value in &indices { out.push_str(&format!(" {value}")); }
+        out.push('\n');
+    }
+
+    let mut out = String::new();
+    dump(&mut out, "aligned", align_struct_rows(&rows, &columns));
+    dump(&mut out, "left", left_align_struct_rows(&rows, num_cols));
+    out
+}
 
 /// Probe (added for swift-anydoc): column inference and the DP alignment.
 /// A case is `R x,x,-,x` rows, then `F x,x` fallback, `N count`, and
@@ -1778,6 +1839,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::detect_lines::probe_hypotheses(&input));
+        return;
+    }
+    if path == "--structrows" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::tables::detect_struct::probe_structrows(&input));
         return;
     }
     if path == "--structcols" {

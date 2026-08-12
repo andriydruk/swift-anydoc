@@ -2203,6 +2203,68 @@ def structcol_cases(random_count):
     return cases
 
 
+
+def structrow_cases(random_count):
+    """Cases for the two row-alignment strategies."""
+    rng = random.Random(50_2026)
+
+    def cell(text="-", items="-", x="-", y="-"):
+        return f"{text}:{items}:{x}:{y}"
+
+    def block(columns, num_cols, rows):
+        lines = ["C " + ",".join(f"{v:g}" for v in columns), f"N {num_cols}"]
+        lines += ["R " + " ".join(r) for r in rows]
+        return "\n".join(lines)
+
+    cases = [
+        block([], 0, []),
+        block([100, 200, 300], 3, []),
+        # Every cell positioned: the DP places them.
+        block([100, 200, 300], 3, [[cell("a", "0", "100", "700"),
+                                    cell("b", "1", "300", "700")]]),
+        # A cell with no position: the whole row falls back to left-filling.
+        block([100, 200, 300], 3, [[cell("a", "0", "100", "700"),
+                                    cell("b", "1", "-", "700")]]),
+        # Empty but positioned cells still occupy a column.
+        block([100, 200, 300], 3, [[cell("-", "-", "100", "700"),
+                                    cell("b", "1", "300", "700")]]),
+        # A wholly absent cell is skipped.
+        block([100, 200, 300], 3, [[cell(), cell("b", "1", "300", "700")]]),
+        # Two cells landing in one column are joined with a space.
+        block([100, 300], 2, [[cell("a", "0", "100", "700"),
+                               cell("b", "1", "105", "700")]]),
+        # More cells than columns: the tail is dropped along with its items.
+        block([100], 1, [[cell("a", "0", "100", "700"), cell("b", "1", "200", "700"),
+                          cell("c", "2", "300", "700")]]),
+        # Left-align truncates and pads.
+        block([], 2, [[cell("a", "0"), cell("b", "1"), cell("c", "2")]]),
+        block([], 4, [[cell("a", "0"), cell("b", "1")]]),
+        # Row baselines take the highest y present.
+        block([100, 200], 2, [[cell("a", "0", "100", "690"),
+                               cell("b", "1", "200", "700")]]),
+        block([100, 200], 2, [[cell("a", "0", "100", "-"), cell("b", "1", "200", "-")]]),
+        # No columns at all.
+        block([], 0, [[cell("a", "0", "100", "700")]]),
+        # Text carrying a space.
+        block([100, 200], 2, [[cell("two~words", "0", "100", "700")]]),
+    ]
+
+    for _ in range(random_count):
+        columns = sorted(float(rng.randrange(50, 500)) for _ in range(rng.randint(0, 4)))
+        rows = []
+        for _ in range(rng.randint(0, 4)):
+            row = []
+            for index in range(rng.randint(0, 5)):
+                row.append(cell(
+                    rng.choice(["-", "a", "b", "two~words"]),
+                    rng.choice(["-", str(index), f"{index}.{index + 10}"]),
+                    rng.choice(["-", str(rng.randrange(50, 500))]),
+                    rng.choice(["-", str(rng.randrange(600, 750))])))
+            rows.append(row)
+        cases.append(block(columns, rng.randint(0, 5), rows))
+    return cases
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -2373,6 +2435,21 @@ def main():
         f.write("\n===\n".join(hyp_answers))
 
     rule_blocks = rule_cases(arguments.cases)
+    sr_blocks = structrow_cases(max(arguments.cases // 4, 80))
+    with open(os.path.join(arguments.directory, "structrow-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n===\n".join(sr_blocks))
+    sr_answers = []
+    for b in sr_blocks:
+        r = subprocess.run(
+            [probe, "--structrows"], input=b + "\n", capture_output=True, text=True,
+            check=True
+        )
+        sr_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "structrow-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n===\n".join(sr_answers))
+
     sc_blocks = structcol_cases(max(arguments.cases // 4, 80))
     with open(os.path.join(arguments.directory, "structcol-cases.txt"), "w",
               encoding="utf-8") as f:
