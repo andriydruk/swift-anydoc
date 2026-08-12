@@ -70,6 +70,10 @@ perl -pi -e 's/^pub\(crate\) mod detect_lines;/pub mod detect_lines;/; s/^mod de
     "$crate/src/tables/mod.rs"
 perl -pi -e 's/^fn (merge_horizontal_segments|group_rules_by_span|numbered_table_caption|split_independent_rule_runs|rules_are_uniform_grid|derive_columns_from_horizontal_segments)\(/pub fn $1(/' \
     "$crate/src/tables/detect_lines.rs"
+perl -pi -e "s/^fn (detect_text_anchor_rule_tables|line_overlaps_text_anchor_band)/pub fn \$1/; s/^struct TextAnchorTable/pub struct TextAnchorTable/" \
+    "$crate/src/tables/detect_lines.rs"
+perl -pi -e "s/^    table: Table,/    pub table: Table,/; s/^    x_left: f32,/    pub x_left: f32,/; s/^    x_right: f32,/    pub x_right: f32,/; s/^    y_bottom: f32,/    pub y_bottom: f32,/; s/^    y_top: f32,/    pub y_top: f32,/" \
+    "$crate/src/tables/detect_lines.rs"
 perl -pi -e "s/^fn (build_text_anchor_table)/pub fn \$1/" \
     "$crate/src/tables/detect_lines.rs"
 perl -pi -e "s/^fn (build_stacked_token_table|build_open_edge_grid_table_for_rules|build_open_edge_grid_tables)/pub fn \$1/" \
@@ -442,6 +446,7 @@ pub fn probe_openedge(input: &str) -> String {
     use crate::types::{ItemType, TextItem};
     let mut rules: Vec<(f32, f32, f32)> = Vec::new();
     let mut verticals: Vec<(f32, f32, f32)> = Vec::new();
+    let mut path_lines: Vec<crate::types::PdfLine> = Vec::new();
     let mut items: Vec<TextItem> = Vec::new();
     let mut in_items = false;
     for line in input.lines() {
@@ -451,7 +456,15 @@ pub fn probe_openedge(input: &str) -> String {
         }
         let parts: Vec<&str> = line.split(' ').collect();
         if !in_items {
-            if parts[0] == "v" && parts.len() >= 4 {
+            if parts[0] == "p" && parts.len() >= 5 {
+                path_lines.push(crate::types::PdfLine {
+                    x1: parts[1].parse().unwrap_or(0.0),
+                    y1: parts[2].parse().unwrap_or(0.0),
+                    x2: parts[3].parse().unwrap_or(0.0),
+                    y2: parts[4].parse().unwrap_or(0.0),
+                    page: 1,
+                });
+            } else if parts[0] == "v" && parts.len() >= 4 {
                 verticals.push((
                     parts[1].parse().unwrap_or(0.0),
                     parts[2].parse().unwrap_or(0.0),
@@ -506,6 +519,14 @@ pub fn probe_openedge(input: &str) -> String {
         None => out.push_str("stacked none\n"),
         Some(t) => emit(&mut out, "stacked", &t),
     }
+    let bands = detect_text_anchor_rule_tables(&items, &rules, &verticals, &path_lines, 1);
+    out.push_str(&format!("bands {}\n", bands.len()));
+    for b in &bands {
+        out.push_str(&format!(
+            "b {:.3} {:.3} {:.3} {:.3}\n", b.x_left, b.x_right, b.y_bottom, b.y_top));
+        emit(&mut out, "bt", &b.table);
+    }
+
     let grids = build_open_edge_grid_tables(&items, &rules, &verticals, 1);
     out.push_str(&format!("grids {}\n", grids.len()));
     for t in &grids { emit(&mut out, "g", t); }

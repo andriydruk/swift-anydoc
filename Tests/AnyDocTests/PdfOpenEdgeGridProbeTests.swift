@@ -41,11 +41,13 @@ import Testing
 
         var mismatches: [String] = []
         var anchorAccepts = 0
+        var bandAccepts = 0
         var stackedAccepts = 0
         var gridAccepts = 0
         for (index, block) in blocks.enumerated() where index < expected.count {
             var rules: [PdfHorizontalRule] = []
             var verticals: [PdfVerticalRule] = []
+            var pathLines: [PdfLineSegment] = []
             var items: [PdfLayoutItem] = []
             var inItems = false
             for line in block.split(separator: "\n", omittingEmptySubsequences: false) {
@@ -55,7 +57,12 @@ import Testing
                 }
                 let p = line.split(separator: " ", omittingEmptySubsequences: false)
                 if !inItems {
-                    if p[0] == "v", p.count >= 4, let x = Float(p[1]), let lo = Float(p[2]),
+                    if p[0] == "p", p.count >= 5, let a = Float(p[1]), let b = Float(p[2]),
+                        let c = Float(p[3]), let d = Float(p[4])
+                    {
+                        pathLines.append(
+                            PdfLineSegment(x1: a, y1: b, x2: c, y2: d, strokeWidth: 1))
+                    } else if p[0] == "v", p.count >= 4, let x = Float(p[1]), let lo = Float(p[2]),
                         let hi = Float(p[3])
                     {
                         verticals.append((x: x, yMin: lo, yMax: hi))
@@ -88,6 +95,16 @@ import Testing
             } else {
                 ours += "stacked none\n"
             }
+            let bands = pdfDetectTextAnchorRuleTables(
+                items: items, horizontals: rules, verticals: verticals, pathLines: pathLines)
+            bandAccepts += bands.count
+            ours += "bands \(bands.count)\n"
+            for band in bands {
+                ours += "b \(format(band.xLeft)) \(format(band.xRight)) "
+                ours += "\(format(band.yBottom)) \(format(band.yTop))\n"
+                ours += emit("bt", band.table)
+            }
+
             let grids = pdfBuildOpenEdgeGridTables(
                 items: items, horizontals: rules, verticals: verticals)
             gridAccepts += grids.count
@@ -108,7 +125,7 @@ import Testing
         }
         print(
             "pdf open-edge probe: \(blocks.count) cases, \(anchorAccepts) anchor, "
-                + "\(stackedAccepts) stacked, \(gridAccepts) grids")
+                + "\(stackedAccepts) stacked, \(bandAccepts) bands, \(gridAccepts) grids")
         let report = mismatches.prefix(3).joined(separator: "\n")
         #expect(mismatches.isEmpty, "\(mismatches.count) open-edge divergences:\n\(report)")
     }

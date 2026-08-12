@@ -1084,9 +1084,10 @@ def openedge_cases(random_count):
     """
     rng = random.Random(36_2026)
 
-    def block(rules, verticals, items):
+    def block(rules, verticals, items, paths=()):
         head = [f"{y:g} {a:g} {b:g}" for y, a, b in rules]
         head += [f"v {x:g} {lo:g} {hi:g}" for x, lo, hi in verticals]
+        head += [f"p {a:g} {b:g} {c:g} {d:g}" for a, b, c, d in paths]
         body = [f"{x:g} {y:g} {w:g} {s:g} {t}" for x, y, w, s, t in items]
         return "\n".join(head) + "\n\n" + "\n".join(body)
 
@@ -1298,6 +1299,43 @@ def openedge_cases(random_count):
         # Two cells past 100 characters out of ten.
         anchor_case(three, [[(110, 40, "y" * 120), (250, 20, "12"), (390, 20, "5%")],
                             [(110, 40, "z" * 120), (250, 20, "34"), (390, 20, "9%")]]),
+    ]
+
+    # Band-scoping shapes for the text-anchor pass. Text-anchor inference is
+    # the fallback of last resort, so what matters here is what disqualifies a
+    # band: dense line art, or verticals that suggest a real drawn grid.
+    anchor_body = [[(110, 40, "alpha"), (250, 20, "12"), (390, 20, "5%")],
+                   [(110, 40, "beta"), (250, 20, "34"), (390, 20, "9%")]]
+
+    def band_case(verticals=(), paths=()):
+        rules = [(700, 100, 500), (680, 100, 500), (560, 100, 500)]
+        items = [(x, 690, w, 10, tx) for x, w, tx in three]
+        for row_index, row in enumerate(anchor_body):
+            for x, w, tx in row:
+                items.append((x, 670 - row_index * 15, w, 10, tx))
+        return block(rules, list(verticals), items, list(paths))
+
+    out += [
+        # A quiet band: nothing to disqualify it.
+        band_case(),
+        # Two spanning verticals — outer borders of a borderless table, still
+        # allowed.
+        band_case(verticals=[(100, 560, 700), (500, 560, 700)]),
+        # A third spanning vertical is an interior divider: a physical grid.
+        band_case(verticals=[(100, 560, 700), (300, 560, 700), (500, 560, 700)]),
+        # Six short strokes inside the band: diagram evidence, even though no
+        # single one spans it.
+        band_case(verticals=[(120 + i * 60, 600, 620) for i in range(6)]),
+        # Five of the same is under the bar.
+        band_case(verticals=[(120 + i * 60, 600, 620) for i in range(5)]),
+        # Two hundred path lines crossing the band: a chart or schematic.
+        band_case(paths=[(110 + (i % 40), 600, 130 + (i % 40), 620) for i in range(200)]),
+        # A hundred and ninety-nine is under the bar.
+        band_case(paths=[(110 + (i % 40), 600, 130 + (i % 40), 620) for i in range(199)]),
+        # Path lines wholly outside the band do not count.
+        band_case(paths=[(110, 100, 130, 120) for _ in range(250)]),
+        # Verticals outside the band's x range do not count either.
+        band_case(verticals=[(600 + i * 20, 560, 700) for i in range(6)]),
     ]
 
     for _ in range(random_count):

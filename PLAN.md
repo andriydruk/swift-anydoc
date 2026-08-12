@@ -1671,6 +1671,33 @@ Two gates are provably unreachable and left unfired: `occupied_rows < 2` and
 anchors are derived from row 0's item starts, so each anchor owns an item at
 distance zero and no column can be empty either.
 
+- **Wave 38 — text-anchor band scoping.** `PdfTextAnchorBands.swift` ports
+  `detect_text_anchor_rule_tables` and `line_overlaps_text_anchor_band`.
+
+  Wave 37 built a table from a run of rules; this decides which runs may be
+  asked at all, and the answer is essentially *only where the page is
+  otherwise bare*. Text-anchor inference is the sparse-geometry fallback of
+  last resort, so any sign that a better-informed detector could own the
+  region disqualifies it:
+  - **Two hundred path lines crossing the band** is a chart or a schematic.
+    The count stops at the threshold rather than totalling — the reference's
+    `.take(200).count() >= 200`.
+  - **Three spanning verticals.** Two are allowed, because a borderless table
+    can still be boxed and two coordinates prove nothing about columns; a
+    third is an interior divider, which means a physical grid.
+  - **Six strokes of any length inside the band.** No single one proves a cell
+    exists, but together they are diagram evidence.
+
+  The band bounds are carried alongside each table because later stages need
+  the claimed area without re-deriving it.
+
+203 cases agree on the first run, with 29 bands accepted. All four branches
+fire: 29 accepted, 25 interior-divider (the wave-36 grid cases supply those
+for free), and one each for dense line art and many short strokes. Nine
+scoping shapes were added, each paired with its just-under-threshold twin —
+199 path lines, five strokes, two spanning verticals — so the thresholds are
+pinned from both sides rather than merely crossed.
+
 ## Phase 6 remaining work — exact inventory
 
 Measured against the vendored reference at wave 20. `Sources/AnyDoc/Pdf/` is
