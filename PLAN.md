@@ -2152,3 +2152,30 @@ the *correct* behaviour and failed — which is how the bug surfaced at all.
 
 165 cases agree on the first run, covering nested tables, grouping elements,
 unresolvable pages and every role in and out of the non-heading set.
+
+- **Wave 49 — column inference for tagged tables.** `PdfStructColumns.swift`
+  ports `infer_column_positions` and `align_positions_to_columns` from
+  `tables/detect_struct.rs`.
+
+  The structure tree says which cells exist and how they group into rows, but
+  nothing about where the columns *sit* — that has to come from where the
+  cells were drawn, and rows disagree with each other.
+  - The **widest** row supplies the anchors, being the one least likely to be
+    missing a column. `max_by_key` keeps the last maximum, so the lowest row
+    wins a tie.
+  - `align_positions_to_columns` is a dynamic program: a short row's cells are
+    placed under the columns they actually match rather than packed against
+    the left edge, minimising total displacement while keeping order.
+
+  Three unit tests of mine were wrong, each about an ordering detail:
+  - The fallback is consulted **before** the "no anchors at all" exit, so a
+    single fallback position becomes an anchor and is then padded like any
+    other. The early return is reachable only with an empty fallback — or with
+    `columnCount == 0`, where the fill loop breaks immediately.
+  - Ties in the alignment bias **right**, not left: the cost table is filled
+    left to right and the last equal cost wins, so a cell exactly between two
+    columns lands in the right-hand one.
+  - With every row one position wide, the *last* row supplies the anchor, not
+    the first.
+
+169 cases and 212 alignments agree on the first run.

@@ -41,6 +41,10 @@ cp -R "$reference" "$crate"
 chmod -R u+w "$crate"
 
 # `structure_tree` is private as well.
+perl -pi -e "s/^pub\\(crate\\) mod detect_struct;/pub mod detect_struct;/; s/^mod detect_struct;/pub mod detect_struct;/" \
+    "$crate/src/tables/mod.rs"
+perl -pi -e "s/^fn (infer_column_positions|align_positions_to_columns)/pub fn \$1/" \
+    "$crate/src/tables/detect_struct.rs"
 perl -pi -e "s/^fn (collect_tables|collect_rows|collect_mcids_recursive|flatten_recursive)/pub fn \$1/; s/^    fn from_name/    pub fn from_name/" \
     "$crate/src/structure_tree.rs"
 perl -pi -e "s/^mod structure_tree;/pub mod structure_tree;/; s/^pub\\(crate\\) mod structure_tree;/pub mod structure_tree;/" \
@@ -451,6 +455,65 @@ pub fn probe_detect(input: &str) -> String {
             }
         }
     }
+    out
+}
+RUSTEOF
+
+cat >> "$crate/src/tables/detect_struct.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): column inference and the DP alignment.
+/// A case is `R x,x,-,x` rows, then `F x,x` fallback, `N count`, and
+/// `A x,x | c,c` alignment pairs.
+pub fn probe_structcols(input: &str) -> String {
+    let mut rows: Vec<Vec<MatchedCell>> = Vec::new();
+    let mut fallback: Vec<f32> = Vec::new();
+    let mut num_cols = 0usize;
+    let mut out = String::new();
+
+    fn parse_list(text: &str) -> Vec<Option<f32>> {
+        if text.is_empty() { return Vec::new(); }
+        text.split(',')
+            .map(|v| if v == "-" { None } else { v.parse().ok() })
+            .collect()
+    }
+
+    for line in input.lines() {
+        let (tag, rest) = line.split_at(line.find(' ').map(|i| i + 1).unwrap_or(line.len()));
+        match tag.trim() {
+            "R" => rows.push(
+                parse_list(rest.trim())
+                    .into_iter()
+                    .map(|x| MatchedCell {
+                        text: String::new(),
+                        item_indices: Vec::new(),
+                        x,
+                        y: None,
+                    })
+                    .collect(),
+            ),
+            "F" => fallback = parse_list(rest.trim()).into_iter().flatten().collect(),
+            "N" => num_cols = rest.trim().parse().unwrap_or(0),
+            "A" => {
+                let halves: Vec<&str> = rest.trim().split('|').collect();
+                if halves.len() == 2 {
+                    let cells: Vec<f32> =
+                        parse_list(halves[0].trim()).into_iter().flatten().collect();
+                    let cols: Vec<f32> =
+                        parse_list(halves[1].trim()).into_iter().flatten().collect();
+                    let assigned = align_positions_to_columns(&cells, &cols);
+                    out.push_str("a");
+                    for value in &assigned { out.push_str(&format!(" {value}")); }
+                    out.push('\n');
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let inferred = infer_column_positions(&rows, &fallback, num_cols);
+    out.push_str("i");
+    for value in &inferred { out.push_str(&format!(" {value:.3}")); }
+    out.push('\n');
     out
 }
 RUSTEOF
@@ -1715,6 +1778,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::detect_lines::probe_hypotheses(&input));
+        return;
+    }
+    if path == "--structcols" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::tables::detect_struct::probe_structcols(&input));
         return;
     }
     if path == "--structtree" {

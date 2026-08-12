@@ -2138,6 +2138,71 @@ def structtree_cases(random_count):
     return cases
 
 
+
+def structcol_cases(random_count):
+    """Cases for column inference and the DP alignment."""
+    rng = random.Random(49_2026)
+
+    def block(rows, fallback, num_cols, alignments):
+        lines = [f"R {','.join(rows_i)}" for rows_i in rows]
+        lines.append("F " + ",".join(f"{v:g}" for v in fallback))
+        lines.append(f"N {num_cols}")
+        for cells, cols in alignments:
+            lines.append("A " + ",".join(f"{v:g}" for v in cells) + " | "
+                         + ",".join(f"{v:g}" for v in cols))
+        return "\n".join(lines)
+
+    cases = [
+        # No rows at all: the fallback is the whole answer.
+        block([], [100, 200, 300], 3, []),
+        block([], [], 3, []),
+        # A full row supplies every anchor.
+        block([["100", "200", "300"]], [], 3, []),
+        # A ragged row plus a full one: the widest wins.
+        block([["100", "-", "300"], ["100", "200", "300"]], [], 3, []),
+        # Two rows tie on width — the later one wins.
+        block([["100", "200"], ["150", "250"]], [], 2, []),
+        # More anchors than columns: truncated.
+        block([["100", "200", "300", "400"]], [], 2, []),
+        # Filling from other rows, then the fallback.
+        block([["100", "-", "-"], ["-", "200", "-"]], [400], 4, []),
+        block([["100"]], [200, 300], 3, []),
+        # Positions inside the 18pt tolerance do not add a column.
+        block([["100"], ["110"], ["117"], ["119"]], [], 3, []),
+        # Padding by repeating the last anchor.
+        block([["100", "200"]], [], 5, []),
+        # Alignments: trivially the identity when cells outnumber columns.
+        block([], [], 0, [([100, 200, 300], [100, 200])]),
+        block([], [], 0, [([100, 200], [100, 200])]),
+        # A short row against wide columns.
+        block([], [], 0, [([100, 300], [100, 200, 300, 400])]),
+        block([], [], 0, [([210, 310], [100, 200, 300, 400])]),
+        block([], [], 0, [([405], [100, 200, 300, 400])]),
+        block([], [], 0, [([100], [100, 200, 300, 400])]),
+        # Equidistant, which the tie rule biases left.
+        block([], [], 0, [([150], [100, 200])]),
+        # Empty inputs.
+        block([], [], 0, [([], [100, 200])]),
+        block([], [], 0, [([100], [])]),
+    ]
+
+    for _ in range(random_count):
+        rows = []
+        for _ in range(rng.randint(0, 4)):
+            rows.append([
+                "-" if rng.random() < 0.3 else f"{rng.randrange(50, 500)}"
+                for _ in range(rng.randint(0, 5))
+            ])
+        fallback = [float(rng.randrange(50, 500)) for _ in range(rng.randint(0, 4))]
+        alignments = []
+        for _ in range(rng.randint(0, 3)):
+            cells = sorted(float(rng.randrange(50, 500)) for _ in range(rng.randint(0, 5)))
+            cols = sorted(float(rng.randrange(50, 500)) for _ in range(rng.randint(0, 6)))
+            alignments.append((cells, cols))
+        cases.append(block(rows, fallback, rng.randint(0, 6), alignments))
+    return cases
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -2308,6 +2373,21 @@ def main():
         f.write("\n===\n".join(hyp_answers))
 
     rule_blocks = rule_cases(arguments.cases)
+    sc_blocks = structcol_cases(max(arguments.cases // 4, 80))
+    with open(os.path.join(arguments.directory, "structcol-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n===\n".join(sc_blocks))
+    sc_answers = []
+    for b in sc_blocks:
+        r = subprocess.run(
+            [probe, "--structcols"], input=b + "\n", capture_output=True, text=True,
+            check=True
+        )
+        sc_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "structcol-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n===\n".join(sc_answers))
+
     st_blocks = structtree_cases(max(arguments.cases // 4, 60))
     with open(os.path.join(arguments.directory, "structtree-cases.txt"), "w",
               encoding="utf-8") as f:
