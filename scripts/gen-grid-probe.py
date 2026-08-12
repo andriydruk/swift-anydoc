@@ -1651,6 +1651,80 @@ def detector_cases(random_count):
     return out
 
 
+
+def textquality_cases(random_count):
+    """Cases for the markdown-level text-quality detectors.
+
+    One hex-encoded UTF-8 string per line so arbitrary bytes survive, and one
+    case per block. The interesting inputs are long: the cipher discriminator
+    needs 200 ASCII letters before it will say anything at all.
+    """
+    rng = random.Random(42_2026)
+    english = ("the quick brown fox jumps over the lazy dog while the "
+               "committee reviewed every certificate and signed the report ")
+
+    def shift(text, amount):
+        out = []
+        for ch in text:
+            if "a" <= ch <= "z":
+                out.append(chr((ord(ch) - 97 + amount) % 26 + 97))
+            elif "A" <= ch <= "Z":
+                out.append(chr((ord(ch) - 65 + amount) % 26 + 65))
+            else:
+                out.append(ch)
+        return "".join(out)
+
+    def straddle(text, amount):
+        """Shift through the whole printable range, so lowercase lands in the
+        uppercase block — which is what a broken CMap actually produces."""
+        return "".join(
+            chr(ord(ch) - amount) if "a" <= ch <= "z" else ch for ch in text)
+
+    cases = [
+        "",
+        "clean english text without any problems at all",
+        "a replacement lurks here: \ufffd",
+        "\ufffd",
+        # Dollar-as-space, from both trigger arms.
+        "Word$Word$Word$" + "Name$Value$" * 6,
+        "price $10 and $20 and $30 and $40 and $50 and $60 and $70 and $80 "
+        "and $90 and $100 and $110 and $120",
+        "a$b " * 25,
+        english * 4,                       # long, clean
+        english[:180],                     # under the 200-letter floor
+        shift(english * 4, 7),             # in-alphabet substitution
+        shift(english * 4, 13),
+        straddle(english * 4, 30),         # case-straddling shift
+        (english * 4).upper(),             # all caps, still English
+        "ACGT" * 300,                      # DNA: steep profile
+        "0123456789abcdef" * 60,           # hex dump
+        "AAAAA" * 100,                     # single letter
+        "aeiou" * 100,                     # all vowels
+        "bcdfg" * 100,                     # no vowels, flat profile
+        "日本語のテキストがここにあります" * 30,   # non-Latin dominant
+        "naïve café résumé Ångström " * 40,      # Latin extended
+        "camelCaseIdentifier " * 60,             # case shifts, legitimate
+    ]
+
+    for _ in range(random_count):
+        kind = rng.randrange(5)
+        if kind == 0:
+            text = "".join(rng.choice("abcdefghijklmnopqrstuvwxyz ")
+                           for _ in range(rng.randint(0, 400)))
+        elif kind == 1:
+            text = shift(english * rng.randint(1, 5), rng.randrange(26))
+        elif kind == 2:
+            text = straddle(english * rng.randint(1, 5), rng.randrange(20, 40))
+        elif kind == 3:
+            text = "".join(rng.choice("$abcXYZ 019") for _ in range(rng.randint(0, 200)))
+        else:
+            text = "".join(rng.choice("aeiouéüñ日本 \ufffd")
+                           for _ in range(rng.randint(0, 300)))
+        cases.append(text)
+
+    return [text.encode("utf-8").hex() for text in cases]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -1821,6 +1895,20 @@ def main():
         f.write("\n===\n".join(hyp_answers))
 
     rule_blocks = rule_cases(arguments.cases)
+    tq_blocks = textquality_cases(max(arguments.cases // 3, 80))
+    with open(os.path.join(arguments.directory, "textquality-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n===\n".join(tq_blocks))
+    tq_answers = []
+    for b in tq_blocks:
+        r = subprocess.run(
+            [probe, "--textquality"], input=b + "\n", capture_output=True, text=True, check=True
+        )
+        tq_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "textquality-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n===\n".join(tq_answers))
+
     dt_blocks = detector_cases(max(arguments.cases // 3, 80))
     with open(os.path.join(arguments.directory, "detector-cases.txt"), "w",
               encoding="utf-8") as f:

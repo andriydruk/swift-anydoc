@@ -1940,3 +1940,31 @@ blanket `perl` over field names, which also rewrote a *function parameter*
 called `has_images` and broke the build. The probe lives inside `detector.rs`,
 so it can construct the private struct directly and **no widening was needed at
 all** — the fix was deleting three lines rather than narrowing the pattern.
+
+- **Wave 42 — the cipher-garble discriminator.** `PdfTextQuality.swift` starts
+  `text_quality.rs` with its markdown-level detectors and the statistics they
+  rest on.
+
+  The hard case this exists for is a ToUnicode CMap that shifts every
+  character by a per-range constant, so `Certificate` extracts as
+  `8VceZWZTReV`. That output is **100% printable ASCII with word-like token
+  lengths** — no replacement characters, no symbol soup — so every other
+  detector passes it and it needs a discriminator of its own.
+  - The discriminator is two cosines against English letter frequencies: one
+    *unsorted*, one with **both** histograms sorted descending. A substitution
+    cipher is a bijection, so it preserves the frequency *shape* exactly while
+    destroying the *positions* — high sorted cosine, low unsorted. That pair
+    is what separates it from merely non-English ASCII: DNA and hex dumps have
+    too steep a profile to match the shape, while protein sequences and base64
+    are not unlike English enough in position.
+  - Two guards come first and matter as much: at least 200 ASCII letters, and
+    vowels no more than 30% of them. The reference's closest legitimate
+    document sits at 0.264 against that 0.30 bar.
+  - The bigram chain resets at every non-ASCII-letter character, so a word
+    boundary is not a bigram — which is what keeps `camelCase` identifiers
+    from reading as case-shift garble.
+
+221 cases agree on the first run, **including the cosines to nine decimal
+places**, which is the useful signal here: it means the f64 accumulation order
+matches rather than merely the verdict. 37 cases are garbled, 38 flagged by the
+cheaper heuristics without being garbled, and 146 clean.

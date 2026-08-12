@@ -40,6 +40,10 @@ rm -rf "$crate"
 cp -R "$reference" "$crate"
 chmod -R u+w "$crate"
 
+# `text_quality` is private, and the probe below reads CipherGarbleStats.
+perl -pi -e "s/^mod text_quality;/pub mod text_quality;/; s/^pub\\(crate\\) mod text_quality;/pub mod text_quality;/" \
+    "$crate/src/lib.rs"
+
 # `detector` is already a public module and the probe below lives inside it,
 # so its private helpers and `PageAnalysis` need no widening at all.
 
@@ -436,6 +440,40 @@ pub fn probe_detect(input: &str) -> String {
                 }
             }
         }
+    }
+    out
+}
+RUSTEOF
+
+cat >> "$crate/src/text_quality.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): the markdown-level quality detectors and
+/// the cipher-garble statistics they rest on. Input is one hex-encoded UTF-8
+/// string per line, so arbitrary bytes survive the round trip.
+pub fn probe_textquality(input: &str) -> String {
+    let mut out = String::new();
+    for line in input.lines() {
+        let hex = line.trim();
+        let bytes: Vec<u8> = (0..hex.len() / 2)
+            .map(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).unwrap_or(0))
+            .collect();
+        let text = String::from_utf8_lossy(&bytes).to_string();
+        let mut stats = CipherGarbleStats::default();
+        stats.add_text(&text);
+        out.push_str(&format!(
+            "q {} {} {} {} {} {} {} {} {:.9} {:.9} {}\n",
+            detect_encoding_issues(&text) as u8,
+            has_dollar_as_space_pattern(&text) as u8,
+            stats.ascii_letters,
+            stats.ascii_vowels,
+            stats.latin_ext_letters,
+            stats.non_latin_letters,
+            stats.letter_bigrams,
+            stats.case_shift_bigrams,
+            stats.english_cosine(),
+            stats.english_shape_cosine(),
+            stats.looks_garbled() as u8,
+        ));
     }
     out
 }
@@ -1422,6 +1460,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::detect_lines::probe_hypotheses(&input));
+        return;
+    }
+    if path == "--textquality" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::text_quality::probe_textquality(&input));
         return;
     }
     if path == "--detector" {
