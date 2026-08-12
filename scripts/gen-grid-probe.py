@@ -1226,6 +1226,80 @@ def openedge_cases(random_count):
               [(120, 690 - i * 12, 80, 10, f"tok_{i}") for i in range(6)]),
     ]
 
+    # Booktabs shapes for the text-anchor strategy. The grid cases above all
+    # space their rules evenly, which `rules_are_uniform_grid` rejects before
+    # anything else runs — so without these the whole strategy is starved.
+    def anchor_case(header, body, rules=None, x0=100, x1=500):
+        rules = rules or [(700, x0, x1), (680, x0, x1), (560, x0, x1)]
+        items = [(x, 690, w, 10, tx) for x, w, tx in header]
+        for row_index, row in enumerate(body):
+            for x, w, tx in row:
+                items.append((x, 670 - row_index * 15, w, 10, tx))
+        return block(rules, [], items)
+
+    three = [(110, 40, "Name"), (250, 40, "Count"), (390, 40, "Share")]
+    out += [
+        # A plain booktabs table: uneven rules, three anchors.
+        anchor_case(three, [[(110, 40, "alpha"), (250, 20, "12"), (390, 20, "5%")],
+                            [(110, 40, "beta"), (250, 20, "34"), (390, 20, "9%")]]),
+        # One rule only.
+        anchor_case(three, [[(110, 40, "alpha"), (250, 20, "12"), (390, 20, "5%")]],
+                    rules=[(700, 100, 500)]),
+        # Anchors under 30pt apart end to end.
+        anchor_case([(110, 10, "A"), (125, 10, "B")],
+                    [[(110, 10, "a"), (125, 10, "b")], [(110, 10, "c"), (125, 10, "d")]]),
+        # Twenty-six anchors.
+        anchor_case([(110 + i * 14, 8, f"H{i}") for i in range(26)],
+                    [[(110 + i * 14, 8, f"d{i}") for i in range(26)]] * 2),
+        # A header of nothing but numbers.
+        anchor_case([(110, 40, "12"), (250, 40, "34"), (390, 40, "56")],
+                    [[(110, 40, "a"), (250, 20, "b"), (390, 20, "c")],
+                     [(110, 40, "d"), (250, 20, "e"), (390, 20, "f")]]),
+        # More than half the header numeric, but not all of it.
+        anchor_case([(110, 40, "Name"), (250, 40, "2024"), (390, 40, "2025")],
+                    [[(110, 40, "a"), (250, 20, "b"), (390, 20, "c")],
+                     [(110, 40, "d"), (250, 20, "e"), (390, 20, "f")]]),
+        # A body stub starting left of the first header anchor.
+        anchor_case(three, [[(80, 20, "stub"), (110, 40, "alpha"), (250, 20, "12"),
+                             (390, 20, "5%")],
+                            [(110, 40, "beta"), (250, 20, "34"), (390, 20, "9%")]]),
+        # Exactly two rules and an ordinary table: not a response form.
+        anchor_case(three, [[(110, 40, "alpha"), (250, 20, "12"), (390, 20, "5%")],
+                            [(110, 40, "beta"), (250, 20, "34"), (390, 20, "9%")]],
+                    rules=[(700, 100, 500), (560, 100, 500)]),
+        # Two rules and a real response form: short leading-column prompts,
+        # the response column left blank.
+        anchor_case([(110, 40, "Question"), (300, 40, "Answer")],
+                    [[(110, 60, f"prompt {i}")] for i in range(6)],
+                    rules=[(700, 100, 500), (560, 100, 500)]),
+        # Three anchors inside a 40pt span: too narrow overall.
+        anchor_case([(100, 8, "A"), (118, 8, "B"), (136, 8, "C")],
+                    [[(100, 8, "a"), (118, 8, "b"), (136, 8, "c")],
+                     [(100, 8, "d"), (118, 8, "e"), (136, 8, "f")]],
+                    x0=100, x1=140),
+        # Sustained prose: many rows of sentence-shaped cells under few rules.
+        # Three anchors, not two — with two the prose gate above pre-empts
+        # this one, which is how the first attempt at this case failed to
+        # reach it. The items stay narrow so the wide-item arm stays quiet
+        # and this gate is the one being exercised.
+        anchor_case(three,
+                    [[(110, 50, "alpha beta gamma delta"),
+                      (250, 50, "one two three four"),
+                      (390, 50, "five six seven eight")]
+                     for _ in range(9)],
+                    rules=[(700, 100, 500), (690, 100, 500), (400, 100, 500)]),
+        # Items filling most of their columns: paragraph starts, not columns.
+        anchor_case([(110, 40, "One"), (250, 40, "Two"), (390, 40, "Three")],
+                    [[(110, 130, "wide text here"), (250, 130, "also wide"),
+                      (390, 105, "wide again")] for _ in range(4)]),
+        # A single cell past 240 characters.
+        anchor_case(three, [[(110, 40, "x" * 250), (250, 20, "12"), (390, 20, "5%")],
+                            [(110, 40, "beta"), (250, 20, "34"), (390, 20, "9%")]]),
+        # Two cells past 100 characters out of ten.
+        anchor_case(three, [[(110, 40, "y" * 120), (250, 20, "12"), (390, 20, "5%")],
+                            [(110, 40, "z" * 120), (250, 20, "34"), (390, 20, "9%")]]),
+    ]
+
     for _ in range(random_count):
         cols = rng.randint(2, 6)
         rows_n = rng.randint(1, 6)

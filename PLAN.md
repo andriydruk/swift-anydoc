@@ -1628,6 +1628,49 @@ rules that snap to two edges while still spanning 28pt, a single occupied body
 row, an empty column, a header item centred left of the first edge, a header
 gap, and a mixed-span logical rule inside the band.
 
+- **Wave 37 — the text-anchor (booktabs) strategy.**
+  `PdfTextAnchorTable.swift` ports `build_text_anchor_table`: two or three
+  rules, no verticals anywhere, and columns that exist *only* in where the
+  header's words begin. The header row is the column definition and everything
+  below is assigned to the nearest anchor.
+
+  That is a great deal inferred from very little, so the function is mostly
+  refusals — and nearly all of them exist to separate a real table from
+  multi-column prose bracketed by decorative rules, whose first baseline looks
+  like a header and whose text starts look like anchors. The gates are loose in
+  deliberately different directions, because a real ruled table wraps its
+  labels:
+  - **Two anchors are never enough on thin evidence.** Two text columns under a
+    few rules are indistinguishable from a two-column prose layout, so only
+    densely ruled forms — where rule and row counts corroborate each other —
+    survive. Wider tables have stronger anchor evidence and are exempt.
+  - **Two rules are trusted only for a response form**: header naming both
+    columns, every prompt row short and in the leading column, response column
+    deliberately blank.
+  - **Four or more full-width rules describe rows, not a booktabs band**, and
+    first-row anchors alone may start below the real header — so the case is
+    handed to a detector that can also weigh rectangles or whitespace.
+  - A *majority*-numeric header is refused, which is what a year-over-year
+    header row looks like; a body item starting left of the first anchor
+    proves the inferred grid dropped a column outright.
+  - The two prose tests reject an *extreme* cell (240 characters) or a
+    *concentration* of long ones, and sustained prose keyed on content rather
+    than row count — a long table of short labels and values stays valid at any
+    height.
+
+194 cases agree on the first run. Gate coverage started at **6 of 18** and the
+reason was instructive: every wave-36 case spaces its rules evenly, and
+`rules_are_uniform_grid` rejects those before anything else runs, so the
+strategy was starved by its own case file. Fourteen booktabs shapes fixed that
+and all 18 reachable gates now fire. One case had to be rebuilt after it failed
+to reach its target — a two-anchor prose case is caught by the earlier
+two-anchor gate, so the sustained-prose test needs three.
+
+Two gates are provably unreachable and left unfired: `occupied_rows < 2` and
+`occupied_columns < 2`. Rows are built *from* items so none can be empty, and
+anchors are derived from row 0's item starts, so each anchor owns an item at
+distance zero and no column can be empty either.
+
 ## Phase 6 remaining work — exact inventory
 
 Measured against the vendored reference at wave 20. `Sources/AnyDoc/Pdf/` is

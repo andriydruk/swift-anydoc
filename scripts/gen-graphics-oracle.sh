@@ -70,6 +70,8 @@ perl -pi -e 's/^pub\(crate\) mod detect_lines;/pub mod detect_lines;/; s/^mod de
     "$crate/src/tables/mod.rs"
 perl -pi -e 's/^fn (merge_horizontal_segments|group_rules_by_span|numbered_table_caption|split_independent_rule_runs|rules_are_uniform_grid|derive_columns_from_horizontal_segments)\(/pub fn $1(/' \
     "$crate/src/tables/detect_lines.rs"
+perl -pi -e "s/^fn (build_text_anchor_table)/pub fn \$1/" \
+    "$crate/src/tables/detect_lines.rs"
 perl -pi -e "s/^fn (build_stacked_token_table|build_open_edge_grid_table_for_rules|build_open_edge_grid_tables)/pub fn \$1/" \
     "$crate/src/tables/detect_lines.rs"
 perl -pi -e "s/^fn (collect_anchored_rows|logical_row_anchors|nearest_anchor_column|matched_anchor_column_count|combine_non_overlapping_tables)/pub fn \$1/" \
@@ -495,6 +497,10 @@ pub fn probe_openedge(input: &str) -> String {
     }
 
     let mut out = String::new();
+    match build_text_anchor_table(&items, &rules, 1) {
+        None => out.push_str("anchor none\n"),
+        Some(t) => emit(&mut out, "anchor", &t),
+    }
     let anchored = collect_anchored_rows(&items, &rules, 1);
     match build_stacked_token_table(&anchored, &rules) {
         None => out.push_str("stacked none\n"),

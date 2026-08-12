@@ -40,6 +40,7 @@ import Testing
         #expect(blocks.count == expected.count, "case and answer counts disagree")
 
         var mismatches: [String] = []
+        var anchorAccepts = 0
         var stackedAccepts = 0
         var gridAccepts = 0
         for (index, block) in blocks.enumerated() where index < expected.count {
@@ -74,6 +75,12 @@ import Testing
             }
 
             var ours = ""
+            if let anchor = pdfBuildTextAnchorTable(items: items, rules: rules) {
+                anchorAccepts += 1
+                ours += emit("anchor", anchor)
+            } else {
+                ours += "anchor none\n"
+            }
             let anchored = pdfCollectAnchoredRows(items: items, rules: rules)
             if let stacked = pdfBuildStackedTokenTable(rows: anchored, rules: rules) {
                 stackedAccepts += 1
@@ -100,8 +107,8 @@ import Testing
             }
         }
         print(
-            "pdf open-edge probe: \(blocks.count) cases, \(stackedAccepts) stacked, "
-                + "\(gridAccepts) grids")
+            "pdf open-edge probe: \(blocks.count) cases, \(anchorAccepts) anchor, "
+                + "\(stackedAccepts) stacked, \(gridAccepts) grids")
         let report = mismatches.prefix(3).joined(separator: "\n")
         #expect(mismatches.isEmpty, "\(mismatches.count) open-edge divergences:\n\(report)")
     }
