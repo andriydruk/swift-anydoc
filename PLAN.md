@@ -1731,9 +1731,8 @@ recording:
   - Three numeric cells clears the floor; to fail the *ratio* the body needs a
     fourth row of text.
 
-**`detect_lines.rs` now has all six strategies.** What remains there is
-`detect_tables_from_lines_inner` — the orchestrator that runs them, scores the
-hypotheses (waves 21–22 built the scorer), and picks between them.
+**`detect_lines.rs` is complete as of wave 40** — all six strategies and the
+orchestrator that runs them.
 
 ## Phase 6 remaining work — exact inventory
 
@@ -1875,3 +1874,40 @@ reports its raw length as the decoded one. The decoded lengths agree;
 paths but not the malformations real producers emit, and encryption is
 neither generated nor implemented. Phase 6 still cannot claim parity without
 §5.3's external corpus, and the differential harness is a local/manual step.
+
+- **Wave 40 — the line-table orchestrator.** `PdfLineTables.swift` ports
+  `detect_tables_from_lines_inner` and both its public entry points, finishing
+  `detect_lines.rs`. Ported whole rather than split: the function recurses into
+  itself, so half of it would not have run.
+
+  It classifies the page's strokes — diagonals ignored, anything under 20pt
+  decoration, the axis test a slope comparison within two degrees — offers the
+  sparse strategies their chance, and otherwise snaps the rule coordinates
+  into a grid and assigns the text.
+
+  **The structure worth understanding is the middle.** When text-anchor tables
+  are accepted, the orchestrator recurses on *the rest of the page*: the
+  accepted bands' graphics are removed and sparse inference switched off, so a
+  drawn grid elsewhere is still found without an inferred header reaching into
+  a band already claimed. It takes two readings of that remainder —
+  geometry-only and geometry-plus-alternatives — and keeps the geometry-only
+  one as a fallback for exactly that reason. An alternative overlapping *two*
+  independent sparse tables is dropped as a synthetic merge; one replacing a
+  single band still competes.
+
+  The two-degree tolerance is `2.0_f32.to_radians().tan()`, computed in f32.
+  The Swift literal was checked to be bit-identical rather than assumed —
+  `0x1.1e122ap-5` either way.
+
+172 cases agree on the first run, and all 18 reachable gates fire. Four needed
+shapes built specifically, and three of those failed on their first attempt for
+the same underlying reason — an earlier gate caught them:
+  - a bare page frame has only two verticals, so it dies on the column-edge
+    count long before the frame test; it needs three sides to reach it.
+  - a band under 20pt tall has verticals under 20pt long, which are discarded
+    as decoration, so the *column source* gate fires instead; the verticals
+    must overhang the band.
+
+The one gate never fired is provably unreachable: three column edges force at
+least two columns and three row edges at least two rows, so the final
+`num_rows < 2 || num_cols < 2` cannot hold.

@@ -1449,6 +1449,137 @@ def openedge_cases(random_count):
     return out
 
 
+
+def linetable_cases(random_count):
+    """Cases for the line-table orchestrator, which takes raw strokes.
+
+    Its own file: this entry point classifies lines itself, so the cases are
+    `L x1 y1 x2 y2` strokes rather than pre-classified rules.
+    """
+    rng = random.Random(40_2026)
+
+    def block(strokes, items):
+        head = [f"L {a:g} {b:g} {c:g} {d:g}" for a, b, c, d in strokes]
+        body = [f"{x:g} {y:g} {w:g} {s:g} {tx}" for x, y, w, s, tx in items]
+        return "\n".join(head) + "\n\n" + "\n".join(body)
+
+    def grid_strokes(rows, cols, x0=100, y0=700, cw=100, ch=25):
+        strokes = []
+        for r in range(rows + 1):
+            y = y0 - r * ch
+            strokes.append((x0, y, x0 + cols * cw, y))
+        for c in range(cols + 1):
+            x = x0 + c * cw
+            strokes.append((x, y0, x, y0 - rows * ch))
+        return strokes
+
+    def grid_items(rows, cols, x0=100, y0=700, cw=100, ch=25, word="v"):
+        return [
+            (x0 + c * cw + 10, y0 - r * ch - 15, 40, 10, f"{word}{r}{c}")
+            for r in range(rows) for c in range(cols)
+        ]
+
+    out = [
+        # A drawn grid: the legacy endpoint path.
+        block(grid_strokes(3, 3), grid_items(3, 3)),
+        block(grid_strokes(5, 4), grid_items(5, 4)),
+        # No lines at all.
+        block([], [(110, 690, 40, 10, "a")]),
+        # One horizontal rule.
+        block([(100, 700, 400, 700)], [(110, 690, 40, 10, "a")]),
+        # Strokes under 20pt are decoration and never classified.
+        block([(100, 700, 115, 700), (100, 680, 115, 680), (100, 660, 115, 660)],
+              [(105, 690, 10, 10, "a")]),
+        # Diagonals are ignored outright.
+        block([(100, 700, 400, 600), (100, 600, 400, 700)],
+              [(110, 650, 40, 10, "a")]),
+        # A stroke just inside two degrees off axis, and one just outside.
+        block([(100, 700, 400, 710), (100, 660, 400, 660), (100, 620, 400, 620),
+               (100, 700, 100, 620), (250, 700, 250, 620), (400, 700, 400, 620)],
+              grid_items(2, 2, ch=40)),
+        block([(100, 700, 400, 730), (100, 660, 400, 660), (100, 620, 400, 620),
+               (100, 700, 100, 620), (250, 700, 250, 620), (400, 700, 400, 620)],
+              grid_items(2, 2, ch=40)),
+        # A short band with tall verticals: the rows span under 20pt even
+        # though the strokes bounding them are long enough to be classified.
+        block([(100, 700, 400, 700), (100, 690, 400, 690), (100, 682, 400, 682),
+               (100, 710, 100, 675), (250, 710, 250, 675), (400, 710, 400, 675)],
+              [(110, 695, 40, 10, "a"), (260, 695, 40, 10, "b"),
+               (110, 685, 40, 10, "c"), (260, 685, 40, 10, "d")]),
+        # Three horizontal rules too short to describe the table's width.
+        block([(100, 700, 140, 700), (100, 640, 140, 640), (100, 580, 140, 580),
+               (100, 710, 100, 570), (300, 710, 300, 570), (500, 710, 500, 570)],
+              [(110, 690, 30, 10, "a"), (310, 690, 30, 10, "b"),
+               (110, 630, 30, 10, "c"), (310, 630, 30, 10, "d")]),
+        # Verticals present but far too short for the band's height.
+        block([(100, 700, 500, 700), (100, 550, 500, 550), (100, 400, 500, 400),
+               (100, 700, 100, 675), (300, 700, 300, 675), (500, 700, 500, 675)],
+              [(110, 690, 30, 10, "a"), (310, 690, 30, 10, "b"),
+               (110, 540, 30, 10, "c"), (310, 540, 30, 10, "d")]),
+        # A bare page-spanning frame: decoration, not a table.
+        # Three rules and two sides: still a bare frame by line count, which
+        # is what the gate keys on rather than the page size.
+        block([(50, 780, 560, 780), (50, 420, 560, 420), (50, 60, 560, 60),
+               (50, 780, 50, 60), (300, 780, 300, 60), (560, 780, 560, 60)],
+              [(110, 700, 40, 10, "a"), (300, 700, 40, 10, "b"),
+               (110, 300, 40, 10, "c"), (300, 300, 40, 10, "d")]),
+        # ...and the same paper size with internal rules, which is a ledger.
+        block(grid_strokes(8, 4, x0=50, y0=780, cw=127, ch=90),
+              grid_items(8, 4, x0=50, y0=780, cw=127, ch=90)),
+        # Twenty-two column edges: a diagram.
+        block(grid_strokes(2, 21, cw=25), grid_items(2, 21, cw=25)),
+        # A grid narrower than 50pt, and one shorter than 20pt.
+        block(grid_strokes(3, 2, cw=20), grid_items(3, 2, cw=20)),
+        block(grid_strokes(2, 3, ch=8), grid_items(2, 3, ch=8)),
+        # Evenly spaced row edges: chart gridlines.
+        block(grid_strokes(6, 3, ch=30), grid_items(6, 3, ch=30)),
+        # Text mostly outside the grid: a chart on a page of prose.
+        block(grid_strokes(3, 3),
+              grid_items(3, 3) + [(50, 200 - i * 12, 200, 10, f"prose line {i}")
+                                  for i in range(40)]),
+        # Only one column carries content.
+        block(grid_strokes(3, 3),
+              [(110, 700 - r * 25 - 15, 40, 10, f"a{r}") for r in range(3)]),
+        # Booktabs: horizontal rules only, so the sparse strategies answer and
+        # the orchestrator recurses on what is left.
+        block([(100, 700, 500, 700), (100, 680, 500, 680), (100, 560, 500, 560)],
+              [(110, 690, 40, 10, "Name"), (250, 690, 40, 10, "Count"),
+               (390, 690, 40, 10, "Share"),
+               (110, 670, 40, 10, "alpha"), (250, 670, 20, 10, "12"),
+               (390, 670, 20, 10, "5%"),
+               (110, 655, 40, 10, "beta"), (250, 655, 20, 10, "34"),
+               (390, 655, 20, 10, "9%")]),
+        # A booktabs band above an independent drawn grid, which is the shape
+        # the recursion exists for.
+        block([(100, 760, 500, 760), (100, 740, 500, 740), (100, 700, 500, 700)]
+              + grid_strokes(3, 3, y0=600),
+              [(110, 750, 40, 10, "Name"), (250, 750, 40, 10, "Count"),
+               (390, 750, 40, 10, "Share"),
+               (110, 730, 40, 10, "alpha"), (250, 730, 20, 10, "12"),
+               (390, 730, 20, 10, "5%"),
+               (110, 715, 40, 10, "beta"), (250, 715, 20, 10, "34"),
+               (390, 715, 20, 10, "9%")]
+              + grid_items(3, 3, y0=600)),
+        # Segmented horizontal rules with no verticals: columns from endpoints.
+        block([(100, 700 - r * 25, 200, 700 - r * 25) for r in range(4)]
+              + [(210, 700 - r * 25, 310, 700 - r * 25) for r in range(4)]
+              + [(320, 700 - r * 25, 420, 700 - r * 25) for r in range(4)],
+              [(x + 10, 700 - r * 25 - 15, 40, 10, f"c{i}r{r}")
+               for r in range(3) for i, x in enumerate([100, 210, 320])]),
+    ]
+
+    for _ in range(random_count):
+        rows = rng.randint(1, 6)
+        cols = rng.randint(1, 5)
+        strokes = grid_strokes(
+            rows, cols, x0=rng.choice([50, 100, 150]),
+            cw=rng.choice([20, 60, 100, 140]), ch=rng.choice([8, 25, 40]))
+        if rng.random() < 0.3:
+            strokes = [s for s in strokes if rng.random() < 0.8]
+        out.append(block(strokes, grid_items(rows, cols)))
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -1619,6 +1750,20 @@ def main():
         f.write("\n===\n".join(hyp_answers))
 
     rule_blocks = rule_cases(arguments.cases)
+    lt_blocks = linetable_cases(max(arguments.cases // 4, 60))
+    with open(os.path.join(arguments.directory, "linetable-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n===\n".join(lt_blocks))
+    lt_answers = []
+    for b in lt_blocks:
+        r = subprocess.run(
+            [probe, "--linetables"], input=b + "\n", capture_output=True, text=True, check=True
+        )
+        lt_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "linetable-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n===\n".join(lt_answers))
+
     oe_blocks = openedge_cases(max(arguments.cases // 4, 60))
     with open(os.path.join(arguments.directory, "openedge-cases.txt"), "w", encoding="utf-8") as f:
         f.write("\n===\n".join(oe_blocks))

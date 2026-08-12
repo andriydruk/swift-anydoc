@@ -70,6 +70,8 @@ perl -pi -e 's/^pub\(crate\) mod detect_lines;/pub mod detect_lines;/; s/^mod de
     "$crate/src/tables/mod.rs"
 perl -pi -e 's/^fn (merge_horizontal_segments|group_rules_by_span|numbered_table_caption|split_independent_rule_runs|rules_are_uniform_grid|derive_columns_from_horizontal_segments)\(/pub fn $1(/' \
     "$crate/src/tables/detect_lines.rs"
+perl -pi -e "s/^pub\\(crate\\) fn detect_vector_grid_tables_from_lines/pub fn detect_vector_grid_tables_from_lines/" \
+    "$crate/src/tables/detect_lines.rs"
 perl -pi -e "s/^fn (build_dense_row_anchor_table)/pub fn \$1/" \
     "$crate/src/tables/detect_lines.rs"
 perl -pi -e "s/^fn (detect_text_anchor_rule_tables|line_overlaps_text_anchor_band)/pub fn \$1/; s/^struct TextAnchorTable/pub struct TextAnchorTable/" \
@@ -441,6 +443,89 @@ cat >> "$crate/src/tables/detect_lines.rs" <<'RUSTEOF'
 /// Probe (added for swift-anydoc): report what the rule primitives make of a
 /// set of horizontal segments. Input lines are `y x_min x_max`, then a blank
 /// line, then optional text items as `x y width font_size text`.
+/// Probe (added for swift-anydoc): the line-table orchestrator. Its own case
+/// format — `L x1 y1 x2 y2` strokes, a blank line, then items — because this
+/// entry point takes raw lines rather than classified rules.
+pub fn probe_linetables(input: &str) -> String {
+    use crate::types::{ItemType, PdfLine, TextItem};
+    let mut lines: Vec<PdfLine> = Vec::new();
+    let mut items: Vec<TextItem> = Vec::new();
+    let mut in_items = false;
+    for line in input.lines() {
+        if line.trim().is_empty() {
+            in_items = true;
+            continue;
+        }
+        let parts: Vec<&str> = line.split(' ').collect();
+        if !in_items {
+            if parts.len() >= 5 && parts[0] == "L" {
+                lines.push(PdfLine {
+                    x1: parts[1].parse().unwrap_or(0.0),
+                    y1: parts[2].parse().unwrap_or(0.0),
+                    x2: parts[3].parse().unwrap_or(0.0),
+                    y2: parts[4].parse().unwrap_or(0.0),
+                    page: 1,
+                });
+            }
+        } else if parts.len() >= 5 {
+            items.push(TextItem {
+                text: parts[4..].join(" "),
+                x: parts[0].parse().unwrap_or(0.0),
+                y: parts[1].parse().unwrap_or(0.0),
+                width: parts[2].parse().unwrap_or(0.0),
+                height: parts[3].parse().unwrap_or(0.0),
+                font: "F1".to_string(),
+                font_size: parts[3].parse().unwrap_or(0.0),
+                page: 1,
+                is_bold: false, is_italic: false, is_underline: false, is_strikeout: false,
+                item_type: ItemType::Text, mcid: None,
+            });
+        }
+    }
+
+    fn emit2(out: &mut String, tag: &str, t: &Table) {
+        out.push_str(&format!("{tag} {} {}\nc", t.columns.len(), t.rows.len()));
+        for v in &t.columns { out.push_str(&format!(" {v:.3}")); }
+        out.push_str("\nw");
+        for v in &t.rows { out.push_str(&format!(" {v:.3}")); }
+        out.push('\n');
+        for row in &t.cells {
+            out.push('x');
+            for c in row { out.push('\t'); out.push_str(c); }
+            out.push('\n');
+        }
+        out.push_str("i");
+        for i in &t.item_indices { out.push_str(&format!(" {i}")); }
+        out.push('\n');
+    }
+
+    let (horizontals, verticals) = {
+        let mut h: Vec<(f32, f32, f32)> = Vec::new();
+        let mut v: Vec<(f32, f32, f32)> = Vec::new();
+        let tol = 2.0_f32.to_radians().tan();
+        for line in &lines {
+            let dx = (line.x2 - line.x1).abs();
+            let dy = (line.y2 - line.y1).abs();
+            if (dx * dx + dy * dy).sqrt() < 20.0 { continue; }
+            if dx > 0.01 && dy / dx <= tol {
+                h.push(((line.y1 + line.y2) / 2.0, line.x1.min(line.x2), line.x1.max(line.x2)));
+            } else if dy > 0.01 && dx / dy <= tol {
+                v.push(((line.x1 + line.x2) / 2.0, line.y1.min(line.y2), line.y1.max(line.y2)));
+            }
+        }
+        (h, v)
+    };
+    let mut out = format!("class {} {}\n", horizontals.len(), verticals.len());
+
+    let full = detect_tables_from_lines(&items, &lines, 1);
+    out.push_str(&format!("full {}\n", full.len()));
+    for t in &full { emit2(&mut out, "f", t); }
+    let vector = detect_vector_grid_tables_from_lines(&items, &lines, 1);
+    out.push_str(&format!("vector {}\n", vector.len()));
+    for t in &vector { emit2(&mut out, "v", t); }
+    out
+}
+
 /// Probe (added for swift-anydoc): the stacked-token and open-edge grid
 /// strategies. Extends the rule case format with `v x y_min y_max` lines for
 /// vertical rules, which the earlier rule probes ignore.
@@ -1284,6 +1369,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::detect_lines::probe_hypotheses(&input));
+        return;
+    }
+    if path == "--linetables" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::tables::detect_lines::probe_linetables(&input));
         return;
     }
     if path == "--openedge" {
