@@ -195,12 +195,12 @@ func pdfIsAsciiAlphabeticByte(_ byte: UInt8) -> Bool {
     (byte >= 0x41 && byte <= 0x5A) || (byte >= 0x61 && byte <= 0x7A)
 }
 
-private func pdfIsAsciiAlphabetic(_ scalar: Unicode.Scalar) -> Bool {
+func pdfIsAsciiAlphabetic(_ scalar: Unicode.Scalar) -> Bool {
     (scalar.value >= 0x41 && scalar.value <= 0x5A)
         || (scalar.value >= 0x61 && scalar.value <= 0x7A)
 }
 
-private func pdfAsciiLowercased(_ scalar: Unicode.Scalar) -> Unicode.Scalar {
+func pdfAsciiLowercased(_ scalar: Unicode.Scalar) -> Unicode.Scalar {
     if scalar.value >= 0x41 && scalar.value <= 0x5A {
         return Unicode.Scalar(scalar.value + 32)!
     }

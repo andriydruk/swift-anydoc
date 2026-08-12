@@ -1706,8 +1706,38 @@ def textquality_cases(random_count):
         "camelCaseIdentifier " * 60,             # case shifts, legitimate
     ]
 
+    # Span-level shapes: private-use runs, C1 controls, symbol soup and the
+    # CID-as-Latin-1 mojibake that a CJK document produces when its mapping
+    # fails. None of the markdown-level cases above reach these.
+    pua = "\ue000\ue001\ue002"
+    cases += [
+        pua,                                     # a three-long private-use run
+        "\ue000\ue001",                          # two: under the run bar
+        "ab\ue000cd\ue001ef",                    # scattered, minority
+        "a\ue000\ue001",                         # majority of a short span
+        "x\ue000 y\ue001 z\ue002",                # whitespace breaks the runs
+        "\ufffd\ufffd",                          # a two-long replacement run
+        "\ufffd a \ufffd b \ufffd",                # three scattered
+        "\ufffd a",                               # one, below every bar
+        "ab\u0080\u0081cd",                      # C1 controls in one token
+        "ab\u0080cd",                             # one control: not enough
+        "\u0080\u0081\u0082\u0083\u0084",           # all controls
+        "----1-.-.-.___  --.-. .._ I_---." * 3,  # symbol soup
+        "table of contents . . . . . . . . . . 12",
+        "Chapter one" + "." * 40 + "7",          # a leader run, skipped
+        "#" * 60,                                # markdown syntax only
+        "*|-#" * 30,
+        "".join(chr(0xC0 + (i % 48)) for i in range(60)),   # high Latin-1
+        "".join(chr(0xC0 + (i % 48)) for i in range(60)) + "abcdefghij" * 3,
+        "2×()×",                                 # a short maths token
+        "a·b·c" * 20,                            # middle dots
+        "\u00b7" * 30,
+        "1234567890" * 10,                       # digits only
+        "ⅣⅤⅥ ½¾ ٣٤٥" * 8,                        # non-ASCII numerics
+    ]
+
     for _ in range(random_count):
-        kind = rng.randrange(5)
+        kind = rng.randrange(6)
         if kind == 0:
             text = "".join(rng.choice("abcdefghijklmnopqrstuvwxyz ")
                            for _ in range(rng.randint(0, 400)))
@@ -1717,9 +1747,12 @@ def textquality_cases(random_count):
             text = straddle(english * rng.randint(1, 5), rng.randrange(20, 40))
         elif kind == 3:
             text = "".join(rng.choice("$abcXYZ 019") for _ in range(rng.randint(0, 200)))
-        else:
+        elif kind == 4:
             text = "".join(rng.choice("aeiouéüñ日本 \ufffd")
                            for _ in range(rng.randint(0, 300)))
+        else:
+            alphabet = "ab \ue000\ue001\ufffd\u0080\u0081\u00b7.-_#|" + chr(0xC5)
+            text = "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 120)))
         cases.append(text)
 
     return [text.encode("utf-8").hex() for text in cases]

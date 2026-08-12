@@ -48,8 +48,32 @@ import Testing
                 + String(format: "%.9f", stats.englishShapeCosine()) + " "
                 + "\(stats.looksGarbled() ? 1 : 0)\n"
 
-            if ours != expected[index] {
-                mismatches.append("case \(index)\n    ours: \(ours)    rust: \(expected[index])")
+            let kind: String
+            switch pdfTextSpanIssueKind(text) {
+            case .none: kind = "none"
+            case .some(.replacement): kind = "replacement"
+            case .some(.strong): kind = "strong"
+            }
+            let replacement = pdfReplacementTextStats(text)
+            let evidence = PdfPageTextQualityEvidence(
+                characters: text.unicodeScalars.count,
+                replacementCharacters: replacement.replacements,
+                replacementSpans: replacement.replacements > 0 ? 3 : 0,
+                longestReplacementRun: replacement.longestRun)
+            let span =
+                "s \(kind) \(pdfTextSpanHasDecodingIssue(text) ? 1 : 0) "
+                + "\(replacement.replacements) \(replacement.longestRun) "
+                + "\(pdfHasReplacementTextRun(text) ? 1 : 0) "
+                + "\(pdfHasPrivateUseTextRun(text) ? 1 : 0) "
+                + "\(pdfHasCidControlToken(text) ? 1 : 0) "
+                + "\(pdfIsGarbageText(text) ? 1 : 0) "
+                + "\(pdfIsCidGarbage(text) ? 1 : 0) "
+                + "\(pdfPageReplacementEvidenceNeedsOcr(evidence) ? 1 : 0)\n"
+
+            let combined = ours + span
+            if combined != expected[index] {
+                mismatches.append(
+                    "case \(index)\n    ours: \(combined)    rust: \(expected[index])")
             }
         }
         print("pdf text-quality probe: \(blocks.count) cases compared, \(garbled) garbled")

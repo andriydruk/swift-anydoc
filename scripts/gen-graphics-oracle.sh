@@ -474,6 +474,33 @@ pub fn probe_textquality(input: &str) -> String {
             stats.english_shape_cosine(),
             stats.looks_garbled() as u8,
         ));
+        let (repl, longest) = replacement_text_stats(&text);
+        out.push_str(&format!(
+            "s {} {} {} {} {} {} {} {} {} {}\n",
+            match text_span_decoding_issue_kind(&text) {
+                None => "none",
+                Some(TextSpanIssueKind::Replacement) => "replacement",
+                Some(TextSpanIssueKind::Strong) => "strong",
+            },
+            text_span_has_decoding_issue(&text) as u8,
+            repl,
+            longest,
+            has_replacement_text_run(&text) as u8,
+            has_private_use_text_run(&text) as u8,
+            has_cid_control_token(&text) as u8,
+            is_garbage_text(&text) as u8,
+            is_cid_garbage(&text) as u8,
+            {
+                let evidence = PageTextQualityEvidence {
+                    chars: text.chars().count(),
+                    replacement_chars: repl,
+                    replacement_spans: if repl > 0 { 3 } else { 0 },
+                    longest_replacement_run: longest,
+                    ..Default::default()
+                };
+                page_replacement_evidence_needs_ocr(&evidence) as u8
+            },
+        ));
     }
     out
 }

@@ -1968,3 +1968,35 @@ all** — the fix was deleting three lines rather than narrowing the pattern.
 places**, which is the useful signal here: it means the f64 accumulation order
 matches rather than merely the verdict. 37 cases are garbled, 38 flagged by the
 cheaper heuristics without being garbled, and 146 clean.
+
+- **Wave 43 — span-level text quality.** `PdfTextSpanQuality.swift` finishes
+  the detector half of `text_quality.rs`: per-span damage classes, and the
+  page-level rule that weighs accumulated replacement evidence.
+
+  The design point is the split between *strong* and *weak* signals.
+  Dollar-as-space, private-use runs, CID garbage and C1-control tokens condemn
+  a span on sight — real text almost never contains them. Replacement
+  characters do not, because a page of mathematics legitimately produces a
+  few; they only accumulate as page evidence, judged on **density in basis
+  points** rather than count, with a shortcut for a page that is nothing but a
+  short broken text layer.
+  - Private-use damage has two routes: three in a row, or a majority of a
+    short span. Whitespace breaks the *run* but not the majority, so
+    spaced-out damage is still caught — by the second rule, not the first.
+  - `is_cid_garbage` increments its total for a middle dot and then `continue`s
+    past both signature tests, so `·` dilutes the ratios rather than being
+    ignored. Reproduced in that order.
+  - Rust's `is_alphanumeric` is general-category based, so Roman numerals,
+    vulgar fractions and Arabic-Indic digits all count.
+
+244 cases agree on the first run, spanning all three verdicts (180 none, 31
+replacement, 33 strong) and every combination of the underlying flags.
+
+**A finding worth recording:** `is_garbage_text`'s doc comment cites
+`----1-.-.-.___  --.-. .._ I_---.` as its motivating example, but hyphens are
+on the Markdown-syntax skip list and underscore runs are decorative leaders —
+so almost nothing in that string is counted and it now falls under the
+fifty-character floor. The reference agrees it is *not* garbage. This is
+upstream behaviour that has drifted from its own documentation, and a unit
+test written from the comment rather than the code was wrong; it is now
+pinned, with the reason, in both the source and the test.
