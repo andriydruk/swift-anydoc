@@ -22,6 +22,9 @@ struct PdfTextRun {
     var fontName: String
     /// Text rendering mode; 3 is invisible, used for OCR overlays.
     var renderingMode: Int
+    /// The marked-content id in effect when the run was drawn, which is what
+    /// links it to a node of the structure tree.
+    var mcid: Int?
 }
 
 /// A 2-D affine transform as PDF writes it: [a b c d e f].
@@ -67,6 +70,10 @@ func pdfExtractTextRuns(
     initialCtm: PdfMatrix = identityMatrix,
     includeInvisible: Bool = false,
     metrics: (String) -> PdfFontWidths? = { _ in nil },
+    /// Resolves a `BDC` properties dictionary given by reference. Supplied by
+    /// the caller because the extractor holds no document; without it an
+    /// indirect properties dictionary simply yields no marked-content id.
+    resolveProperties: (PdfObjectId) -> PdfDictionary? = { _ in nil },
     decode: (String, [UInt8]) -> String
 ) -> [PdfTextRun] {
     var runs: [PdfTextRun] = []
@@ -121,7 +128,8 @@ func pdfExtractTextRuns(
                     // vertical scale of the combined transform.
                     fontSize: fontSize * abs(placed.d),
                     width: advance * deviceScale,
-                    fontName: fontName, renderingMode: renderingMode))
+                    fontName: fontName, renderingMode: renderingMode,
+                    mcid: currentMcid()))
         }
         textMatrix.e += advance * textMatrix.a
         textMatrix.f += advance * textMatrix.b
@@ -142,9 +150,42 @@ func pdfExtractTextRuns(
         textMatrix = lineMatrix
     }
 
+    // Marked content, one entry per nesting level. Only the id is tracked;
+    // `/ActualText` — a text override used for ligatures — is a separate
+    // feature and is not ported.
+    var markedContentStack: [Int?] = []
+    /// The innermost id that was actually set.
+    ///
+    /// A `BMC`, or a `BDC` whose property dictionary carries no `/MCID`,
+    /// pushes an entry with none — and content inside it still belongs to
+    /// whatever enclosing element did declare one, so the search runs
+    /// outwards rather than stopping at the top of the stack.
+    func currentMcid() -> Int? {
+        for entry in markedContentStack.reversed() where entry != nil { return entry }
+        return nil
+    }
+
     for operation in operations {
         let operands = operation.operands
         switch operation.operator {
+        case "BMC":
+            markedContentStack.append(nil)
+        case "BDC":
+            var mcid: Int?
+            if operands.count >= 2 {
+                let properties: PdfDictionary?
+                switch operands[1] {
+                case .dictionary(let dictionary): properties = dictionary
+                case .reference(let id): properties = resolveProperties(id)
+                default: properties = nil
+                }
+                if let value = properties?["MCID"], case .integer(let id) = value {
+                    mcid = Int(id)
+                }
+            }
+            markedContentStack.append(mcid)
+        case "EMC":
+            if !markedContentStack.isEmpty { markedContentStack.removeLast() }
         case "q":
             stack.append(
                 PdfSavedState(
@@ -277,7 +318,8 @@ func pdfExtractTextRuns(
                         text: pieces, x: placed.e, y: placed.f,
                         fontSize: fontSize * abs(placed.d),
                         width: (advance - segmentStart) * deviceScale,
-                        fontName: fontName, renderingMode: renderingMode))
+                        fontName: fontName, renderingMode: renderingMode,
+                        mcid: currentMcid()))
             }
 
             for element in array {

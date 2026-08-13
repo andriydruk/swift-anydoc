@@ -2253,3 +2253,35 @@ three header lines brought that to 24.
   input the whole struct-tree path is waiting on.
 
 164 cases agree on the first run, building 89 tables against 75 rejections.
+
+- **Wave 53 — marked-content tracking.** The extractor now maintains a
+  `BMC`/`BDC`/`EMC` stack and tags every run with the marked-content id in
+  effect, which is the input waves 48–52 were waiting on. `PdfTextRun.mcid`
+  and `PdfLayoutItem.mcid` are now populated rather than always `nil`.
+  - The stack holds an *optional* id per level, and the lookup searches
+    **outwards** rather than reading the top: a `BMC`, or a `BDC` whose
+    dictionary has no `/MCID`, does not hide the enclosing element's id.
+  - An unbalanced `EMC` must not underflow, and an unclosed `BDC` runs to the
+    end of the stream. Both are pinned.
+  - Properties given **by name** — `/Span /P1 BDC`, naming an entry in the
+    page's `/Properties` — yield no id. The reference handles an inline
+    dictionary and a direct object reference only, so a named lookup falls
+    through. Reproduced and pinned, because it reads like an oversight and is
+    not ours to correct.
+  - `/ActualText` is **not** ported. It shares the same `BDC`/`EMC` machinery
+    but is a separate feature — a text override for ligatures, with its own
+    matrix and rise capture at the section boundaries — and is listed as
+    remaining rather than half-done.
+
+  **A new probe shape:** the reference's marked-content code is embedded in a
+  thousand-line function that needs a `Document`, so it cannot be called
+  directly the way earlier waves' helpers could. `scripts/gen-mcid-corpus.py`
+  writes twelve small hand-built PDFs — nesting, siblings, unbalanced
+  operators, named properties — runs the reference's real extractor over each,
+  and saves both the content stream and the expected output. The Swift side is
+  fed the same content stream, which is the only input the tracking depends
+  on. 12 cases agree on the first run.
+
+**Still not wired:** nothing in `Sources` calls `pdfExtractTextRuns` yet — the
+document→markdown pipeline is assembled in a later phase — so the struct-tree
+table path is complete end to end but not yet reachable from a file.

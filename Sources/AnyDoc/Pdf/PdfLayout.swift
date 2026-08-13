@@ -67,7 +67,7 @@ func pdfLayoutItems(_ runs: [PdfTextRun]) -> [PdfLayoutItem] {
     runs.map {
         PdfLayoutItem(
             text: $0.text, x: $0.x, y: $0.y, width: $0.width, fontSize: $0.fontSize,
-            fontName: $0.fontName)
+            fontName: $0.fontName, mcid: $0.mcid)
     }
 }
 

@@ -187,6 +187,39 @@ cat >> "$crate/src/extractor/content_stream.rs" <<'RUSTEOF'
 // One additive entry point so an external binary needs none of the crate's
 // private items made public. Everything it calls is the reference's own code.
 /// Dump the path-extraction output for every page of a PDF held in memory.
+/// Probe (added for swift-anydoc): the marked-content id in effect for each
+/// extracted text item.
+pub fn probe_mcid(bytes: &[u8]) -> String {
+    use crate::tounicode::FontCMaps;
+    let mut out = String::new();
+    let doc = match lopdf::Document::load_mem(bytes) {
+        Ok(d) => d,
+        Err(e) => return format!("#ERROR {e:?}\n"),
+    };
+    let pages = doc.get_pages();
+    let mut numbers: Vec<u32> = pages.keys().copied().collect();
+    numbers.sort();
+    let cmaps = FontCMaps::from_doc_pages_fast(&doc, None);
+    for n in numbers {
+        let page_id = pages[&n];
+        let mut cache = FontStyleCache::default();
+        match extract_page_text_items(&doc, page_id, n, &cmaps, false, &mut cache) {
+            Ok(((items, _, _), _, _)) => {
+                out.push_str(&format!("#PAGE {n}\n"));
+                for item in &items {
+                    out.push_str(&format!(
+                        "m {} {}\n",
+                        item.mcid.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string()),
+                        item.text.replace(' ', "~")
+                    ));
+                }
+            }
+            Err(e) => out.push_str(&format!("#PAGE {n} error={e:?}\n")),
+        }
+    }
+    out
+}
+
 pub fn probe_graphics(bytes: &[u8]) -> String {
     use crate::tounicode::FontCMaps;
     let mut out = String::new();
@@ -1902,6 +1935,12 @@ cat > "$crate/src/bin/graphicsprobe.rs" <<'RUSTEOF'
 fn main() {
     let mut args = std::env::args().skip(1);
     let path = args.next().expect("usage: graphicsprobe [--underline] <file.pdf>");
+    if path == "--mcid" {
+        let file = std::env::args().nth(2).expect("usage: --mcid <file.pdf>");
+        let bytes = std::fs::read(&file).expect("read");
+        print!("{}", pdf_inspector::extractor::content_stream::probe_mcid(&bytes));
+        return;
+    }
     if path == "--format" {
         use std::io::Read;
         let mut input = String::new();
