@@ -2475,3 +2475,40 @@ wrong before the third was right.
 
 429 cases agree on the first run, including **every byte value under both
 readings**.
+
+- **Wave 60 — the font program's own opinion of its style.**
+  `PdfFontFileStyle.swift` ports `descriptor_style_flags`,
+  `get_font_file2_obj_num`, `cff_font_name` and the accessors they lean on.
+
+  Wave 6 read emphasis off the `BaseFont` name, which fails on a subset font
+  called `Tc1`. The `/FontDescriptor` is the second opinion — but descriptors
+  lie too, writing `/ItalicAngle 0` for a genuinely italic face, so there is a
+  third: the embedded font program itself. Any one of the three is enough.
+  - `/ItalicAngle` and `/Flags` are read **unresolved**. An indirect value
+    reads as absent, and `/Flags` must be an *integer* — `64.0` contributes
+    nothing, because `as_i64` accepts only `Object::Integer`.
+  - The descriptor is taken from the font dictionary **first**; only a font
+    with none looks at `/DescendantFonts[0]`. A Type0 dictionary carrying
+    both keeps its own, which is what the reference's `or_else` decides.
+  - The slant bar is `>= 4.0`. This port had `>`, so it disagreed at exactly
+    four degrees — **fixed here**, and the corpus pins the boundary from both
+    sides.
+  - CFF offsets are 1-based from the byte *before* the object data, so the
+    object base is one less than the end of the offset array and a first
+    offset of 0 is invalid rather than empty.
+  - The CMap key falls back to the descendant font's own object number when
+    no program is embedded — but that fallback sits *after* the descriptor
+    has been required, so a descendant with no `/FontDescriptor` yields
+    nothing at all.
+
+  **Partial:** the reference tries a TrueType/OpenType parse before the CFF
+  one — OS/2 `fsSelection`, the `post` table's angle — resting on
+  `ttf_parser`'s whole-font validation, which is not ported. The deferral
+  cannot give a *wrong* answer, only a missing one: an sfnt begins `00 01 00
+  00` or `OTTO` and the CFF reader requires a leading `01`, so a well-formed
+  sfnt falls through to no flags rather than being misread. What is lost is
+  the rescue of a TrueType face whose descriptor lied.
+
+  Two probes: **210 CFF programs** byte-level, and **12 hand-built PDFs**
+  (`scripts/gen-font-corpus.py`) covering 13 styled fonts across every branch
+  of both functions. All agreed on the first run.

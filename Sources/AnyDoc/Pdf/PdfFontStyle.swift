@@ -42,35 +42,15 @@ func pdfStyleFromFontName(_ name: String) -> PdfFontStyle {
     return PdfFontStyle(bold: bold, italic: italic)
 }
 
-/// Beyond this many degrees of slant the font is italic. A token angle is
-/// not a style: some upright fonts declare one or two degrees.
-private let italicAngleThreshold: Float = 4
-
 /// The style a font's `/FontDescriptor` declares.
+///
+/// A thin wrapper over `pdfDescriptorStyleFlags`, which is the reference's
+/// own function and also consults the embedded font program. The cache is
+/// fresh per call, matching the reference's call sites that pass
+/// `&mut FontStyleCache::new()`.
 func pdfStyleFromDescriptor(_ document: inout PdfDocument, _ font: PdfDictionary) -> PdfFontStyle {
-    // A composite font keeps its descriptor on the descendant CIDFont.
-    var target = font
-    if let descendants = document.value(font, "DescendantFonts")?.asArray,
-        let first = descendants.first,
-        let cidFont = document.resolve(first).asDictionary
-    {
-        target = cidFont
-    }
-    guard let descriptor = document.value(target, "FontDescriptor")?.asDictionary else {
-        return PdfFontStyle()
-    }
-    var style = PdfFontStyle()
-    if let angle = document.value(descriptor, "ItalicAngle")?.asNumber,
-        abs(Float(angle)) > italicAngleThreshold
-    {
-        style.italic = true
-    }
-    if let flags = document.value(descriptor, "Flags")?.asInteger {
-        // Bit 7 (value 64) is Italic; bit 19 (value 1 << 18) is ForceBold.
-        if flags & 64 != 0 { style.italic = true }
-        if flags & (1 << 18) != 0 { style.bold = true }
-    }
-    return style
+    var cache = PdfFontStyleCache()
+    return pdfDescriptorStyleFlags(&document, font, cache: &cache)
 }
 
 /// A font's style, taking either source's word for it.

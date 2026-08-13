@@ -1046,6 +1046,92 @@ pub fn probe_differences(input: &str) -> String {
 }
 RUSTEOF
 
+cat >> "$crate/src/extractor/fonts.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): the CFF Name INDEX reader. One
+/// hex-encoded font program per line; the answer is the name, hex-encoded,
+/// or `-` when there is none.
+pub fn probe_cffname(input: &str) -> String {
+    let mut out = String::new();
+    for line in input.lines() {
+        let hex = line.trim();
+        let bytes: Vec<u8> = (0..hex.len() / 2)
+            .map(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).unwrap_or(0))
+            .collect();
+        match cff_font_name(&bytes) {
+            None => out.push_str("c -\n"),
+            Some(name) => {
+                let mut encoded = String::new();
+                for b in name.as_bytes() {
+                    encoded.push_str(&format!("{b:02x}"));
+                }
+                out.push_str(&format!("c {encoded}\n"));
+            }
+        }
+    }
+    out
+}
+
+/// Probe (added for swift-anydoc): descriptor style flags and the CMap
+/// lookup key, over a whole PDF. Every font dictionary reachable from every
+/// page's `/Resources /Font` is reported, keyed by its resource name.
+pub fn probe_fontstyle(bytes: &[u8]) -> String {
+    use lopdf::Document;
+    let mut out = String::new();
+    let Ok(doc) = Document::load_mem(bytes) else {
+        out.push_str("error\n");
+        return out;
+    };
+    let mut pages: Vec<_> = doc.get_pages().into_iter().collect();
+    pages.sort_by_key(|(number, _)| *number);
+    for (number, page_id) in pages {
+        let Ok(page) = doc.get_dictionary(page_id) else { continue };
+        let Some(resources) = page
+            .get(b"Resources")
+            .ok()
+            .and_then(|o| resolve_dict(&doc, o))
+        else {
+            continue;
+        };
+        let Some(fonts) = resources
+            .get(b"Font")
+            .ok()
+            .and_then(|o| resolve_dict(&doc, o))
+        else {
+            continue;
+        };
+        let mut names: Vec<Vec<u8>> = fonts.iter().map(|(k, _)| k.to_vec()).collect();
+        names.sort();
+        for name in names {
+            let Some(font_dict) = fonts
+                .get(&name)
+                .ok()
+                .and_then(|o| resolve_dict(&doc, o))
+            else {
+                out.push_str(&format!(
+                    "f {} {} missing\n",
+                    number,
+                    String::from_utf8_lossy(&name)
+                ));
+                continue;
+            };
+            let (italic, bold) =
+                descriptor_style_flags(&doc, font_dict, &mut FontStyleCache::new());
+            let key = get_font_file2_obj_num(&doc, font_dict);
+            out.push_str(&format!(
+                "f {} {} {} {} {}\n",
+                number,
+                String::from_utf8_lossy(&name),
+                italic as u8,
+                bold as u8,
+                key.map(|k| k.to_string()).unwrap_or_else(|| "-".to_string())
+            ));
+        }
+    }
+    out
+}
+RUSTEOF
+
 cat >> "$crate/src/glyph_names.rs" <<'RUSTEOF'
 
 /// Probe (added for swift-anydoc): glyph-name resolution. One name per line.
@@ -2305,6 +2391,19 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::extractor::fonts::probe_singlebyte(&input));
+        return;
+    }
+    if path == "--cffname" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::extractor::fonts::probe_cffname(&input));
+        return;
+    }
+    if path == "--fontstyle" {
+        let file = std::env::args().nth(2).expect("usage: --fontstyle <file.pdf>");
+        let bytes = std::fs::read(&file).expect("read");
+        print!("{}", pdf_inspector::extractor::fonts::probe_fontstyle(&bytes));
         return;
     }
     if path == "--differences" {

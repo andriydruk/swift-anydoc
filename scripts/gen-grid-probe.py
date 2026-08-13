@@ -2606,6 +2606,111 @@ def difference_cases(random_count):
 
 
 
+def cffname_cases(random_count):
+    """Cases for the CFF Name INDEX reader.
+
+    A well-formed case is built from the pieces the reader looks at --
+    header size, INDEX count, offset size, the offsets themselves -- and
+    then each of those is varied off its valid value, because every early
+    return in the function is one of those checks failing.
+    """
+    rng = random.Random(60_2026)
+
+    def build(name, header_size=4, count=1, off_size=1, major=1,
+              extra_names=(), first_offset=1, trailing=b"", pad=b""):
+        names = [name] + list(extra_names)
+        header = bytes([major, 0, header_size, off_size])
+        header += bytes(max(header_size - 4, 0))
+        body = bytes([count >> 8, count & 0xFF, off_size])
+        offsets = [first_offset]
+        for entry in names:
+            offsets.append(offsets[-1] + len(entry))
+        # The offset array is `count + 1` entries whatever `names` holds, so
+        # a mismatched count truncates or over-reads it on purpose.
+        wanted = count + 1
+        while len(offsets) < wanted:
+            offsets.append(offsets[-1])
+        for value in offsets[:wanted]:
+            # An illegal offset size still has to produce bytes, so the value
+            # is truncated rather than the case being dropped -- the point of
+            # those cases is that the reader rejects the size before reading.
+            width = max(off_size, 1)
+            body += (value % (1 << (8 * width))).to_bytes(width, "big")
+        for entry in names:
+            body += entry
+        return header + body + trailing + pad
+
+    lines = []
+
+    def emit(blob):
+        lines.append(blob.hex())
+
+    # The ordinary shape, and the subset-tagged name the function exists for.
+    emit(build(b"Amplitude-LightItalic"))
+    emit(build(b"XXXXXX+Amplitude-LightItalic"))
+    emit(build(b"ABCDEF+Helvetica-BoldOblique"))
+    emit(build(b"Tc1"))
+    emit(build(b""))
+
+    # Header size drives every subsequent index, so it is varied widely --
+    # including past the end of the data.
+    for header_size in (0, 1, 2, 3, 4, 5, 8, 16, 40, 255):
+        emit(build(b"Roman", header_size=header_size))
+
+    # Offset size 1..4 are legal, 0 and 5 are not.
+    for off_size in (0, 1, 2, 3, 4, 5, 255):
+        emit(build(b"Nimbus-Medi", off_size=off_size))
+
+    # Count zero is an empty INDEX; a large count runs the offset array off
+    # the end; a count larger than the names present shifts the object base.
+    for count in (0, 1, 2, 3, 7, 255, 65535):
+        emit(build(b"Cardo-Italic", count=count, extra_names=(b"Second",)))
+
+    # Offsets are 1-based, so 0 is the rejected value and anything below the
+    # first offset makes an inverted range.
+    for first in (0, 1, 2, 5, 100, 65535):
+        emit(build(b"Slanted", first_offset=first))
+
+    # A major version other than 1 is rejected outright.
+    for major in (0, 1, 2, 255):
+        emit(build(b"Vera-Bold", major=major))
+
+    # Truncation at every length, which is where the bounds checks live.
+    full = build(b"Charter-BoldItalic")
+    for length in range(len(full) + 1):
+        emit(full[:length])
+
+    # A name whose bytes are not UTF-8 -- the reference is lossy rather than
+    # rejecting, so the answer is replacement characters.
+    emit(build(bytes([0xFF, 0xFE, 0x41, 0x80])))
+    emit(build("Ubuntu-Kursiv\u00e9".encode("utf-8")))
+
+    # Real sfnt and OpenType headers, which must be refused: they are what
+    # the deferred TrueType branch would take.
+    emit(bytes([0x00, 0x01, 0x00, 0x00]) + bytes(40))
+    emit(b"OTTO" + bytes(40))
+    emit(b"true" + bytes(40))
+    emit(b"ttcf" + bytes(40))
+    emit(b"")
+
+    # Multi-byte offset sizes with a name past 255 bytes, so the high bytes
+    # of the offsets actually carry information.
+    emit(build(b"L" * 300, off_size=2))
+    emit(build(b"L" * 300, off_size=3))
+    emit(build(b"L" * 70000, off_size=3))
+
+    # Random blobs, some starting with the valid major version so they reach
+    # further into the function than the first check.
+    for _ in range(random_count):
+        length = rng.randrange(0, 48)
+        blob = bytes(rng.randrange(0, 256) for _ in range(length))
+        if blob and rng.random() < 0.7:
+            blob = bytes([1]) + blob[1:]
+        emit(blob)
+
+    return lines
+
+
 def singlebyte_cases(random_count):
     """Cases for the single-byte decoding fallbacks."""
     rng = random.Random(59_2026)
@@ -2963,6 +3068,18 @@ def main():
         text=True, check=True
     )
     with open(os.path.join(arguments.directory, "singlebyte-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write(r.stdout)
+
+    cf_lines = cffname_cases(max(arguments.cases // 3, 120))
+    with open(os.path.join(arguments.directory, "cffname-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n".join(cf_lines))
+    r = subprocess.run(
+        [probe, "--cffname"], input="\n".join(cf_lines) + "\n", capture_output=True,
+        text=True, check=True
+    )
+    with open(os.path.join(arguments.directory, "cffname-rust.txt"), "w",
               encoding="utf-8") as f:
         f.write(r.stdout)
 
