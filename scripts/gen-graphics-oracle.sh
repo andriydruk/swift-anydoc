@@ -908,6 +908,22 @@ pub fn probe_structnames(input: &str) -> String {
 }
 RUSTEOF
 
+cat >> "$crate/src/glyph_names.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): glyph-name resolution. One name per line.
+pub fn probe_glyphnames(input: &str) -> String {
+    let mut out = String::new();
+    for line in input.lines() {
+        let name = line.trim_end_matches('\n');
+        match glyph_to_char(name) {
+            Some(c) => out.push_str(&format!("g {:X}\n", c as u32)),
+            None => out.push_str("g -\n"),
+        }
+    }
+    out
+}
+RUSTEOF
+
 cat >> "$crate/src/text_utils.rs" <<'RUSTEOF'
 
 /// Probe (added for swift-anydoc): the join decision. Each case is one line
@@ -2144,6 +2160,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::text_utils::probe_letterspacing(&input));
+        return;
+    }
+    if path == "--glyphnames" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::glyph_names::probe_glyphnames(&input));
         return;
     }
     if path == "--ligatures" {

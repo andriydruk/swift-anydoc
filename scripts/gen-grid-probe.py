@@ -2523,6 +2523,34 @@ def ligature_cases(random_count):
     return [c.encode("utf-8").hex() for c in cases]
 
 
+
+def glyphname_cases(source):
+    """Every name in the reference's table, plus the fallback forms."""
+    import re
+    entry = re.compile(r'''m\.insert\("([^"]+)"''')
+    names = []
+    with open(source, encoding="utf-8") as handle:
+        for line in handle:
+            match = entry.search(line)
+            if match:
+                names.append(match.group(1))
+
+    # Dot suffixes, both on a known base and on an unknown one.
+    names += ["zero.tf", "a.ss01", "hyphen.case", "A.alt", "notaglyph.tf", ".notdef",
+              "a.", ".", "..", "A.a.b"]
+    # uniXXXX, including the private-use offset Windows Symbol fonts use.
+    names += ["uni0041", "uni00E9", "uniF041", "uniF000", "uniF0FF", "uniF100",
+              "uni0041FF", "uniZZZZ", "uni041", "uni", "uni0000"]
+    # uXXXX through uXXXXXX, where the whole remainder is the number.
+    names += ["u0041", "u00E9", "u1F600", "u10FFFF", "u110000", "uZZZZ", "u041",
+              "u0041.alt"]
+    # Surrogates and other values that are not scalars.
+    names += ["uniD800", "uD800", "uniFFFF", "u0000"]
+    # Names that resolve through neither path.
+    names += ["", "A", "notaglyph", "Uni0041", "U0041"]
+    return names
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -2804,6 +2832,23 @@ def main():
     with open(os.path.join(arguments.directory, "letterspacing-rust.txt"), "w",
               encoding="utf-8") as f:
         f.write("\n===\n".join(ls_answers))
+
+    reference = os.path.join(
+        os.path.expanduser("~"),
+        ".cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pdf-inspector-0.1.7",
+        "src/glyph_names.rs")
+    if os.path.exists(reference):
+        gn_lines = glyphname_cases(reference)
+        with open(os.path.join(arguments.directory, "glyphname-cases.txt"), "w",
+                  encoding="utf-8") as f:
+            f.write("\n".join(gn_lines))
+        r = subprocess.run(
+            [probe, "--glyphnames"], input="\n".join(gn_lines) + "\n", capture_output=True,
+            text=True, check=True
+        )
+        with open(os.path.join(arguments.directory, "glyphname-rust.txt"), "w",
+                  encoding="utf-8") as f:
+            f.write(r.stdout)
 
     lg_lines = ligature_cases(max(arguments.cases // 3, 100))
     with open(os.path.join(arguments.directory, "ligature-cases.txt"), "w",
