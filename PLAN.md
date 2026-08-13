@@ -2228,3 +2228,28 @@ the second found something:
 of 167 cases, because the randomised cases almost never happen to line up with
 the columns; twenty well-formed shapes across three to six columns and one to
 three header lines brought that to 24.
+
+- **Wave 52 — the struct-tree table orchestrator.** `PdfStructTables.swift`
+  ports `detect_tables_from_struct_tree` and `legacy_column_positions`, tying
+  waves 48–51 together. **`tables/detect_struct.rs` is now complete.**
+
+  It matches the tree's cells to the page's text through marked-content ids,
+  then builds *two* candidate tables and picks one.
+  - A structure tree can outlive the content it describes, so under a third of
+    cells resolving rejects it outright and leaves the page to the geometric
+    detectors.
+  - **The selection rule is the surprise:** the position-aligned candidate is
+    used *only when a header was actually recovered*. Otherwise the plain
+    left-aligned table wins, with the crude
+    first-row-that-can-supply-one column positions. So all of wave 49's column
+    inference and wave 50's positional alignment exist to serve the header
+    recovery rather than the table's own layout — reproduced as written, and
+    pinned by two unit tests that assert each branch.
+
+  **One blocking gap, recorded honestly:** `PdfLayoutItem.mcid` was added for
+  this wave but nothing sets it, because the extractor's `BDC`/`EMC` tracking
+  is unported. The detector is complete and verified — 164 cases, 89 tables —
+  but produces nothing on a real document until that lands. It is the single
+  input the whole struct-tree path is waiting on.
+
+164 cases agree on the first run, building 89 tables against 75 rejections.

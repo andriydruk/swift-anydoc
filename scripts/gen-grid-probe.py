@@ -2393,6 +2393,95 @@ def structheader_cases(random_count):
     return cases
 
 
+
+def structtable_cases(random_count):
+    """Cases for the struct-tree table orchestrator."""
+    rng = random.Random(52_2026)
+
+    def build(rows, items):
+        lines = ["T"]
+        for row in rows:
+            lines.append("R")
+            for header, mcids in row:
+                lines.append(f"D {1 if header else 0} {mcids}")
+        for x, y, mcid, text in items:
+            lines.append(f"I {x:g} {y:g} {mcid} {text}")
+        return "\n".join(lines)
+
+    def grid(cols, row_count, page=1, header_first=False, start=0):
+        rows = []
+        mcid = start
+        for r in range(row_count):
+            row = []
+            for _ in range(cols):
+                row.append((header_first and r == 0, f"{mcid}:{page}"))
+                mcid += 1
+            rows.append(row)
+        return rows
+
+    def grid_items(cols, row_count, start=0, x0=100.0, y0=700.0, skip=()):
+        out = []
+        mcid = start
+        for r in range(row_count):
+            for c in range(cols):
+                if mcid not in skip:
+                    out.append((x0 + c * 100, y0 - r * 20, mcid, f"v{r}{c}"))
+                mcid += 1
+        return out
+
+    cases = [
+        # Nothing at all.
+        "I 100 700 0 x",
+        # A clean tagged table.
+        build(grid(3, 3), grid_items(3, 3)),
+        # A tagged header row, so no recovery is attempted.
+        build(grid(3, 3, header_first=True), grid_items(3, 3)),
+        # One row on this page only.
+        build(grid(3, 1), grid_items(3, 1)),
+        # One column.
+        build(grid(1, 3), grid_items(1, 3)),
+        # Rows on another page are filtered out.
+        build(grid(3, 3, page=2), grid_items(3, 3)),
+        # Stale tree: under a third of cells resolve.
+        build(grid(3, 3), grid_items(3, 3, skip=set(range(1, 9)))),
+        # Just over the coverage line.
+        build(grid(3, 3), grid_items(3, 3, skip={0, 1, 2, 3, 4})),
+        # Ragged rows with a header above: the recovery path.
+        build(grid(3, 3), grid_items(3, 3, skip={4})
+              + [(100.0, 715.0, 99, "H0"), (200.0, 715.0, 98, "H1"),
+                 (300.0, 715.0, 97, "H2")]),
+        # Ragged, but the first row is tagged as a header already.
+        build(grid(3, 3, header_first=True), grid_items(3, 3, skip={4})
+              + [(100.0, 715.0, 99, "H0"), (200.0, 715.0, 98, "H1"),
+                 (300.0, 715.0, 97, "H2")]),
+        # Two cells sharing one mcid.
+        build([[(False, "0:1"), (False, "0:1")], [(False, "1:1"), (False, "2:1")]],
+              [(100.0, 700.0, 0, "a"), (200.0, 680.0, 1, "b"), (300.0, 680.0, 2, "c")]),
+        # A cell with several mcids, ordered down then across.
+        build([[(False, "0:1,1:1"), (False, "2:1")], [(False, "3:1"), (False, "4:1")]],
+              [(100.0, 700.0, 0, "top"), (100.0, 690.0, 1, "bottom"),
+               (200.0, 700.0, 2, "b"), (100.0, 680.0, 3, "c"), (200.0, 680.0, 4, "d")]),
+        # Rows of differing width.
+        build([[(False, "0:1"), (False, "1:1"), (False, "2:1")],
+               [(False, "3:1"), (False, "4:1")]],
+              grid_items(3, 2)),
+        # An item with no mcid at all.
+        build(grid(2, 2), [(100.0, 700.0, -1, "x")] + grid_items(2, 2)),
+    ]
+
+    for _ in range(random_count):
+        cols = rng.randint(1, 4)
+        row_count = rng.randint(1, 4)
+        skip = {i for i in range(cols * row_count) if rng.random() < 0.3}
+        extra = []
+        if rng.random() < 0.4:
+            for c in range(cols):
+                extra.append((100.0 + c * 100, 715.0, 90 + c, f"H{c}"))
+        cases.append(build(grid(cols, row_count, header_first=rng.random() < 0.3),
+                           grid_items(cols, row_count, skip=skip) + extra))
+    return cases
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -2563,6 +2652,21 @@ def main():
         f.write("\n===\n".join(hyp_answers))
 
     rule_blocks = rule_cases(arguments.cases)
+    sb_blocks = structtable_cases(max(arguments.cases // 4, 80))
+    with open(os.path.join(arguments.directory, "structtable-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n===\n".join(sb_blocks))
+    sb_answers = []
+    for b in sb_blocks:
+        r = subprocess.run(
+            [probe, "--structtables"], input=b + "\n", capture_output=True, text=True,
+            check=True
+        )
+        sb_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "structtable-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n===\n".join(sb_answers))
+
     sh_blocks = structheader_cases(max(arguments.cases // 4, 80))
     with open(os.path.join(arguments.directory, "structheader-cases.txt"), "w",
               encoding="utf-8") as f:

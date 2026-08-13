@@ -30,6 +30,14 @@ struct PdfLayoutItem {
     var isUnderline = false
     /// Detected the same way, and — as in the reference — never rendered.
     var isStrikeout = false
+    /// The marked-content id this item was drawn under, which is what links
+    /// it to a node of the structure tree.
+    ///
+    /// Nothing sets this yet: the extractor's `BDC`/`EMC` tracking is not
+    /// ported, so it is always `nil` and the struct-tree table detector finds
+    /// no items on a real document. The detector itself is complete and
+    /// probed; this is the one piece it waits on.
+    var mcid: Int?
 }
 
 /// Runs that share a baseline, ordered left to right.

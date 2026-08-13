@@ -43,7 +43,7 @@ chmod -R u+w "$crate"
 # `structure_tree` is private as well.
 perl -pi -e "s/^pub\\(crate\\) mod detect_struct;/pub mod detect_struct;/; s/^mod detect_struct;/pub mod detect_struct;/" \
     "$crate/src/tables/mod.rs"
-perl -pi -e "s/^fn (infer_column_positions|align_positions_to_columns|align_struct_rows|left_align_struct_rows|recover_unclaimed_header_row)/pub fn \$1/" \
+perl -pi -e "s/^fn (infer_column_positions|align_positions_to_columns|align_struct_rows|left_align_struct_rows|recover_unclaimed_header_row|legacy_column_positions)/pub fn \$1/" \
     "$crate/src/tables/detect_struct.rs"
 perl -pi -e "s/^fn (collect_tables|collect_rows|collect_mcids_recursive|flatten_recursive)/pub fn \$1/; s/^    fn from_name/    pub fn from_name/" \
     "$crate/src/structure_tree.rs"
@@ -460,6 +460,89 @@ pub fn probe_detect(input: &str) -> String {
 RUSTEOF
 
 cat >> "$crate/src/tables/detect_struct.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): the struct-tree table orchestrator. A
+/// case is `T` to open a table, `R` to open a row, `D header mcid:page,...`
+/// cells, and `I x y mcid text` items.
+pub fn probe_structtables(input: &str) -> String {
+    use crate::types::{ItemType, TextItem};
+    use crate::structure_tree::{StructTable, StructTableCell, StructTableRow};
+    let mut tables: Vec<StructTable> = Vec::new();
+    let mut items: Vec<TextItem> = Vec::new();
+
+    for line in input.lines() {
+        let (tag, rest) = line.split_at(line.find(' ').map(|i| i + 1).unwrap_or(line.len()));
+        let rest = rest.trim();
+        match tag.trim() {
+            "T" => tables.push(StructTable { rows: Vec::new() }),
+            "R" => {
+                if let Some(t) = tables.last_mut() {
+                    t.rows.push(StructTableRow { cells: Vec::new() });
+                }
+            }
+            "D" => {
+                let f: Vec<&str> = rest.splitn(2, ' ').collect();
+                let is_header = f[0] == "1";
+                let mut mcids = Vec::new();
+                if f.len() > 1 && f[1] != "-" {
+                    for entry in f[1].split(',') {
+                        let bits: Vec<&str> = entry.split(':').collect();
+                        if bits.len() == 2 {
+                            mcids.push((
+                                bits[0].parse().unwrap_or(0),
+                                bits[1].parse().unwrap_or(0),
+                            ));
+                        }
+                    }
+                }
+                if let Some(t) = tables.last_mut() {
+                    if let Some(r) = t.rows.last_mut() {
+                        r.cells.push(StructTableCell { is_header, mcids });
+                    }
+                }
+            }
+            "I" => {
+                let f: Vec<&str> = rest.splitn(4, ' ').collect();
+                if f.len() >= 4 {
+                    let mcid: i64 = f[2].parse().unwrap_or(-1);
+                    items.push(TextItem {
+                        text: f[3].replace('~', " "),
+                        x: f[0].parse().unwrap_or(0.0),
+                        y: f[1].parse().unwrap_or(0.0),
+                        width: 20.0,
+                        height: 10.0,
+                        font: "F1".to_string(),
+                        font_size: 10.0,
+                        page: 1,
+                        is_bold: false, is_italic: false, is_underline: false,
+                        is_strikeout: false, item_type: ItemType::Text,
+                        mcid: if mcid < 0 { None } else { Some(mcid) },
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let built = detect_tables_from_struct_tree(&items, &tables, 1);
+    let mut out = format!("tables {}\n", built.len());
+    for table in &built {
+        out.push_str(&format!("t {} {}\nk", table.columns.len(), table.rows.len()));
+        for value in &table.columns { out.push_str(&format!(" {value:.3}")); }
+        out.push_str("\ny");
+        for value in &table.rows { out.push_str(&format!(" {value:.3}")); }
+        out.push('\n');
+        for row in &table.cells {
+            out.push('c');
+            for cell in row { out.push('\t'); out.push_str(cell); }
+            out.push('\n');
+        }
+        out.push('x');
+        for value in &table.item_indices { out.push_str(&format!(" {value}")); }
+        out.push('\n');
+    }
+    out
+}
 
 /// Probe (added for swift-anydoc): unclaimed-header recovery. A case is
 /// `G ragged`, `C cols`, `Y rows`, `X claimed`, `E cells...` rows, then
@@ -1901,6 +1984,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::detect_lines::probe_hypotheses(&input));
+        return;
+    }
+    if path == "--structtables" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::tables::detect_struct::probe_structtables(&input));
         return;
     }
     if path == "--structheader" {
