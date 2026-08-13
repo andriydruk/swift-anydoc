@@ -2204,3 +2204,27 @@ the second found something:
     strictly increasing column indices — the dynamic program by construction,
     the fallback because it is the identity — so no column is ever written
     twice. Ported anyway, with the reason recorded at the line.
+
+- **Wave 51 — recovering an unclaimed table header.**
+  `PdfStructHeader.swift` ports `recover_unclaimed_header_row`.
+
+  Some generators tag a table's body but leave its header outside the tree
+  entirely, as loose text above the first row. The tagged rows then come out
+  *ragged*, and that raggedness is the signal something is missing — which is
+  why the whole function is gated on it. On a clean table, text above it is a
+  caption, and stealing it would be worse than leaving the header absent.
+  - The search window is **asymmetric**: 25pt to the left of the first column,
+    120pt to the right of the last, because a header label may overhang the
+    final column far more than the first one.
+  - Up to three lines are gathered, joined bottom-up and then reversed, so a
+    two-line header reads top line first.
+  - A line with more items than the table has columns **abandons the whole
+    recovery**, not just that line — as does an alignment that comes back
+    shorter than the line, since a partial header is not worth having.
+  - A table of four columns or fewer must be fully labelled; a wider one is
+    allowed a single unlabelled column, which is usually a row-header stub.
+
+187 cases agree on the first run. The first pass recovered a header in only 6
+of 167 cases, because the randomised cases almost never happen to line up with
+the columns; twenty well-formed shapes across three to six columns and one to
+three header lines brought that to 24.

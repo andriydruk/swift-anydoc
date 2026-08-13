@@ -2265,6 +2265,134 @@ def structrow_cases(random_count):
     return cases
 
 
+
+def structheader_cases(random_count):
+    """Cases for unclaimed-header recovery."""
+    rng = random.Random(51_2026)
+
+    def block(columns, rows, cells, claimed, items, ragged=True):
+        lines = [f"G {1 if ragged else 0}",
+                 "C " + ",".join(f"{v:g}" for v in columns),
+                 "Y " + ",".join(f"{v:g}" for v in rows),
+                 "X " + ",".join(str(v) for v in claimed)]
+        for row in cells:
+            lines.append("E " + "\t".join(row))
+        for x, y, text in items:
+            lines.append(f"I {x:g} {y:g} {text}")
+        return "\n".join(lines)
+
+    cols = [100.0, 200.0, 300.0]
+    body = [["a", "b", "c"], ["d", "e", "f"]]
+    body_rows = [700.0, 680.0]
+    body_claimed = [0, 1, 2, 3, 4, 5]
+
+    def body_items():
+        return [(100.0, 700.0, "a"), (200.0, 700.0, "b"), (300.0, 700.0, "c"),
+                (100.0, 680.0, "d"), (200.0, 680.0, "e"), (300.0, 680.0, "f")]
+
+    header = [(100.0, 715.0, "H0"), (200.0, 715.0, "H1"), (300.0, 715.0, "H2")]
+
+    cases = [
+        # The shape it is for.
+        block(cols, body_rows, body, body_claimed, body_items() + header),
+        # Not ragged: leave it alone.
+        block(cols, body_rows, body, body_claimed, body_items() + header, ragged=False),
+        # Two columns only.
+        block([100.0, 200.0], body_rows, [["a", "b"], ["c", "d"]], [0, 1, 2, 3],
+              [(100.0, 700.0, "a"), (200.0, 700.0, "b"), (100.0, 680.0, "c"),
+               (200.0, 680.0, "d"), (100.0, 715.0, "H0"), (200.0, 715.0, "H1")]),
+        # No rows.
+        block(cols, [], [], [], header),
+        # Header too far above the table.
+        block(cols, body_rows, body, body_claimed,
+              body_items() + [(x, 745.0, t) for x, _, t in header]),
+        # Beyond the 90pt search window entirely.
+        block(cols, body_rows, body, body_claimed,
+              body_items() + [(x, 800.0, t) for x, _, t in header]),
+        # Two header lines, close enough to join.
+        block(cols, body_rows, body, body_claimed,
+              body_items() + header + [(x, 735.0, "T" + t) for x, _, t in header]),
+        # Two lines too far apart.
+        block(cols, body_rows, body, body_claimed,
+              body_items() + header + [(x, 745.0, "T" + t) for x, _, t in header]),
+        # Four lines: only three are taken.
+        block(cols, body_rows, body, body_claimed,
+              body_items() + header
+              + [(x, 730.0, "P" + t) for x, _, t in header]
+              + [(x, 745.0, "Q" + t) for x, _, t in header]
+              + [(x, 760.0, "R" + t) for x, _, t in header]),
+        # Only one column populated on the closest line.
+        block(cols, body_rows, body, body_claimed,
+              body_items() + [(100.0, 715.0, "H0")]),
+        # Two of three columns: under the requirement for a narrow table.
+        block(cols, body_rows, body, body_claimed,
+              body_items() + [(100.0, 715.0, "H0"), (200.0, 715.0, "H1")]),
+        # Five columns with one unlabelled, which is allowed.
+        block([100.0, 200.0, 300.0, 400.0, 500.0], body_rows,
+              [["a", "b", "c", "d", "e"], ["f", "g", "h", "i", "j"]],
+              list(range(10)),
+              [(100.0 + i * 100, 700.0, "x") for i in range(5)]
+              + [(100.0 + i * 100, 680.0, "y") for i in range(5)]
+              + [(100.0 + i * 100, 715.0, f"H{i}") for i in range(4)]),
+        # More items on a line than there are columns.
+        block(cols, body_rows, body, body_claimed,
+              body_items() + [(100.0, 715.0, "H0"), (150.0, 715.0, "H1"),
+                              (200.0, 715.0, "H2"), (300.0, 715.0, "H3")]),
+        # Already-claimed items above the table are ignored.
+        block(cols, body_rows, body, body_claimed + [6, 7, 8],
+              body_items() + header),
+        # Text outside the x window.
+        block(cols, body_rows, body, body_claimed,
+              body_items() + [(20.0, 715.0, "H0"), (200.0, 715.0, "H1"),
+                              (300.0, 715.0, "H2")]),
+        # ...and inside the generous right-hand margin.
+        block(cols, body_rows, body, body_claimed,
+              body_items() + [(100.0, 715.0, "H0"), (200.0, 715.0, "H1"),
+                              (415.0, 715.0, "H2")]),
+        # Blank text above the table.
+        block(cols, body_rows, body, body_claimed,
+              body_items() + [(100.0, 715.0, "~"), (200.0, 715.0, "H1"),
+                              (300.0, 715.0, "H2")]),
+    ]
+
+    # Well-formed headers across column counts and line counts, since the
+    # randomised cases below almost never happen to line up with the columns.
+    for n in (3, 4, 5, 6):
+        columns = [100.0 + i * 100 for i in range(n)]
+        cells = [["x"] * n, ["y"] * n]
+        claimed = list(range(2 * n))
+        base = ([(100.0 + i * 100, 700.0, "x") for i in range(n)]
+                + [(100.0 + i * 100, 680.0, "y") for i in range(n)])
+        for lines in (1, 2, 3):
+            extra = []
+            for line_index in range(lines):
+                y = 715.0 + line_index * 15
+                extra += [(100.0 + i * 100, y, f"H{line_index}{i}") for i in range(n)]
+            cases.append(block(columns, [700.0, 680.0], cells, claimed, base + extra))
+        # A header offset slightly from the column positions still aligns.
+        cases.append(block(columns, [700.0, 680.0], cells, claimed,
+                           base + [(104.0 + i * 100, 715.0, f"H{i}") for i in range(n)]))
+        # ...and one column short, which a wide table tolerates.
+        cases.append(block(columns, [700.0, 680.0], cells, claimed,
+                           base + [(100.0 + i * 100, 715.0, f"H{i}")
+                                   for i in range(n - 1)]))
+
+    for _ in range(random_count):
+        n = rng.randint(2, 5)
+        columns = [100.0 + i * 100 for i in range(n)]
+        rows_y = [700.0, 680.0]
+        cells = [["x"] * n, ["y"] * n]
+        claimed = list(range(2 * n))
+        items = [(100.0 + i * 100, 700.0, "x") for i in range(n)]
+        items += [(100.0 + i * 100, 680.0, "y") for i in range(n)]
+        for _ in range(rng.randint(0, 6)):
+            items.append((float(rng.randrange(50, 550)), float(rng.randrange(690, 800)),
+                          rng.choice(["H", "Head", "~", "long~label"])))
+        cases.append(block(columns, rows_y, cells, claimed, items,
+                           ragged=rng.random() < 0.8))
+    return cases
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -2435,6 +2563,21 @@ def main():
         f.write("\n===\n".join(hyp_answers))
 
     rule_blocks = rule_cases(arguments.cases)
+    sh_blocks = structheader_cases(max(arguments.cases // 4, 80))
+    with open(os.path.join(arguments.directory, "structheader-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n===\n".join(sh_blocks))
+    sh_answers = []
+    for b in sh_blocks:
+        r = subprocess.run(
+            [probe, "--structheader"], input=b + "\n", capture_output=True, text=True,
+            check=True
+        )
+        sh_answers.append(r.stdout)
+    with open(os.path.join(arguments.directory, "structheader-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n===\n".join(sh_answers))
+
     sr_blocks = structrow_cases(max(arguments.cases // 4, 80))
     with open(os.path.join(arguments.directory, "structrow-cases.txt"), "w",
               encoding="utf-8") as f:

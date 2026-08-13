@@ -43,7 +43,7 @@ chmod -R u+w "$crate"
 # `structure_tree` is private as well.
 perl -pi -e "s/^pub\\(crate\\) mod detect_struct;/pub mod detect_struct;/; s/^mod detect_struct;/pub mod detect_struct;/" \
     "$crate/src/tables/mod.rs"
-perl -pi -e "s/^fn (infer_column_positions|align_positions_to_columns|align_struct_rows|left_align_struct_rows)/pub fn \$1/" \
+perl -pi -e "s/^fn (infer_column_positions|align_positions_to_columns|align_struct_rows|left_align_struct_rows|recover_unclaimed_header_row)/pub fn \$1/" \
     "$crate/src/tables/detect_struct.rs"
 perl -pi -e "s/^fn (collect_tables|collect_rows|collect_mcids_recursive|flatten_recursive)/pub fn \$1/; s/^    fn from_name/    pub fn from_name/" \
     "$crate/src/structure_tree.rs"
@@ -460,6 +460,68 @@ pub fn probe_detect(input: &str) -> String {
 RUSTEOF
 
 cat >> "$crate/src/tables/detect_struct.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): unclaimed-header recovery. A case is
+/// `G ragged`, `C cols`, `Y rows`, `X claimed`, `E cells...` rows, then
+/// `I x y text` items.
+pub fn probe_structheader(input: &str) -> String {
+    use crate::types::{ItemType, TextItem};
+    let mut ragged = false;
+    let mut columns: Vec<f32> = Vec::new();
+    let mut rows: Vec<f32> = Vec::new();
+    let mut claimed: Vec<usize> = Vec::new();
+    let mut cells: Vec<Vec<String>> = Vec::new();
+    let mut items: Vec<TextItem> = Vec::new();
+
+    for line in input.lines() {
+        let (tag, rest) = line.split_at(line.find(' ').map(|i| i + 1).unwrap_or(line.len()));
+        let rest = rest.trim();
+        match tag.trim() {
+            "G" => ragged = rest == "1",
+            "C" => columns = rest.split(',').filter_map(|v| v.parse().ok()).collect(),
+            "Y" => rows = rest.split(',').filter_map(|v| v.parse().ok()).collect(),
+            "X" => claimed = rest.split(',').filter_map(|v| v.parse().ok()).collect(),
+            "E" => cells.push(
+                if rest.is_empty() { Vec::new() }
+                else { rest.split('\t').map(|c| c.replace('~', " ")).collect() }
+            ),
+            "I" => {
+                let f: Vec<&str> = rest.splitn(3, ' ').collect();
+                if f.len() >= 3 {
+                    items.push(TextItem {
+                        text: f[2].replace('~', " "),
+                        x: f[0].parse().unwrap_or(0.0),
+                        y: f[1].parse().unwrap_or(0.0),
+                        width: 20.0,
+                        height: 10.0,
+                        font: "F1".to_string(),
+                        font_size: 10.0,
+                        page: 1,
+                        is_bold: false, is_italic: false, is_underline: false,
+                        is_strikeout: false, item_type: ItemType::Text, mcid: None,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut table = Table::new(columns, rows, cells, claimed);
+    recover_unclaimed_header_row(&mut table, &items, ragged);
+
+    let mut out = format!("h {} {}\ny", table.rows.len(), table.cells.len());
+    for value in &table.rows { out.push_str(&format!(" {value:.3}")); }
+    out.push('\n');
+    for row in &table.cells {
+        out.push('c');
+        for cell in row { out.push('\t'); out.push_str(cell); }
+        out.push('\n');
+    }
+    out.push('x');
+    for value in &table.item_indices { out.push_str(&format!(" {value}")); }
+    out.push('\n');
+    out
+}
 
 /// Probe (added for swift-anydoc): the two row-alignment strategies. A case
 /// is `C x,x` column positions, `N count`, then `R` rows of
@@ -1839,6 +1901,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::detect_lines::probe_hypotheses(&input));
+        return;
+    }
+    if path == "--structheader" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::tables::detect_struct::probe_structheader(&input));
         return;
     }
     if path == "--structrows" {
