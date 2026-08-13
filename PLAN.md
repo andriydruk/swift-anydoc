@@ -2359,3 +2359,39 @@ the Arabic text it exists for.
   erases the evidence. 221 ligature cases agree on the first run.
 
 **`/ActualText` is now unblocked** and is the natural next wave.
+
+- **Wave 56 — `/ActualText`.** The extractor now honours a marked-content
+  section's declared text, completing the `BDC`/`EMC` machinery wave 53
+  started and using wave 55's ligature expansion.
+
+  A section says what its text *really* is; the glyphs inside are whatever the
+  font drew. So they are suppressed — not extracted at all — while still
+  advancing the text matrix, because how far they moved it *is* the section's
+  width.
+  - The **first glyph's** position is preferred to the `BDC`'s. A `Td` between
+    the two may have moved to the correct line, leaving the `BDC` position on
+    the previous one, so the capture happens at the first `Tj`/`TJ` and after
+    a `T*` line move rather than at the section's start.
+  - The position state is a **single slot rather than one per level**, so a
+    nested section resets it and the outer one reports wherever the glyphs
+    after the inner section sat. Pinned as a test: it looks like a bug, and
+    it is reproduced.
+
+  **Two pre-existing divergences surfaced**, both invisible until an item
+  could be emitted without a font:
+  - `current_font_size` defaults to **12**, not zero. Nothing had emitted an
+    item before a `Tf` until an `/ActualText` section with no glyphs did.
+  - The `TJ` arm advances the text matrix **only when the font has metrics**.
+    Without them the reference leaves every displacement unapplied, so
+    following text overlaps — and an enclosing section measures zero width.
+    The port advanced unconditionally.
+
+  Both were found by extending the wave-53 probe to report position and size
+  rather than just text and id, which is the half that actually exercises
+  this wave. 21 corpus documents agree.
+
+**A test-construction note worth keeping:** a PDF literal string is a *byte*
+string. Writing `U+FB01` into a Swift source literal puts its UTF-8 bytes into
+the content stream, where they decode as Latin-1 mojibake — the ligature has
+to be given as UTF-16BE with a byte-order mark. Two attempts at that test were
+wrong before the third was right.

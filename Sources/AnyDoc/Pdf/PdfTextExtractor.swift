@@ -84,7 +84,10 @@ func pdfExtractTextRuns(
     var inText = false
 
     var fontName = ""
-    var fontSize: Float = 0
+    /// Twelve, not zero, before any `Tf` — the reference's default. It shows
+    /// only when an item is emitted before a font is set, which an
+    /// `/ActualText` section with no glyphs can do.
+    var fontSize: Float = 12
     var charSpacing: Float = 0
     var wordSpacing: Float = 0
     var leading: Float = 0
@@ -111,6 +114,13 @@ func pdfExtractTextRuns(
                 wordSpacing: wordSpacing)
         } ?? 0
         let advance = textWidth
+
+        if suppressGlyphExtraction {
+            captureActualTextGlyph()
+            textMatrix.e += advance * textMatrix.a
+            textMatrix.f += advance * textMatrix.b
+            return
+        }
 
         let text = decode(fontName, bytes)
         if !text.isEmpty, includeInvisible || renderingMode != 3 {
@@ -148,12 +158,34 @@ func pdfExtractTextRuns(
         lineMatrix.e += (-tl) * lineMatrix.c
         lineMatrix.f += (-tl) * lineMatrix.d
         textMatrix = lineMatrix
+        // After the move, not before: the `BDC` matrix is on the old line.
+        captureActualTextGlyph()
     }
 
-    // Marked content, one entry per nesting level. Only the id is tracked;
-    // `/ActualText` — a text override used for ligatures — is a separate
-    // feature and is not ported.
-    var markedContentStack: [Int?] = []
+    // Marked content, one entry per nesting level.
+    var markedContentStack: [(actualText: String?, mcid: Int?)] = []
+    /// While an `/ActualText` section is open the glyphs inside it are *not*
+    /// extracted: the section declares what the text really says, and the
+    /// glyphs are whatever the font happened to draw. They still advance the
+    /// text matrix, because the section's width comes from how far they moved
+    /// it.
+    var suppressGlyphExtraction = false
+    /// The text matrix and rise at the `BDC`, and at the first glyph inside
+    /// it. The first glyph's position is preferred: a `Td` between the two may
+    /// have moved to the correct line, leaving the `BDC` position on the
+    /// previous one.
+    var actualTextStartMatrix: PdfMatrix?
+    var actualTextStartRise: Float = 0
+    var actualTextGlyphMatrix: PdfMatrix?
+    var actualTextGlyphRise: Float?
+
+    /// Record where the first glyph of an open `/ActualText` section sits.
+    func captureActualTextGlyph() {
+        if suppressGlyphExtraction && actualTextGlyphMatrix == nil {
+            actualTextGlyphMatrix = textMatrix
+            actualTextGlyphRise = rise
+        }
+    }
     /// The innermost id that was actually set.
     ///
     /// A `BMC`, or a `BDC` whose property dictionary carries no `/MCID`,
@@ -161,7 +193,9 @@ func pdfExtractTextRuns(
     /// whatever enclosing element did declare one, so the search runs
     /// outwards rather than stopping at the top of the stack.
     func currentMcid() -> Int? {
-        for entry in markedContentStack.reversed() where entry != nil { return entry }
+        for entry in markedContentStack.reversed() {
+            if let mcid = entry.mcid { return mcid }
+        }
         return nil
     }
 
@@ -169,9 +203,10 @@ func pdfExtractTextRuns(
         let operands = operation.operands
         switch operation.operator {
         case "BMC":
-            markedContentStack.append(nil)
+            markedContentStack.append((actualText: nil, mcid: nil))
         case "BDC":
             var mcid: Int?
+            var actualText: String?
             if operands.count >= 2 {
                 let properties: PdfDictionary?
                 switch operands[1] {
@@ -182,10 +217,56 @@ func pdfExtractTextRuns(
                 if let value = properties?["MCID"], case .integer(let id) = value {
                     mcid = Int(id)
                 }
+                if let value = properties?["ActualText"], case .string(let bytes, _) = value {
+                    actualText = pdfDecodeTextString(bytes)
+                }
             }
-            markedContentStack.append(mcid)
+            if actualText != nil {
+                suppressGlyphExtraction = true
+                actualTextStartMatrix = textMatrix
+                actualTextStartRise = rise
+                // Reset: the first glyph *inside this section* is what counts.
+                actualTextGlyphMatrix = nil
+                actualTextGlyphRise = nil
+            }
+            markedContentStack.append((actualText: actualText, mcid: mcid))
         case "EMC":
-            if !markedContentStack.isEmpty { markedContentStack.removeLast() }
+            guard let entry = markedContentStack.popLast() else { break }
+            guard let actualText = entry.actualText else { break }
+
+            let glyphMatrix = actualTextGlyphMatrix
+            let glyphRise = actualTextGlyphRise
+            let startMatrix = actualTextStartMatrix
+            actualTextGlyphMatrix = nil
+            actualTextGlyphRise = nil
+            actualTextStartMatrix = nil
+
+            if let origin = glyphMatrix ?? startMatrix {
+                let effectiveRise = glyphRise ?? actualTextStartRise
+                let risen: PdfMatrix = (1, 0, 0, 1, 0, effectiveRise)
+                let placed = pdfMultiply(pdfMultiply(risen, origin), ctm)
+                // The width is how far the suppressed glyphs moved the text
+                // matrix, taken along x only and scaled into device space.
+                let delta = textMatrix.e - origin.e
+                let scaleX = origin.a * ctm.a + origin.b * ctm.c
+                if !actualText.rustTrim().isEmpty {
+                    runs.append(
+                        PdfTextRun(
+                            text: pdfExpandLigatures(actualText),
+                            x: placed.e, y: placed.f,
+                            fontSize: pdfEffectiveFontSize(
+                                baseSize: fontSize,
+                                textMatrix: [
+                                    placed.a, placed.b, placed.c, placed.d, placed.e, placed.f,
+                                ]),
+                            width: abs(delta * scaleX),
+                            fontName: fontName, renderingMode: renderingMode,
+                            // The section's own id, or the enclosing one.
+                            mcid: entry.mcid ?? currentMcid()))
+                }
+            }
+            // Another section may still be open around this one.
+            suppressGlyphExtraction = markedContentStack.contains { $0.actualText != nil }
         case "q":
             stack.append(
                 PdfSavedState(
@@ -272,6 +353,7 @@ func pdfExtractTextRuns(
             break
         case "TJ":
             guard let array = operands.first?.asArray else { break }
+            captureActualTextGlyph()
             // A TJ array is one run, not one run per string: the writer
             // splits a line into fragments and positions them with
             // displacements, and a displacement wide enough to be a space
@@ -310,6 +392,10 @@ func pdfExtractTextRuns(
                     origin.e + segmentStart * origin.a,
                     origin.f + segmentStart * origin.b
                 )
+                // Inside an `/ActualText` section the glyphs are not the
+                // text, so nothing is emitted — but the matrix still advances
+                // below, which is where the section's width comes from.
+                guard !suppressGlyphExtraction else { return }
                 guard includeInvisible || renderingMode != 3 else { return }
                 let placed = pdfMultiply(pdfMultiply(risen, at), ctm)
                 let deviceScale = (origin.a * ctm.a + origin.b * ctm.c).magnitude
@@ -347,8 +433,15 @@ func pdfExtractTextRuns(
                 advance += -value / 1000 * fontSize
             }
             flushSegment()
-            textMatrix.e = origin.e + advance * origin.a
-            textMatrix.f = origin.f + advance * origin.b
+            // The reference advances the matrix only when the font had
+            // metrics — without them it leaves the array's displacements
+            // unapplied entirely, so following text overlaps. Reproduced: it
+            // is what decides the width of an enclosing `/ActualText`
+            // section, which is measured from how far the matrix moved.
+            if font != nil {
+                textMatrix.e = origin.e + advance * origin.a
+                textMatrix.f = origin.f + advance * origin.b
+            }
         default:
             break
         }

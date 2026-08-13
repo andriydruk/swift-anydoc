@@ -38,7 +38,9 @@ import Testing
             var ours = "#PAGE 1\n"
             for run in runs {
                 let id = run.mcid.map(String.init) ?? "-"
-                ours += "m \(id) \(run.text.replacingOccurrences(of: " ", with: "~"))\n"
+                ours += "m \(id) " + String(format: "%.3f %.3f %.3f %.3f", run.x, run.y,
+                    run.width, run.fontSize)
+                ours += " \(run.text.replacingOccurrences(of: " ", with: "~"))\n"
             }
 
             if ours != expectedText {

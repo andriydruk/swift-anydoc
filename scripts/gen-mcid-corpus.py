@@ -93,6 +93,45 @@ CASES = {
         + "/Span << /MCID 11 >> BDC\n" + text(100, 700, "two") + "EMC\n"
         + "/Span << /MCID 12 >> BDC\n" + text(100, 680, "three") + "EMC\n"
     ),
+    # ActualText: the glyphs are suppressed and the declared text emitted.
+    "actual": "/Span << /ActualText (fi) >> BDC\n" + text(100, 700, "XY") + "EMC\n",
+    # With an MCID alongside it.
+    "actual-mcid": (
+        "/Span << /ActualText (ligature) /MCID 9 >> BDC\n"
+        + text(100, 700, "XY") + "EMC\n"
+    ),
+    # A Td between the BDC and the first glyph moves to the right line.
+    "actual-moved": (
+        "/Span << /ActualText (moved) >> BDC\nBT /F1 12 Tf 100 760 Td "
+        + "0 -60 Td (XY) Tj ET\nEMC\n"
+    ),
+    # Text either side of the section.
+    "actual-around": (
+        text(100, 720, "before")
+        + "/Span << /ActualText (middle) >> BDC\n" + text(100, 700, "XY") + "EMC\n"
+        + text(100, 680, "after")
+    ),
+    # Nested sections, the inner one also declaring text.
+    "actual-nested": (
+        "/Span << /ActualText (outer) >> BDC\n"
+        + text(100, 720, "AB")
+        + "/Span << /ActualText (inner) >> BDC\n" + text(100, 700, "CD") + "EMC\n"
+        + text(100, 680, "EF")
+        + "EMC\n"
+    ),
+    # Whitespace-only ActualText, which is dropped.
+    "actual-blank": "/Span << /ActualText ( ) >> BDC\n" + text(100, 700, "XY") + "EMC\n",
+    # An empty section with no glyphs at all.
+    "actual-empty": "/Span << /ActualText (alone) >> BDC\nEMC\n",
+    # A TJ array inside the section.
+    "actual-tj": (
+        "/Span << /ActualText (array) >> BDC\n"
+        + "BT /F1 12 Tf 100 700 Td [(A) -200 (B)] TJ ET\nEMC\n"
+    ),
+    # A ligature in the declared text, which expansion must handle.
+    "actual-ligature": (
+        "/Span << /ActualText (office) >> BDC\n" + text(100, 700, "XY") + "EMC\n"
+    ),
     # Deep nesting where only the outermost declares an id.
     "deep": (
         "/Sect << /MCID 20 >> BDC\n"

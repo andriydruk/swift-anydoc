@@ -92,6 +92,84 @@ import Testing
         #expect(pdfLayoutItems(runs(source)).map(\.mcid) == [3])
     }
 
+    // MARK: ActualText
+
+    @Test func aDeclaredTextReplacesTheGlyphsThatDrewIt() {
+        // The section says what the text really is; the glyphs are whatever
+        // the font happened to draw, and are not extracted at all.
+        let result = runs("/Span << /ActualText (fi) >> BDC " + text(700, "XY") + "EMC")
+        #expect(result.map(\.text) == ["fi"])
+    }
+
+    @Test func aDeclaredTextTakesTheSectionsOwnId() {
+        let source = "/Span << /ActualText (lig) /MCID 9 >> BDC " + text(700, "XY") + "EMC"
+        #expect(runs(source).map(\.mcid) == [9])
+    }
+
+    @Test func theFirstGlyphsPositionIsPreferredToTheSections() {
+        // A `Td` between the `BDC` and the first glyph may have moved to the
+        // right line, leaving the `BDC` position on the previous one.
+        let source =
+            "/Span << /ActualText (moved) >> BDC BT /F1 12 Tf 100 760 Td 0 -60 Td (XY) Tj ET EMC"
+        #expect(runs(source).first?.y == 700)
+    }
+
+    @Test func aSectionWithNoGlyphsStillEmits() {
+        // Nothing was drawn, so the `BDC` position is all there is.
+        let result = runs("/Span << /ActualText (alone) >> BDC EMC")
+        #expect(result.map(\.text) == ["alone"])
+    }
+
+    @Test func whitespaceOnlyDeclaredTextIsDropped() {
+        #expect(runs("/Span << /ActualText ( ) >> BDC " + text(700, "XY") + "EMC").isEmpty)
+    }
+
+    @Test func textOutsideTheSectionIsUnaffected() {
+        let source =
+            text(720, "before") + "/Span << /ActualText (middle) >> BDC " + text(700, "XY")
+            + "EMC " + text(680, "after")
+        #expect(runs(source).map(\.text) == ["before", "middle", "after"])
+    }
+
+    @Test func nestedSectionsEmitInnermostFirst() {
+        // Each closes at its own `EMC`, so the inner one is emitted first —
+        // and the glyphs between them belong to neither.
+        let source =
+            "/Span << /ActualText (outer) >> BDC " + text(720, "AB")
+            + "/Span << /ActualText (inner) >> BDC " + text(700, "CD") + "EMC "
+            + text(680, "EF") + "EMC"
+        #expect(runs(source).map(\.text) == ["inner", "outer"])
+    }
+
+    @Test func theOuterSectionInheritsTheLastCapturedPosition() {
+        // The position state is a single slot rather than one per level, so
+        // an inner section resets it and the outer one ends up reporting
+        // wherever the glyphs after the inner section sat. Pinned because it
+        // looks like a bug and is reproduced deliberately.
+        let source =
+            "/Span << /ActualText (outer) >> BDC " + text(720, "AB")
+            + "/Span << /ActualText (inner) >> BDC " + text(700, "CD") + "EMC "
+            + text(680, "EF") + "EMC"
+        let result = runs(source)
+        #expect(result.first(where: { $0.text == "outer" })?.y == 680)
+    }
+
+    @Test func declaredTextIsPutThroughLigatureExpansion() {
+        // A PDF literal string is a *byte* string, so the ligature has to be
+        // given as UTF-16BE with a byte-order mark — writing U+FB01 into a
+        // Swift source literal would put its UTF-8 bytes in the stream and
+        // they would decode as Latin-1 mojibake, which is what a first
+        // attempt at this test did.
+        var bytes = Array("/Span << /ActualText (".utf8)
+        // o, f, U+FB01 (fi), c, e — which expands back to "office".
+        bytes += [0xFE, 0xFF, 0x00, 0x6F, 0x00, 0x66, 0xFB, 0x01, 0x00, 0x63, 0x00, 0x65]
+        bytes += Array((") >> BDC " + text(700, "XY") + "EMC").utf8)
+        let result = pdfExtractTextRuns(pdfParseContentStream(bytes)) { _, raw in
+            String(decoding: raw, as: UTF8.self)
+        }
+        #expect(result.map(\.text) == ["office"])
+    }
+
     @Test func arrayShowsAlsoCarryTheId() {
         // The second emission point — `TJ` — has to tag its runs too.
         let source = "/Span << /MCID 6 >> BDC BT /F1 12 Tf 100 700 Td [(a) -200 (b)] TJ ET EMC"

@@ -210,8 +210,12 @@ pub fn probe_mcid(bytes: &[u8]) -> String {
                 out.push_str(&format!("#PAGE {n}\n"));
                 for item in &items {
                     out.push_str(&format!(
-                        "m {} {}\n",
+                        "m {} {:.3} {:.3} {:.3} {:.3} {}\n",
                         item.mcid.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string()),
+                        item.x,
+                        item.y,
+                        item.width,
+                        item.font_size,
                         item.text.replace(' ', "~")
                     ));
                 }
