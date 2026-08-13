@@ -2741,6 +2741,182 @@ def valley_cases(random_count):
             lines.append(f"S {x} 0 12 {text} | 0 300 320 612")
             lines.append(f"S {x} 0 40 {text} | 0 300 320 612")
 
+    # --- validate_and_build_columns and columns_have_prose ---
+
+    def items_spec(items):
+        return " ".join("{},{},{},{}".format(x, y, w, t) for x, y, w, t in items)
+
+    def emit_build(valleys, items, center=1, min_items=10, min_span=0.5,
+                   x_min=0.0, bin_width=2.0, x_max=612.0):
+        lines.append("C {} {} {} {} {} {} | {} ; {}".format(
+            center, min_items, min_span, x_min, bin_width, x_max,
+            " ".join("{}:{}".format(a, b) for a, b in valleys) or "-",
+            items_spec(items)))
+
+    def two_column_items(rows=14, left_x=40, right_x=330, width=220, text="word"):
+        out = []
+        for row in range(rows):
+            y = 700 - row * 14
+            out.append((left_x, y, width, text))
+            out.append((right_x, y, width, text))
+        return out
+
+    # A clean two-column page, by centre and by edge assignment.
+    for center in (0, 1):
+        emit_build([(150, 155)], two_column_items(), center=center)
+    # The minimum-items gate, walked.
+    for rows in (2, 3, 4, 5, 9, 10, 11, 20):
+        emit_build([(150, 155)], two_column_items(rows=rows))
+    # An asymmetric sidebar: the dominant side is dense, the other thin.
+    for small in (0, 1, 2, 3, 4, 10):
+        items = [(40, 700 - r * 14, 220, "word") for r in range(14)]
+        items += [(330, 700 - r * 14, 220, "word") for r in range(small)]
+        emit_build([(150, 155)], items)
+    # The smaller side is a column of bullets, which must be rejected.
+    for markers in (0, 5, 8, 9, 10):
+        items = [(330, 700 - r * 14, 220, "word") for r in range(14)]
+        items += [(40, 700 - r * 14, 6,
+                   "\u2022" if r < markers else "text") for r in range(10)]
+        emit_build([(150, 155)], items)
+    # Vertical overlap: text above a figure versus text beside it.
+    for offset in (0, 100, 200, 300, 400):
+        items = [(40, 700 - r * 14, 220, "word") for r in range(14)]
+        items += [(330, 700 - offset - r * 14, 220, "word") for r in range(14)]
+        emit_build([(150, 155)], items)
+    for span in (0.0, 0.1, 0.3, 0.5, 0.7, 0.9, 1.0):
+        items = [(40, 700 - r * 14, 220, "word") for r in range(14)]
+        items += [(330, 500 - r * 14, 220, "word") for r in range(14)]
+        emit_build([(150, 155)], items, min_span=span)
+    # A full-width title, which must not stretch the page's vertical extent.
+    items = two_column_items()
+    items.append((0, 760, 612, "Title~across~the~page"))
+    emit_build([(150, 155)], items)
+    # Every item full-width, so no narrow ones remain and the range is
+    # negatively infinite -- the overlap check is skipped entirely.
+    emit_build([(150, 155)], [(0, 700 - r * 14, 612, "wide") for r in range(14)])
+    # No valleys at all, and valleys that all fail.
+    emit_build([], two_column_items())
+    emit_build([(1, 2)], two_column_items())
+    # More than three gutters: the scoring, the truncation and the re-sort.
+    for count in (2, 3, 4, 5, 6):
+        items = []
+        for col in range(count + 1):
+            for r in range(12):
+                items.append((20 + col * 85, 700 - r * 14, 60, "word"))
+        valleys = [(int((20 + c * 85 + 75) / 2), int((20 + c * 85 + 85) / 2))
+                   for c in range(count)]
+        emit_build(valleys, items, min_items=5)
+    # Gutters of differing width, so the width term of the score decides.
+    items = []
+    for col in range(5):
+        for r in range(12):
+            items.append((20 + col * 110, 700 - r * 14, 80, "word"))
+    emit_build([(50, 52), (105, 112), (160, 162), (215, 224)], items, min_items=5)
+    # x_min shifting the gutter centres, and a bin width that moves them.
+    for x_min in (0.0, 40.0, -20.0):
+        for bin_width in (1.0, 2.0, 3.5):
+            emit_build([(150, 155)], two_column_items(),
+                       x_min=x_min, bin_width=bin_width)
+
+    def emit_prose(columns, items):
+        lines.append("R | {} ; {}".format(
+            " ".join("{},{}".format(a, b) for a, b in columns) or "-",
+            items_spec(items)))
+
+    # Prose in both columns, and each way of failing.
+    prose_left = [(40, 700 - r * 14, 220, "a~line~of~running~prose") for r in range(12)]
+    prose_right = [(330, 700 - r * 14, 220, "a~line~of~running~prose") for r in range(12)]
+    emit_prose([(20, 280), (300, 580)], prose_left + prose_right)
+    # A narrow column is rejected outright.
+    for width in (60, 119, 120, 121, 200):
+        emit_prose([(20, 20 + width), (300, 580)], prose_left + prose_right)
+    # Too few items, and too few lines despite enough items.
+    for rows in (4, 7, 8, 9, 12):
+        items = [(40, 700 - r * 14, 220, "prose~line") for r in range(rows)]
+        items += [(330, 700 - r * 14, 220, "prose~line") for r in range(rows)]
+        emit_prose([(20, 280), (300, 580)], items)
+    # Twenty items all on one baseline: enough items, one line.
+    items = [(40 + i * 10, 700, 8, "x") for i in range(20)]
+    emit_prose([(20, 280)], items)
+    # Line fill: short lines that do not reach 45% across.
+    for width in (20, 60, 110, 117, 126, 200, 260):
+        items = [(40, 700 - r * 14, width, "text") for r in range(12)]
+        emit_prose([(20, 280)], items)
+    # The full-line ratio, walked by mixing long and short lines.
+    for full in range(0, 13, 2):
+        items = [(40, 700 - r * 14, 220 if r < full else 20, "t") for r in range(12)]
+        emit_prose([(20, 280)], items)
+    # Items per line: a table has one item per cell.
+    for per_line in (1, 2, 3, 4, 5, 8):
+        items = []
+        for r in range(12):
+            for c in range(per_line):
+                items.append((40 + c * 60, 700 - r * 14, 55, "cell"))
+        emit_prose([(20, 280)], items)
+    # Baseline tolerance: drifting text must not chain into one line.
+    for drift in (0, 1, 2, 3, 4, 10):
+        items = [(40, 700 - r * drift, 220, "text") for r in range(12)]
+        emit_prose([(20, 280)], items)
+    # Items overhanging the column, whose span must be clipped.
+    items = [(-100, 700 - r * 14, 500, "over") for r in range(12)]
+    emit_prose([(20, 280)], items)
+    # No columns at all is vacuously prose.
+    emit_prose([], prose_left)
+
+    # Three-column pages, which the outcome spread was thin on.
+    for cols in (3, 4):
+        items = []
+        for col in range(cols):
+            for r in range(12):
+                items.append((20 + col * 190, 700 - r * 14, 150, "word"))
+        valleys = [(int((20 + c * 190 + 175) / 2), int((20 + c * 190 + 185) / 2))
+                   for c in range(cols - 1)]
+        emit_build(valleys, items, min_items=5)
+    # More truncation shapes: many valleys of varied width and density, so
+    # the score ordering and the re-sort by position both matter.
+    for count in (4, 5, 7, 9):
+        items = []
+        for col in range(count + 1):
+            for r in range(6 + col):
+                items.append((15 + col * 62, 700 - r * 14, 40, "word"))
+        valleys = [(int((15 + c * 62 + 56) / 2), int((15 + c * 62 + 62 + c) / 2))
+                   for c in range(count)]
+        emit_build(valleys, items, min_items=4)
+    # Every item full-width in more shapes, so the narrow set stays empty.
+    for width in (612, 500, 400):
+        emit_build([(150, 155)],
+                   [(0, 700 - r * 14, width, "wide") for r in range(14)])
+        emit_build([(150, 155)],
+                   [(0, 700 - r * 14, width, "wide") for r in range(4)], min_items=2)
+    # Marker columns on either side of the gutter, and at the 80% bar.
+    for markers in (7, 8, 9, 10):
+        for side in (0, 1):
+            wide = [(330 if side == 0 else 40, 700 - r * 14, 220, "word") for r in range(14)]
+            thin = [(40 if side == 0 else 330, 700 - r * 14, 6,
+                     "\u2022" if r < markers else "text") for r in range(10)]
+            emit_build([(150, 155)], wide + thin)
+
+    # Narrow columns, which reject before anything else is measured.
+    for width in (10, 40, 80, 100, 118, 119, 120):
+        emit_prose([(20, 20 + width)], prose_left)
+        emit_prose([(20, 400), (420, 420 + width)], prose_left + prose_right)
+    # Table-shaped columns: many items per line, walked around the 3.5 bar.
+    for per_line in (3, 4, 6, 7, 10, 12):
+        items = []
+        for r in range(14):
+            for c in range(per_line):
+                items.append((30 + c * 20, 700 - r * 14, 15, "c"))
+        emit_prose([(20, 300)], items)
+    # A mix: seven items on some lines and one on others, so the average
+    # lands either side of the bar without any line being typical.
+    for heavy in range(0, 15, 3):
+        items = []
+        for r in range(14):
+            count = 7 if r < heavy else 1
+            for c in range(count):
+                items.append((30 + c * 20, 700 - r * 14, 130 if count == 1 else 15, "c"))
+        emit_prose([(20, 300)], items)
+
     # is_list_marker_column: the 80% bar, and what counts as a marker.
     markers = ["\u2022", "\u25cf", "\u25cb", "\u25e6", "\u25aa",
                "\u25ab", "\u25c6", "\u25c7", "\u25a0", "\u25a1"]

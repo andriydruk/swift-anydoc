@@ -15,7 +15,7 @@
 /// number — each of which produces a convincing valley that means nothing.
 
 /// A column's horizontal extent.
-struct PdfColumnRegion {
+struct PdfColumnRegion: Equatable {
     var xMin: Float
     var xMax: Float
 }

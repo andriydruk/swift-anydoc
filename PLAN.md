@@ -2579,3 +2579,41 @@ readings**.
   instrumentation showed `spans_multiple_columns` returning true only 3 times
   and the single-valley return firing 8 times; targeted cases took those to
   28 and 27. 30 unit tests.
+
+- **Wave 62 — the arbiters that turn a gutter into a column.**
+  `PdfColumnBuild.swift` ports `columns_have_prose` and
+  `validate_and_build_columns` from `extractor/layout.rs`, the layer above
+  wave 61's valley finder.
+
+  A dip in the histogram is only a *candidate*. A table's column separator,
+  the gap beside a figure and the space after a list's bullets all look
+  identical to it, so these two decide: one asks whether each proposed column
+  reads like prose, the other whether both sides carry enough text over
+  enough of the page's height.
+  - Neither ever reports failure. `validate_and_build_columns` always returns
+    at least one region, so a page that fails every test comes back as a
+    single full-width column and the caller carries on unaware.
+  - The page's vertical extent is measured from **narrow items only** — the
+    same ones the histogram counted. A full-width title would otherwise
+    stretch the range and sink the overlap ratio for two columns that
+    legitimately sit below a figure. When *every* item is full-width the
+    narrow set is empty, the folds leave the range negatively infinite, and
+    the overlap test is skipped entirely.
+  - Edge assignment is deliberately asymmetric: an item must *end* before the
+    gutter to be left of it and *begin* after it to be right, so one lying
+    across it is counted on neither side.
+  - A sidebar is accepted on three items when the dominant side has the full
+    count; below three it is not a column.
+  - `columns_have_prose` is "all columns" rather than "most": the first
+    failure ends the question. Its line count is checked twice — once as
+    items and again after grouping — because twenty items sharing a baseline
+    are one line, not twenty.
+  - Both of the reference's sorts in the four-column truncation are stable,
+    so equal scores keep discovery order; Swift needed an index tiebreak.
+
+  626 probe cases agree on the first run. Gate instrumentation lifted the
+  thinnest branches — narrow columns 2→14, marker sides 3→9, table-shaped
+  columns 3→9. 18 unit tests, every boundary read off the reference rather
+  than derived from the constants: the 45% line-fill bar lands at exactly
+  126pt of a 280pt column and is inclusive, and 5 full lines out of 12 pass
+  the 40% ratio where 4 do not.

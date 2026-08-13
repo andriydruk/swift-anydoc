@@ -1223,6 +1223,92 @@ pub fn probe_valleys(input: &str) -> String {
                     .collect();
                 out.push_str(&format!("s {}\n", spans_multiple_columns(&it, &columns) as u8));
             }
+            // C center_assign min_items min_span x_min bin_width x_max
+            //   | v_lo:v_hi ... ; x,y,w,text ...
+            "C" => {
+                let bar = match parts.iter().position(|p| *p == "|") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let semi = match parts.iter().position(|p| *p == ";") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let center = parts[1] == "1";
+                let min_items: usize = parts[2].parse().unwrap_or(0);
+                let min_span: f32 = parts[3].parse().unwrap_or(0.0);
+                let x_min: f32 = parts[4].parse().unwrap_or(0.0);
+                let bin_width: f32 = parts[5].parse().unwrap_or(1.0);
+                let x_max: f32 = parts[6].parse().unwrap_or(612.0);
+                let valleys: Vec<(usize, usize)> = parts[bar + 1..semi]
+                    .iter()
+                    .filter_map(|p| {
+                        let (a, b) = p.split_once(':')?;
+                        Some((a.parse().ok()?, b.parse().ok()?))
+                    })
+                    .collect();
+                let items: Vec<TextItem> = parts[semi + 1..]
+                    .iter()
+                    .filter_map(|p| {
+                        let f: Vec<&str> = p.split(',').collect();
+                        if f.len() < 4 {
+                            return None;
+                        }
+                        Some(item(
+                            f[0].parse().ok()?,
+                            f[1].parse().ok()?,
+                            f[2].parse().ok()?,
+                            12.0,
+                            f[3],
+                        ))
+                    })
+                    .collect();
+                let refs: Vec<&TextItem> = items.iter().collect();
+                let columns = validate_and_build_columns(
+                    &valleys, &refs, x_min, bin_width, x_max, min_items, min_span, 1, center,
+                );
+                out.push_str(&format!("c {}", columns.len()));
+                for col in &columns {
+                    out.push_str(&format!(" {:.2}:{:.2}", col.x_min, col.x_max));
+                }
+                out.push('\n');
+            }
+            // R | xmin,xmax ... ; x,y,w,text ...
+            "R" => {
+                let bar = match parts.iter().position(|p| *p == "|") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let semi = match parts.iter().position(|p| *p == ";") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let columns: Vec<ColumnRegion> = parts[bar + 1..semi]
+                    .iter()
+                    .filter_map(|p| {
+                        let (a, b) = p.split_once(',')?;
+                        Some(ColumnRegion { x_min: a.parse().ok()?, x_max: b.parse().ok()? })
+                    })
+                    .collect();
+                let items: Vec<TextItem> = parts[semi + 1..]
+                    .iter()
+                    .filter_map(|p| {
+                        let f: Vec<&str> = p.split(',').collect();
+                        if f.len() < 4 {
+                            return None;
+                        }
+                        Some(item(
+                            f[0].parse().ok()?,
+                            f[1].parse().ok()?,
+                            f[2].parse().ok()?,
+                            12.0,
+                            f[3],
+                        ))
+                    })
+                    .collect();
+                let refs: Vec<&TextItem> = items.iter().collect();
+                out.push_str(&format!("r {}\n", columns_have_prose(&columns, &refs) as u8));
+            }
             // P y text
             "P" => {
                 let it = item(0.0, parts[1].parse().unwrap_or(0.0), 0.0, 12.0, parts[2]);

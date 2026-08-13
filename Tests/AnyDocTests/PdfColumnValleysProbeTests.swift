@@ -74,6 +74,37 @@ import Testing
                 index += 2
             }
             return "s \(pdfSpansMultipleColumns(item, columns) ? 1 : 0)"
+        case "C":
+            guard let bar = parts.firstIndex(of: "|"), let semi = parts.firstIndex(of: ";"),
+                parts.count > 6
+            else { return nil }
+            let valleys: [(lower: Int, upper: Int)] = parts[(bar + 1)..<semi].compactMap {
+                let halves = $0.split(separator: ":")
+                guard halves.count == 2, let lower = Int(halves[0]), let upper = Int(halves[1])
+                else { return nil }
+                return (lower, upper)
+            }
+            let columns = pdfValidateAndBuildColumns(
+                valleys: valleys, items: parseItems(parts[(semi + 1)...]),
+                xMin: Float(parts[4]) ?? 0, binWidth: Float(parts[5]) ?? 1,
+                xMax: Float(parts[6]) ?? 612, minimumItems: Int(parts[2]) ?? 0,
+                minimumVerticalSpan: Float(parts[3]) ?? 0, centreAssign: parts[1] == "1")
+            var out = "c \(columns.count)"
+            for column in columns {
+                out += " \(twoPlaces(column.xMin)):\(twoPlaces(column.xMax))"
+            }
+            return out
+        case "R":
+            guard let bar = parts.firstIndex(of: "|"), let semi = parts.firstIndex(of: ";")
+            else { return nil }
+            let columns: [PdfColumnRegion] = parts[(bar + 1)..<semi].compactMap {
+                let halves = $0.split(separator: ",")
+                guard halves.count == 2, let low = Float(halves[0]), let high = Float(halves[1])
+                else { return nil }
+                return PdfColumnRegion(xMin: low, xMax: high)
+            }
+            let prose = pdfColumnsHaveProse(columns, parseItems(parts[(semi + 1)...]))
+            return "r \(prose ? 1 : 0)"
         case "P":
             guard parts.count > 2 else { return nil }
             let item = PdfLayoutItem(
@@ -83,5 +114,29 @@ import Testing
         default:
             return nil
         }
+    }
+
+    /// `x,y,width,text` tuples, tildes standing in for spaces.
+    private func parseItems(_ fields: ArraySlice<String>) -> [PdfLayoutItem] {
+        fields.compactMap { field in
+            let parts = field.split(separator: ",", omittingEmptySubsequences: false)
+            guard parts.count >= 4, let x = Float(parts[0]), let y = Float(parts[1]),
+                let width = Float(parts[2])
+            else { return nil }
+            return PdfLayoutItem(
+                text: parts[3].replacingOccurrences(of: "~", with: " "), x: x, y: y,
+                width: width, fontSize: 12, fontName: "F1")
+        }
+    }
+
+    /// Rust's `{:.2}`, which rounds half away from zero.
+    private func twoPlaces(_ value: Float) -> String {
+        if value.isNaN { return "NaN" }
+        if value.isInfinite { return value < 0 ? "-inf" : "inf" }
+        let scaled = (Double(value) * 100).rounded(.toNearestOrAwayFromZero)
+        let whole = Int(scaled / 100)
+        let fraction = abs(Int(scaled) % 100)
+        let sign = (scaled < 0 && whole == 0) ? "-" : ""
+        return "\(sign)\(whole).\(fraction < 10 ? "0" : "")\(fraction)"
     }
 }
