@@ -97,6 +97,37 @@ surface on Apple platforms, `Compression.framework`, `PDFKit`, `CoreGraphics`, `
 closed-source frameworks do not exist — if it builds and passes there, the constraint holds.
 Plus a lint step that greps for banned imports.
 
+**Clarified 2026-08-13 — what the rule is actually for.** The owner's requirement is
+narrower than the lint: *no SPM dependencies, and the library builds on both macOS and
+Linux*. `Foundation` and `Dispatch` are permitted if they earn their place. The lint stays
+as written anyway, because measuring the cost showed the ban has bought more than it cost:
+
+- Of ~35,600 library lines, Foundation could displace maybe 2,300 — `Xml.swift` (999), the
+  legacy encodings (1,298) and `FileBytes.swift` (34). Everything else has no Foundation
+  equivalent at all: inflate, ZIP, CFB, HTML, and the PDF stack.
+- ~2,270 of those 2,300 are exactly where Foundation would *introduce* divergence. Its
+  Unicode, encoding and collation surfaces are ICU-backed — system ICU on macOS (tied to the
+  OS version), bundled ICU on corelibs — so the same input can produce different output on
+  the two platforms. The correctness bar here is byte-identity with a Rust binary, so that
+  turns a deterministic port into a platform- and OS-version-dependent one. Wave 55 is the
+  worked example: the NFKC tables had to come from the reference's own crate at Unicode
+  17.0.0 precisely because the local `unicodedata` was 13.0.0.
+- `RustFloat.swift` and `RustCompat.swift` make the point from the other side. They exist
+  *because* Foundation's and Swift's semantics differ from Rust's — `String(format:)` will
+  not reproduce Rust's `Display for f64`, and Foundation's locale- and grapheme-aware string
+  operations are wrong where the reference is byte-wise. Foundation makes those files
+  harder, not unnecessary.
+- The Apple-framework bans (`Compression`, `PDFKit`, `CoreGraphics`, `CryptoKit`, …) are
+  load-bearing for the Linux half regardless of any Foundation decision. Concretely: PDF
+  encryption needs MD5, RC4, AES-128 and SHA-256, and none of those are portably available,
+  so they are hand-rolled either way (§ PDF phase).
+- `Dispatch` is not wanted separately: Swift Concurrency is available on both platforms with
+  no import, so `TaskGroup` covers per-page parallelism if it is ever needed.
+
+**So the lint is a default, not a doctrine.** If a case appears where Foundation is clearly
+the better answer *and* its behaviour is platform-independent, raise it and decide — do not
+silently hand-roll around it, and do not silently import it either.
+
 ### Swift-specific porting gotchas (each becomes a checklist item)
 
 1. **Float formatting.** `format!("{}", 1.0_f64)` → `"1"` in Rust; `"\(1.0)"` → `"1.0"` in
