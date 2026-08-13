@@ -63,6 +63,13 @@ perl -pi -e "s/^mod text_quality;/pub mod text_quality;/; s/^pub\\(crate\\) mod 
 # `detector` is already a public module and the probe below lives inside it,
 # so its private helpers and `PageAnalysis` need no widening at all.
 
+# `fonts` is a private submodule of `extractor`, and the probe below reaches
+# `parse_encoding_dictionary` and `EncodingResult`.
+perl -pi -e "s/^pub\\(crate\\) mod fonts;/pub mod fonts;/; s/^mod fonts;/pub mod fonts;/" \
+    "$crate/src/extractor/mod.rs"
+perl -pi -e "s/^pub\\(crate\\) fn parse_encoding_dictionary/pub fn parse_encoding_dictionary/; s/^pub\\(crate\\) struct EncodingResult/pub struct EncodingResult/; s/^struct EncodingResult/pub struct EncodingResult/" \
+    "$crate/src/extractor/fonts.rs"
+
 # Reach the path walker without widening a dozen private items.
 perl -pi -e 's/^pub\(crate\) mod content_stream;/pub mod content_stream;/' \
     "$crate/src/extractor/mod.rs"
@@ -903,6 +910,55 @@ pub fn probe_structnames(input: &str) -> String {
             encoded.push_str(&format!("{b:02x}"));
         }
         out.push_str(&format!("n {} {}\n", matches!(fixed, Cow::Owned(_)) as u8, encoded));
+    }
+    out
+}
+RUSTEOF
+
+cat >> "$crate/src/extractor/fonts.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): the `/Differences` array. A case is one
+/// line: an optional `@base-font` then space-separated `NNN` numbers and
+/// `/Name` entries.
+pub fn probe_differences(input: &str) -> String {
+    use lopdf::{Document, Object};
+    let mut out = String::new();
+    let doc = Document::new();
+    for line in input.lines() {
+        let mut base_font: Option<String> = None;
+        let mut items: Vec<Object> = Vec::new();
+        for token in line.split(' ') {
+            if token.is_empty() {
+                continue;
+            }
+            if let Some(name) = token.strip_prefix('@') {
+                base_font = Some(name.to_string());
+            } else if let Some(name) = token.strip_prefix('/') {
+                items.push(Object::Name(name.as_bytes().to_vec()));
+            } else if let Ok(value) = token.parse::<i64>() {
+                items.push(Object::Integer(value));
+            } else {
+                items.push(Object::Null);
+            }
+        }
+        let mut dict = lopdf::Dictionary::new();
+        dict.set("Differences", Object::Array(items));
+        match parse_encoding_dictionary(&doc, &dict, base_font.as_deref()) {
+            None => out.push_str("d none\n"),
+            Some(result) => {
+                let mut codes: Vec<u8> = result.map.keys().copied().collect();
+                codes.sort();
+                out.push_str("d");
+                for code in codes {
+                    out.push_str(&format!(" {}:{:X}", code, result.map[&code] as u32));
+                }
+                out.push_str("\ng");
+                for code in &result.gid_codes {
+                    out.push_str(&format!(" {code}"));
+                }
+                out.push('\n');
+            }
+        }
     }
     out
 }
@@ -2160,6 +2216,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::text_utils::probe_letterspacing(&input));
+        return;
+    }
+    if path == "--differences" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::extractor::fonts::probe_differences(&input));
         return;
     }
     if path == "--glyphnames" {

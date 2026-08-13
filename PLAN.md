@@ -2423,3 +2423,28 @@ wrong before the third was right.
   cases, all agreeing on the first run**, 4,553 of them resolving. A unit test
   also asserts the generated table is sorted, since a binary search over an
   unsorted one would fail silently on some names and not others.
+
+- **Wave 58 — the `/Differences` encoding array.**
+  `PdfEncodingDifferences.swift` ports `parse_encoding_dictionary` and its
+  helpers, which is what wave 57's glyph table exists for.
+
+  The array is flat and mixes numbers with names: a number sets the next code,
+  and each name takes the code after the last, so `[65 /A /B 200 /eacute]`
+  assigns 65, 66 and 200.
+  - A code is truncated to a byte with `n as u8`, so 256 becomes 0 rather than
+    being rejected, and the code **wraps** after 255.
+  - A name the glyph table cannot resolve is left out of the map but **still
+    advances the code**, so the byte keeps whatever the base encoding gave it
+    and the following names are not shifted onto it.
+  - A value that is neither number nor name is ignored *without* advancing,
+    so a stray entry does not displace the names after it.
+  - `gidNNNNN` names are raw glyph indices into the embedded font's own
+    tables. They are recorded rather than mapped, so a caller can tell the
+    text is undecodable without a `/ToUnicode` map rather than being silently
+    wrong.
+  - One private mapping is carried, deliberately **font-scoped**: Aptos
+    subsets out of Office expose the `ff` ligature as `/g431` with nothing to
+    explain it. `/gNNN` names mean different things in different fonts, so the
+    same name elsewhere resolves to nothing.
+
+220 cases agree on the first run, mapping 471 codes.

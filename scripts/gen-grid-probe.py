@@ -2551,6 +2551,60 @@ def glyphname_cases(source):
     return names
 
 
+
+def difference_cases(random_count):
+    """Cases for the /Differences array."""
+    rng = random.Random(58_2026)
+
+    cases = [
+        # Empty, and a single run.
+        "",
+        "65 /A /B /C",
+        # A second number restarts the numbering.
+        "65 /A /B 200 /eacute /egrave",
+        # Names before any number start at zero.
+        "/A /B",
+        # A code past a byte is truncated rather than rejected.
+        "256 /A",
+        "300 /A /B",
+        "-1 /A",
+        # A name at 255 wraps to zero.
+        "255 /A /B",
+        # Unresolvable names are left out of the map but still advance.
+        "65 /notaglyph /B",
+        # The uni and u fallbacks reach through.
+        "65 /uni0041 /u00E9 /zero.tf",
+        # Raw glyph ids are recorded rather than mapped.
+        "65 /gid00053 /gid1 /gidX /gid",
+        "65 /gid00053 /A /gid7",
+        # Ligature names, which the reference counts but does not act on.
+        "65 /fi /fl /ffi",
+        # The private Aptos mapping, which is font-scoped.
+        "@Aptos 65 /g431",
+        "@ABCDEF+Aptos 65 /g431",
+        "@aptos 65 /g431",
+        "@Helvetica 65 /g431",
+        "65 /g431",
+        # A stray value that is neither number nor name.
+        "65 /A null /B",
+        # Repeated codes: the last name wins.
+        "65 /A 65 /B",
+    ]
+
+    names = ["/A", "/eacute", "/notaglyph", "/gid0012", "/uni0041", "/u00E9", "/zero.tf",
+             "/fi", "/g431", "null"]
+    fonts = ["", "@Aptos ", "@ABCDEF+Aptos ", "@Helvetica "]
+    for _ in range(random_count):
+        tokens = [rng.choice(fonts).strip()] if rng.random() < 0.4 else []
+        for _ in range(rng.randint(0, 10)):
+            if rng.random() < 0.3:
+                tokens.append(str(rng.choice([0, 1, 65, 200, 255, 256, 300, -1])))
+            else:
+                tokens.append(rng.choice(names))
+        cases.append(" ".join(t for t in tokens if t))
+    return cases
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -2832,6 +2886,18 @@ def main():
     with open(os.path.join(arguments.directory, "letterspacing-rust.txt"), "w",
               encoding="utf-8") as f:
         f.write("\n===\n".join(ls_answers))
+
+    df_lines = difference_cases(max(arguments.cases // 3, 100))
+    with open(os.path.join(arguments.directory, "difference-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n".join(df_lines))
+    r = subprocess.run(
+        [probe, "--differences"], input="\n".join(df_lines) + "\n", capture_output=True,
+        text=True, check=True
+    )
+    with open(os.path.join(arguments.directory, "difference-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write(r.stdout)
 
     reference = os.path.join(
         os.path.expanduser("~"),
