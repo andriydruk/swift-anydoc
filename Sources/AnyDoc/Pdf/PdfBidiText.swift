@@ -7,10 +7,8 @@
 /// itself has to leave embedded numbers and Latin words alone — they run the
 /// other way inside the same line.
 ///
-/// Not ported here: `expand_ligatures`, which applies NFKC normalisation when
-/// Arabic presentation forms are present. NFKC needs a Unicode decomposition
-/// table this port does not have yet; generating one is its own wave, and the
-/// function is inert without it. Everything it *calls* is here.
+/// `expand_ligatures` lives in `PdfLigatures.swift`, which needed the NFKC
+/// implementation of wave 55 before it could be written.
 
 /// Whether a scalar is CJK, by block.
 ///

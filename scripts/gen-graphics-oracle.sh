@@ -51,6 +51,8 @@ perl -pi -e "s/^mod structure_tree;/pub mod structure_tree;/; s/^pub\\(crate\\) 
     "$crate/src/lib.rs"
 
 # `text_utils` is private too.
+perl -pi -e "s/^pub\\(crate\\) fn expand_ligatures/pub fn expand_ligatures/" \
+    "$crate/src/text_utils.rs"
 perl -pi -e "s/^mod text_utils;/pub mod text_utils;/; s/^pub\\(crate\\) mod text_utils;/pub mod text_utils;/" \
     "$crate/src/lib.rs"
 
@@ -962,6 +964,26 @@ pub fn probe_letterspacing(input: &str) -> String {
     out.push_str(&format!("f {threshold:.6}\n"));
     for item in &items {
         out.push_str(&format!("i {}\n", item.text.replace(' ', "~")));
+    }
+    out
+}
+
+/// Probe (added for swift-anydoc): ligature expansion. One hex-encoded UTF-8
+/// string per line; the answer is the expanded string, also hex.
+pub fn probe_ligatures(input: &str) -> String {
+    let mut out = String::new();
+    for line in input.lines() {
+        let hex = line.trim();
+        let bytes: Vec<u8> = (0..hex.len() / 2)
+            .map(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).unwrap_or(0))
+            .collect();
+        let text = String::from_utf8_lossy(&bytes).to_string();
+        let expanded = expand_ligatures(&text);
+        let mut encoded = String::with_capacity(expanded.len() * 2);
+        for b in expanded.as_bytes() {
+            encoded.push_str(&format!("{b:02x}"));
+        }
+        out.push_str(&format!("l {encoded}\n"));
     }
     out
 }
@@ -2118,6 +2140,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::text_utils::probe_letterspacing(&input));
+        return;
+    }
+    if path == "--ligatures" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::text_utils::probe_ligatures(&input));
         return;
     }
     if path == "--bidi" {

@@ -2482,6 +2482,47 @@ def structtable_cases(random_count):
     return cases
 
 
+
+def ligature_cases(random_count):
+    """Cases for ligature expansion."""
+    rng = random.Random(55_2026)
+    arabic = "\u0645\u0631\u062d\u0628\u0627"
+    forms = "\ufb50\ufe70\ufdf2\ufefb"
+
+    cases = [
+        "",
+        "plain text",
+        # Every explicit ligature.
+        "\ufb00\ufb01\ufb02\ufb03\ufb04\ufb05\ufb06",
+        "of\ufb01ce",
+        # Invisible characters.
+        "a\u00adb", "a\u200bb", "a\ufeffb", "a\u200cb", "a\u200db", "a\u2060b",
+        # Typographic spaces, and the non-breaking space that is exempt.
+        "a\u2000b\u2009c\u200ad",
+        "a\u00a0b",
+        # Control characters, stripped; tab, newline and return kept.
+        "a\u0000b\u0001c",
+        "a\tb\nc\rd",
+        # Arabic presentation forms: normalised, then reversed.
+        forms,
+        forms + " 2024",
+        arabic,                      # no forms, so untouched
+        forms + arabic,
+        "abc " + forms + " def",
+        # A ligature inside Arabic, so both paths run.
+        forms + "\ufb01",
+        # Non-breaking space inside Arabic, which normalisation would fold.
+        forms + "\u00a0" + forms,
+    ]
+
+    alphabet = list("ab \u00a0\u2000\u200b\ufb01\ufb03\u00ad\t\n") + [
+        "\ufb50", "\ufe70", "\u0645", "\u0031", "\u0000"]
+    for _ in range(random_count):
+        cases.append("".join(rng.choice(alphabet) for _ in range(rng.randint(0, 30))))
+
+    return [c.encode("utf-8").hex() for c in cases]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -2763,6 +2804,18 @@ def main():
     with open(os.path.join(arguments.directory, "letterspacing-rust.txt"), "w",
               encoding="utf-8") as f:
         f.write("\n===\n".join(ls_answers))
+
+    lg_lines = ligature_cases(max(arguments.cases // 3, 100))
+    with open(os.path.join(arguments.directory, "ligature-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n".join(lg_lines))
+    r = subprocess.run(
+        [probe, "--ligatures"], input="\n".join(lg_lines) + "\n", capture_output=True,
+        text=True, check=True
+    )
+    with open(os.path.join(arguments.directory, "ligature-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write(r.stdout)
 
     bd_blocks = bidi_cases(max(arguments.cases // 3, 80))
     with open(os.path.join(arguments.directory, "bidi-cases.txt"), "w", encoding="utf-8") as f:

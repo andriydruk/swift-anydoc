@@ -2321,3 +2321,41 @@ table path is complete end to end but not yet reachable from a file.
 added, but its emission path calls `expand_ligatures`, which is still blocked
 on an NFKC table. Porting it without that would be silently wrong on exactly
 the Arabic text it exists for.
+
+- **Wave 55 — NFKC, and the ligature expansion it was blocking.**
+  `PdfNfkc.swift`, the generated `PdfNfkcTables.swift`, and `PdfLigatures.swift`
+  — `expand_ligatures` at last, deferred through waves 44 and 54.
+
+  This is the first wave ported from a *dependency* rather than a function:
+  the reference calls `unicode-normalization`'s `nfkc()`, so the algorithm is
+  reimplemented and the tables come from that same crate.
+  - **The tables must come from the crate, not from Python.** The crate is on
+    Unicode 17.0.0 and the local `unicodedata` is on 13.0.0; a table generated
+    from the wrong version would diverge on anything added or changed between
+    them. `scripts/gen-nfkc-tables.sh` builds a small program against the
+    crate and dumps what it says.
+  - Hangul is left out on purpose — its decomposition and composition are
+    arithmetic, and tabulating 11,172 syllables would add nothing.
+  - Flat integer arrays rather than dictionary literals: a Swift dictionary
+    literal of six thousand entries takes minutes to type-check.
+
+  **A real bug, caught by the probe.** The composition table was first built
+  from the *full* NFD, which is wrong: U+01D5 decomposes fully to three
+  scalars (U, diaeresis, macron) but composes from two (U+00DC, macron), so
+  every multiply-accented letter was missing its pair. The fix derives the
+  one-step form by recomposing everything but the final mark and checking the
+  whole thing round-trips — which also filters the composition-exclusion list
+  without ever needing it. Pairs went from 705 to 961.
+
+  Verified against the crate over **every codepoint (1,112,064) and 4,000
+  random sequences**. Single codepoints never exercise canonical ordering or
+  composition blocking, so the sequences are the half that matters; they are
+  built from starters and marks chosen to collide on combining class.
+
+  `expand_ligatures` then follows directly. It normalises **only** when Arabic
+  presentation forms are present — folding everything would turn a
+  non-breaking space into an ordinary one, which the spacing logic depends on
+  — and the presence check has to run *before* normalisation, since NFKC
+  erases the evidence. 221 ligature cases agree on the first run.
+
+**`/ActualText` is now unblocked** and is the natural next wave.
