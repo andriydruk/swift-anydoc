@@ -759,6 +759,39 @@ RUSTEOF
 
 cat >> "$crate/src/structure_tree.rs" <<'RUSTEOF'
 
+/// Probe (added for swift-anydoc): the parsed structure tree of a document,
+/// flattened so nesting, roles, pages and content refs can all be compared.
+pub fn probe_structparse(bytes: &[u8]) -> String {
+    let doc = match lopdf::Document::load_mem(bytes) {
+        Ok(d) => d,
+        Err(e) => return format!("#ERROR {e:?}\n"),
+    };
+    let Some(tree) = StructTree::from_doc(&doc) else {
+        return "#NONE\n".to_string();
+    };
+    let mut flat = Vec::new();
+    flatten_recursive(&tree.children, &mut flat, 0);
+    let mut out = format!("#TREE {}\n", flat.len());
+    for element in &flat {
+        out.push_str(&format!(
+            "e {} {:?} {} {}",
+            element.depth,
+            element.role,
+            element.child_count,
+            element.alt_text.as_deref().unwrap_or("-")
+        ));
+        for reference in &element.content_refs {
+            out.push_str(&format!(
+                " {}:{}",
+                reference.mcid,
+                reference.page_id.map(|id| id.0.to_string()).unwrap_or_else(|| "-".into())
+            ));
+        }
+        out.push('\n');
+    }
+    out
+}
+
 /// Probe (added for swift-anydoc): the pure tree walks. A case is a list of
 /// `depth role mcid:page,...` lines describing the tree in document order.
 pub fn probe_structtree(input: &str) -> String {
@@ -2051,6 +2084,12 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::tables::detect_struct::probe_structcols(&input));
+        return;
+    }
+    if path == "--structparse" {
+        let file = std::env::args().nth(2).expect("usage: --structparse <file.pdf>");
+        let bytes = std::fs::read(&file).expect("read");
+        print!("{}", pdf_inspector::structure_tree::probe_structparse(&bytes));
         return;
     }
     if path == "--structtree" {

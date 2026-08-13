@@ -2285,3 +2285,39 @@ three header lines brought that to 24.
 **Still not wired:** nothing in `Sources` calls `pdfExtractTextRuns` yet — the
 document→markdown pipeline is assembled in a later phase — so the struct-tree
 table path is complete end to end but not yet reachable from a file.
+
+- **Wave 54 — reading the structure tree out of a document.**
+  `PdfStructTreeParser.swift` ports `StructTree::from_doc`, `parse_role_map`,
+  `parse_kids`, `parse_kid`, `parse_struct_element_dict` and their helpers.
+  **`structure_tree.rs` is now complete**, and the struct-tree table path runs
+  end to end: document → tree → tables.
+
+  `/K` is the awkward part. It may be an integer, a dictionary, a stream or an
+  array of any mixture — and an integer means *content of this element* while
+  a dictionary means *a child element*, so one key carries two different
+  relationships.
+  - A bare integer directly under `/K` at the kid level becomes a **synthetic
+    `Span`**: the reference wraps it rather than attaching it to the parent, so
+    the tree gains a node the document never declared. Its own comment admits
+    the wrapper is a workaround.
+  - The lone-dictionary branch does **not** check for `/Type /OBJR`, unlike the
+    array branch beside it. An object reference there is parsed as an element
+    and then dropped for want of an `/S` — same outcome, different route.
+  - `/Pg` must stay a *reference*: resolving it to the page dictionary would
+    lose the identity the tables key on.
+  - The role-map chain runs at most eight hops, and only for names that are
+    not already standard — so a document cannot redefine `H1`.
+  - A `/StructTreeRoot` with no children is reported as *absent*, since it
+    tells a caller no more than having none.
+
+  **A second corpus-based probe**, on the wave-53 pattern:
+  `scripts/gen-structtree-corpus.py` writes twenty hand-built tagged PDFs —
+  every `/K` shape, MCR and OBJR dictionaries, inherited pages, role-map
+  chains and cycles, a self-referential element — and runs the reference's own
+  `from_doc` over each. **20 documents agree on the first run**, including the
+  64-level depth limit and the role-map cycle resolving to `Other("A")`.
+
+**Deferred again: `/ActualText`.** It shares the `BDC`/`EMC` machinery wave 53
+added, but its emission path calls `expand_ligatures`, which is still blocked
+on an NFKC table. Porting it without that would be silently wrong on exactly
+the Arabic text it exists for.
