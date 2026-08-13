@@ -2606,6 +2606,180 @@ def difference_cases(random_count):
 
 
 
+def valley_cases(random_count):
+    """Cases for the leaf tests of column detection.
+
+    The valley finder has eight consecutive gates, so the histograms are
+    built to fail each one in turn: too few bins, an empty margin, a
+    non-minimum, a short peak, unbalanced peaks, insufficient contrast, and a
+    dip inside the page margin. Random histograms alone reach almost none of
+    them.
+    """
+    rng = random.Random(61_2026)
+    lines = []
+
+    def hist(values, bin_width=2.0, page_width=612.0, margin=50.0):
+        lines.append("V {} {} {} | {}".format(
+            bin_width, page_width, margin, " ".join(str(int(v)) for v in values)))
+
+    def two_columns(bins=160, gutter_at=80, gutter_width=5, peak=60, floor=0):
+        """A justified two-column page: high on both sides, a dip between."""
+        out = []
+        for i in range(bins):
+            if abs(i - gutter_at) <= gutter_width // 2:
+                out.append(floor)
+            else:
+                out.append(peak)
+        return out
+
+    # Too few bins to consider at all.
+    for n in (0, 1, 9, 10, 11):
+        hist([30] * n)
+
+    # The canonical shape, and the floor swept from empty to no-contrast.
+    for floor in (0, 1, 2, 5, 10, 20, 30, 35, 36, 40, 59, 60):
+        hist(two_columns(floor=floor))
+
+    # Peak height at the 20 bar, from both sides.
+    for peak in (5, 15, 19, 20, 21, 25, 100):
+        hist(two_columns(peak=peak, floor=0))
+
+    # Unbalanced peaks: the 0.40 balance gate. The left side is held at 100
+    # and the right swept down through the bar.
+    for right in (100, 60, 41, 40, 39, 20, 10):
+        values = two_columns(peak=100, floor=0)
+        for i in range(85, 160):
+            values[i] = right
+        hist(values)
+
+    # The dip's position against the margin, including either side of it.
+    for at in (5, 24, 25, 26, 30, 80, 130, 135, 136, 155):
+        hist(two_columns(gutter_at=at), margin=50.0)
+    for margin in (0.0, 10.0, 49.0, 50.0, 51.0, 200.0, 306.0, 400.0):
+        hist(two_columns(), margin=margin)
+
+    # Bin width changes where the margin test lands without changing shape.
+    for bin_width in (0.5, 1.0, 2.0, 4.0, 8.0):
+        hist(two_columns(), bin_width=bin_width)
+
+    # Several gutters: the grouping and the single-best selection.
+    values = two_columns(bins=240, gutter_at=60, floor=0)
+    for i in range(118, 123):
+        values[i] = 5
+    for i in range(178, 183):
+        values[i] = 2
+    hist(values)
+    # Two dips of equal contrast -- which one wins is the tie the reference
+    # settles by taking the first.
+    values = two_columns(bins=240, gutter_at=60, floor=3)
+    for i in range(178, 183):
+        values[i] = 3
+    hist(values)
+    # Adjacent candidates that must group into one valley rather than two.
+    values = two_columns(bins=200, gutter_at=100, gutter_width=11, floor=4)
+    hist(values)
+
+    # A ragged single column: high in the middle, falling away at both
+    # margins, which must not read as a gutter.
+    values = [max(0, 60 - abs(i - 80)) for i in range(160)]
+    hist(values)
+    # A flat page, and a page with one spike.
+    hist([40] * 160)
+    values = [40] * 160
+    values[80] = 0
+    hist(values)
+
+    # A narrow page: the scan window is wider than the histogram.
+    for bins in (12, 24, 49, 50, 51, 60):
+        hist(two_columns(bins=bins, gutter_at=bins // 2))
+
+    # Random histograms, biased toward the ranges the gates care about.
+    for _ in range(random_count):
+        n = rng.choice([0, 5, 12, 60, 120, 160, 240])
+        top = rng.choice([3, 25, 60, 200])
+        hist([rng.randrange(0, top) for _ in range(n)],
+             bin_width=rng.choice([0.5, 1.0, 2.0, 4.0]),
+             margin=rng.choice([0.0, 20.0, 50.0, 150.0]))
+
+    # One clean gutter and nothing else, at a range of widths and depths --
+    # the single-valley return, which the multi-gutter cases above bypass.
+    for width in (1, 3, 5, 7, 9, 11):
+        for floor in (0, 2, 6, 12):
+            hist(two_columns(bins=180, gutter_at=90, gutter_width=width, floor=floor))
+    # A gutter with a sloped floor, so several adjacent bins qualify and have
+    # to be grouped rather than each closing a group.
+    for depth in (2, 4, 8):
+        values = [60] * 180
+        for offset, value in enumerate([depth * 3, depth * 2, depth, depth * 2, depth * 3]):
+            values[88 + offset] = value
+        hist(values)
+    # Two candidates exactly five bins apart (same group) and exactly six
+    # apart (a new one) -- the grouping boundary.
+    for spacing in (2, 4, 5, 6, 7, 12):
+        values = [60] * 200
+        values[90] = 0
+        values[90 + spacing] = 0
+        hist(values)
+
+    # spans_multiple_columns with items wide enough to actually span. A
+    # full-width heading is the shape this test exists to catch.
+    for width in (300, 320, 400, 612, 800):
+        lines.append(f"S 0 {width} 12 Heading | 0 300 320 612")
+        lines.append(f"S 0 {width} 12 Heading | 0 200 210 400 410 612")
+        lines.append(f"S 0 {width} 12 Heading | 0 150 160 300 310 450 460 612")
+    # Straddling the gutter by a walked amount: the 10%-of-width rule at a
+    # 300pt column is 30pt, so the 20pt absolute rule decides below that.
+    for overlap in (5, 15, 19, 20, 21, 25, 29, 30, 31, 50, 100):
+        lines.append(f"S {280 - overlap} {overlap + 60} 12 T | 0 280 300 612")
+    # The same walk against a narrow column, where 10% is under 20pt and the
+    # percentage rule is the one that fires first.
+    for overlap in (1, 2, 3, 5, 9, 10, 11, 21, 40):
+        lines.append(f"S {100 - overlap} {overlap + 30} 12 T | 0 100 110 210")
+    # No measured width, so the estimate from text length decides.
+    for text in ("T", "Short", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"):
+        for x in (0, 140, 280, 400):
+            lines.append(f"S {x} 0 12 {text} | 0 300 320 612")
+            lines.append(f"S {x} 0 40 {text} | 0 300 320 612")
+
+    # is_list_marker_column: the 80% bar, and what counts as a marker.
+    markers = ["\u2022", "\u25cf", "\u25cb", "\u25e6", "\u25aa",
+               "\u25ab", "\u25c6", "\u25c7", "\u25a0", "\u25a1"]
+    lines.append("L -")
+    for marker in markers:
+        lines.append("L " + marker)
+        # A marker glued to its text is not a standalone marker.
+        lines.append("L " + marker + "item")
+        lines.append("L ~" + marker + "~")
+    for count in range(1, 11):
+        row = ["\u2022"] * count + ["text"] * (10 - count)
+        lines.append("L " + " ".join(row))
+    # Near neighbours that are not on the list.
+    for other in ["-", "*", "\u00b7", "\u2023", "\u2043", "\u25cf\u25cf", "1.", ""]:
+        lines.append("L " + (other if other else "~"))
+
+    # spans_multiple_columns: the 10%-of-width and the 20pt rules, and the
+    # estimated width when none was measured.
+    for width in (0, 10, 30, 60, 120, 300):
+        for x in (0, 45, 90, 140, 300, 500):
+            lines.append(f"S {x} {width} 12 Heading | 0 300 320 612")
+    # A narrow column where 10% is under 20pt, and a wide one where it is over.
+    for x in (0, 90, 150, 250):
+        lines.append(f"S {x} 40 12 T | 0 100 110 200 210 300")
+        lines.append(f"S {x} 40 12 T | 0 500 510 1000")
+    # No columns, one column, and zero-width columns.
+    lines.append("S 0 100 12 T |")
+    lines.append("S 0 100 12 T | 0 300")
+    lines.append("S 0 100 12 T | 50 50 60 60")
+
+    # is_page_number: the digit rule and the two bands.
+    for text in ("1", "12", "123", "1234", "12345", "0", "007", "1a", "a",
+                 "1~2", "~7~", "-1", "1.", "\u00b9", "\uff11"):
+        for y in (0.0, 99.0, 100.0, 101.0, 400.0, 719.0, 720.0, 721.0, 900.0):
+            lines.append(f"P {y} {text}")
+
+    return lines
+
+
 def cffname_cases(random_count):
     """Cases for the CFF Name INDEX reader.
 
@@ -3068,6 +3242,18 @@ def main():
         text=True, check=True
     )
     with open(os.path.join(arguments.directory, "singlebyte-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write(r.stdout)
+
+    vl_lines = valley_cases(max(arguments.cases // 4, 80))
+    with open(os.path.join(arguments.directory, "valley-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n".join(vl_lines))
+    r = subprocess.run(
+        [probe, "--valleys"], input="\n".join(vl_lines) + "\n", capture_output=True,
+        text=True, check=True
+    )
+    with open(os.path.join(arguments.directory, "valley-rust.txt"), "w",
               encoding="utf-8") as f:
         f.write(r.stdout)
 

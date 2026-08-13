@@ -70,6 +70,11 @@ perl -pi -e "s/^pub\\(crate\\) mod fonts;/pub mod fonts;/; s/^mod fonts;/pub mod
 perl -pi -e "s/^pub\\(crate\\) fn parse_encoding_dictionary/pub fn parse_encoding_dictionary/; s/^pub\\(crate\\) struct EncodingResult/pub struct EncodingResult/; s/^struct EncodingResult/pub struct EncodingResult/" \
     "$crate/src/extractor/fonts.rs"
 
+# `layout` is a private submodule of `extractor`; the probe below lives inside
+# it, so only the module itself needs widening.
+perl -pi -e "s/^pub\\(crate\\) mod layout;/pub mod layout;/; s/^mod layout;/pub mod layout;/" \
+    "$crate/src/extractor/mod.rs"
+
 # Reach the path walker without widening a dozen private items.
 perl -pi -e 's/^pub\(crate\) mod content_stream;/pub mod content_stream;/' \
     "$crate/src/extractor/mod.rs"
@@ -1126,6 +1131,104 @@ pub fn probe_fontstyle(bytes: &[u8]) -> String {
                 bold as u8,
                 key.map(|k| k.to_string()).unwrap_or_else(|| "-".to_string())
             ));
+        }
+    }
+    out
+}
+RUSTEOF
+
+cat >> "$crate/src/extractor/layout.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): the leaf tests of column detection. Each
+/// line is `TAG arg...`; tildes stand in for spaces inside text.
+pub fn probe_valleys(input: &str) -> String {
+    use crate::types::{ItemType, TextItem};
+    fn item(x: f32, y: f32, width: f32, font_size: f32, text: &str) -> TextItem {
+        TextItem {
+            text: text.replace('~', " "),
+            x,
+            y,
+            width,
+            height: font_size,
+            font: "F1".to_string(),
+            font_size,
+            page: 1,
+            is_bold: false,
+            is_italic: false,
+            is_underline: false,
+            is_strikeout: false,
+            item_type: ItemType::Text,
+            mcid: None,
+        }
+    }
+
+    let mut out = String::new();
+    for line in input.lines() {
+        let parts: Vec<&str> = line.split(' ').filter(|p| !p.is_empty()).collect();
+        if parts.is_empty() {
+            continue;
+        }
+        match parts[0] {
+            // V bin_width page_width margin | h0 h1 h2 ...
+            "V" => {
+                let bar = match parts.iter().position(|p| *p == "|") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let bin_width: f32 = parts[1].parse().unwrap_or(1.0);
+                let page_width: f32 = parts[2].parse().unwrap_or(612.0);
+                let margin: f32 = parts[3].parse().unwrap_or(0.0);
+                let histogram: Vec<u32> =
+                    parts[bar + 1..].iter().map(|p| p.parse().unwrap_or(0)).collect();
+                let n = histogram.len();
+                let valleys =
+                    find_relative_valleys(&histogram, n, 0.0, bin_width, page_width, margin);
+                out.push_str(&format!("v {}", valleys.len()));
+                for (lo, hi) in valleys {
+                    out.push_str(&format!(" {lo}:{hi}"));
+                }
+                out.push('\n');
+            }
+            // L text... (a bare `-` is an empty list)
+            "L" => {
+                let texts: Vec<&str> = if parts.len() > 1 && parts[1] == "-" {
+                    vec![]
+                } else {
+                    parts[1..].to_vec()
+                };
+                let items: Vec<TextItem> =
+                    texts.iter().map(|t| item(0.0, 0.0, 0.0, 12.0, t)).collect();
+                let refs: Vec<&TextItem> = items.iter().collect();
+                let refrefs: Vec<&&TextItem> = refs.iter().collect();
+                out.push_str(&format!("l {}\n", is_list_marker_column(&refrefs) as u8));
+            }
+            // S x width font_size text | xmin xmax xmin xmax ...
+            "S" => {
+                let bar = match parts.iter().position(|p| *p == "|") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let it = item(
+                    parts[1].parse().unwrap_or(0.0),
+                    700.0,
+                    parts[2].parse().unwrap_or(0.0),
+                    parts[3].parse().unwrap_or(12.0),
+                    parts[4],
+                );
+                let nums: Vec<f32> =
+                    parts[bar + 1..].iter().map(|p| p.parse().unwrap_or(0.0)).collect();
+                let columns: Vec<ColumnRegion> = nums
+                    .chunks_exact(2)
+                    .map(|c| ColumnRegion { x_min: c[0], x_max: c[1] })
+                    .collect();
+                out.push_str(&format!("s {}\n", spans_multiple_columns(&it, &columns) as u8));
+            }
+            // P y text
+            "P" => {
+                let it = item(0.0, parts[1].parse().unwrap_or(0.0), 0.0, 12.0, parts[2]);
+                out.push_str(&format!("p {}\n", is_page_number(&it) as u8));
+            }
+            _ => {}
         }
     }
     out
@@ -2391,6 +2494,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::extractor::fonts::probe_singlebyte(&input));
+        return;
+    }
+    if path == "--valleys" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::extractor::layout::probe_valleys(&input));
         return;
     }
     if path == "--cffname" {

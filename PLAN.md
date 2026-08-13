@@ -2543,3 +2543,39 @@ readings**.
   Two probes: **210 CFF programs** byte-level, and **12 hand-built PDFs**
   (`scripts/gen-font-corpus.py`) covering 13 styled fonts across every branch
   of both functions. All agreed on the first run.
+
+- **Wave 61 — the leaf tests of column detection.**
+  `PdfColumnValleys.swift` ports `find_relative_valleys`,
+  `is_list_marker_column`, `spans_multiple_columns` and `is_page_number` from
+  `extractor/layout.rs` — the first step toward the multi-column work
+  `PdfLayout.swift` has been deferring since wave 4, and on the critical path
+  to assembling the pipeline end to end.
+
+  Column detection projects the page's text onto its x axis and looks for the
+  gutter. On a ragged page the gutter is empty and trivial to find; on a
+  *justified* two-column page the text reaches its edge on both sides and the
+  histogram never touches zero. `find_relative_valleys` is the fallback for
+  that page, and it is a stack of eight gates because a page has many dips
+  that are not gutters.
+  - A **completely empty** gutter is passed over — `val < 1.0` skips it. That
+    reads like a bug and is not: an empty gutter belongs to the absolute
+    detector, and finding it here too would have the two argue.
+  - The flanking peaks are measured 25 bins either side, so a density change
+    further out than that is invisible. A construction that varies the far
+    margin does not test the balance gate at all — which cost two wrong unit
+    tests before the reference was asked directly.
+  - The balance bar is inclusive: a smaller peak at exactly 40% of the larger
+    still passes.
+  - A five-bin moving average runs first, so a one-bin dip is smoothed away
+    however deep it is.
+  - The result is always at most one valley, reported as a fixed five bins
+    around the deepest point — a location, not a measured width. Ties keep
+    the earlier gutter, since both selections compare with `<`.
+  - `is_page_number` is `is_ascii_digit`, so a superscript or fullwidth digit
+    is body text; and the top/bottom bands are absolute point values, so a
+    much taller page puts its own footer outside them.
+
+  489 probe cases agree with the reference on the first run. Gate
+  instrumentation showed `spans_multiple_columns` returning true only 3 times
+  and the single-valley return firing 8 times; targeted cases took those to
+  28 and 27. 30 unit tests.
