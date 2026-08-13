@@ -2917,6 +2917,148 @@ def valley_cases(random_count):
                 items.append((30 + c * 20, 700 - r * 14, 130 if count == 1 else 15, "c"))
         emit_prose([(20, 300)], items)
 
+    # --- identify_spanning_lines ---
+
+    def emit_mask(columns, items):
+        lines.append("M | {} ; {}".format(
+            " ".join("{},{}".format(a, b) for a, b in columns) or "-",
+            items_spec(items)))
+
+    cols2 = [(0, 300), (300, 612)]
+    cols3 = [(0, 200), (200, 400), (400, 612)]
+
+    # Two columns of body text at matching baselines: the gap sits at the
+    # gutter, so nothing spans however wide the pair reaches.
+    body = []
+    for row in range(10):
+        y = 700 - row * 14
+        body.append((20, y, 260, "left~column~text"))
+        body.append((320, y, 260, "right~column~text"))
+    emit_mask(cols2, body)
+    # A genuine full-width title added to that page.
+    emit_mask(cols2, body + [(20, 760, 560, "A~title~across~the~page")])
+    # A title written as two items with a gap that is *not* at the gutter.
+    emit_mask(cols2, body + [(20, 760, 200, "A~title"), (240, 760, 340, "continues")])
+    # ... and one whose gap lands exactly on the gutter, so it reads as two
+    # columns rather than a title.
+    emit_mask(cols2, body + [(20, 760, 260, "A~title"), (320, 760, 260, "continues")])
+    # The gutter tolerance, walked: the gap edge creeps past the gutter.
+    for start in (290, 300, 310, 316, 320, 330, 350):
+        emit_mask(cols2, body + [(20, 760, 260, "left"), (start, 760, 200, "right")])
+    # Gaps under 5pt are word spacing and are not considered at all.
+    for gap in (0, 2, 4, 5, 6, 20):
+        emit_mask(cols2, body + [(20, 760, 280, "left"), (300 + gap, 760, 280, "right")])
+    # The 1.3x span threshold against the widest column.
+    for width in (300, 380, 390, 391, 400, 500):
+        emit_mask(cols2, body + [(20, 760, width, "wide")])
+    # Fewer than three items, or fewer than two columns.
+    emit_mask(cols2, [(20, 700, 500, "a"), (30, 690, 500, "b")])
+    emit_mask([(0, 612)], body)
+    emit_mask([], body)
+    # Three columns, so two gutters, and a line crossing only the first.
+    emit_mask(cols3, body)
+    wide3 = []
+    for row in range(8):
+        y = 700 - row * 14
+        wide3.append((10, y, 180, "a"))
+        wide3.append((210, y, 180, "b"))
+        wide3.append((410, y, 180, "c"))
+    emit_mask(cols3, wide3)
+    emit_mask(cols3, wide3 + [(10, 760, 590, "title")])
+    # Items sharing a baseline exactly, so the stable sorts matter.
+    same = [(400, 700, 100, "z"), (20, 700, 100, "a"), (200, 700, 100, "m"),
+            (20, 686, 100, "b"), (200, 686, 100, "n"), (400, 686, 100, "y")]
+    emit_mask(cols2, same)
+    emit_mask(cols3, same)
+    # Baseline tolerance of 5pt: drifting rows that must not chain.
+    for drift in (0, 2, 4, 5, 6, 12):
+        drifted = []
+        for row in range(8):
+            drifted.append((20, 700 - row * drift, 280, "a"))
+            drifted.append((320, 700 - row * drift, 280, "b"))
+        emit_mask(cols2, drifted)
+
+    # A spanning line needs at least two items on its baseline -- a single
+    # wide item is skipped outright, which starved these cases at first.
+    for pieces in (1, 2, 3, 5):
+        title = []
+        width = 560 // pieces
+        for piece in range(pieces):
+            title.append((20 + piece * (width + 2), 760, width, "part"))
+        emit_mask(cols2, body + title)
+    # Multi-piece titles whose internal gaps sit away from the gutter.
+    for gapx in (60, 120, 180, 240, 380, 440, 520):
+        emit_mask(cols2, body + [(20, 760, gapx - 30, "a"), (gapx, 760, 580 - gapx, "b")])
+    # Three-piece titles with one gap at the gutter and one away from it --
+    # any gutter gap at all disqualifies the whole line.
+    emit_mask(cols2, body + [(20, 760, 120, "a"), (160, 760, 130, "b"), (320, 760, 260, "c")])
+    emit_mask(cols2, body + [(20, 760, 120, "a"), (160, 760, 300, "b"), (480, 760, 100, "c")])
+    # Wide multi-item lines inside the body rows themselves.
+    for width in (200, 260, 300, 400):
+        wide = []
+        for row in range(6):
+            y = 700 - row * 14
+            wide.append((20, y, width, "a"))
+            wide.append((30 + width, y, width, "b"))
+        emit_mask(cols2, wide)
+    # Three columns with two-piece spanning lines at several heights.
+    for count in (1, 2, 4):
+        extra = [(10, 760 + r * 16, 280, "x") for r in range(count)]
+        extra += [(300, 760 + r * 16, 290, "y") for r in range(count)]
+        emit_mask(cols3, wide3 + extra)
+    # Unmeasured widths, so the span uses the estimate from text length.
+    for text in ("t", "medium~length", "a~very~much~longer~run~of~title~text"):
+        emit_mask(cols2, body + [(20, 760, 0, text), (400, 760, 0, text)])
+
+    # --- split_column_stragglers ---
+
+    def emit_split(entries):
+        lines.append("G " + " ".join("{},{}".format(y, n) for y, n in entries))
+
+    # Evenly spaced lines: no split at all.
+    emit_split([(700 - r * 14, 1) for r in range(10)])
+    emit_split([(700 - r * 14, 1) for r in range(3)])
+    # Below the three-line floor.
+    for count in (0, 1, 2, 3):
+        emit_split([(700 - r * 14, 1) for r in range(count)])
+    # A header remnant far above the body.
+    emit_split([(780, 1)] + [(700 - r * 14, 1) for r in range(10)])
+    # A footer far below.
+    emit_split([(700 - r * 14, 1) for r in range(10)] + [(80, 1)])
+    # Both, so the core is the middle segment.
+    emit_split([(780, 1)] + [(700 - r * 14, 1) for r in range(10)] + [(80, 1)])
+    # The 3x-median rule, walked by widening one gap.
+    for gap in (14, 30, 41, 42, 43, 50, 100):
+        entries = [(700 - r * 14, 1) for r in range(5)]
+        base = entries[-1][0] - gap
+        entries += [(base - r * 14, 1) for r in range(5)]
+        emit_split(entries)
+    # The 30pt floor: tightly set lines whose 3x median is under it.
+    for gap in (10, 20, 29, 30, 31, 40):
+        entries = [(700 - r * 4, 1) for r in range(6)]
+        base = entries[-1][0] - gap
+        entries += [(base - r * 4, 1) for r in range(6)]
+        emit_split(entries)
+    # Two segments of equal length, where Rust keeps the *last* maximum.
+    for half in (2, 3, 5):
+        entries = [(700 - r * 14, 1) for r in range(half)]
+        base = entries[-1][0] - 200
+        entries += [(base - r * 14, 1) for r in range(half)]
+        emit_split(entries)
+    # Three segments with the largest in each position.
+    for big in range(3):
+        entries = []
+        y = 900.0
+        for segment in range(3):
+            count = 8 if segment == big else 3
+            for _ in range(count):
+                entries.append((y, 1))
+                y -= 14
+            y -= 200
+        emit_split(entries)
+    # Every gap oversized, so every line is its own segment.
+    emit_split([(900 - r * 200, 1) for r in range(5)])
+
     # is_list_marker_column: the 80% bar, and what counts as a marker.
     markers = ["\u2022", "\u25cf", "\u25cb", "\u25e6", "\u25aa",
                "\u25ab", "\u25c6", "\u25c7", "\u25a0", "\u25a1"]

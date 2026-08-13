@@ -105,6 +105,35 @@ import Testing
             }
             let prose = pdfColumnsHaveProse(columns, parseItems(parts[(semi + 1)...]))
             return "r \(prose ? 1 : 0)"
+        case "M":
+            guard let bar = parts.firstIndex(of: "|"), let semi = parts.firstIndex(of: ";")
+            else { return nil }
+            let columns: [PdfColumnRegion] = parts[(bar + 1)..<semi].compactMap {
+                let halves = $0.split(separator: ",")
+                guard halves.count == 2, let low = Float(halves[0]), let high = Float(halves[1])
+                else { return nil }
+                return PdfColumnRegion(xMin: low, xMax: high)
+            }
+            let mask = pdfIdentifySpanningLines(parseItems(parts[(semi + 1)...]), columns)
+            return "m " + mask.map { $0 ? "1" : "0" }.joined()
+        case "G":
+            let entries: [PdfTextLine] = parts.dropFirst().compactMap { field in
+                let halves = field.split(separator: ",")
+                guard halves.count >= 2, let y = Float(halves[0]), let count = Int(halves[1])
+                else { return nil }
+                let items = (0..<count).map {
+                    PdfLayoutItem(
+                        text: "w", x: Float($0) * 10, y: y, width: 8, fontSize: 12,
+                        fontName: "F1")
+                }
+                return PdfTextLine(items: items, y: y)
+            }
+            let split = pdfSplitColumnStragglers(entries)
+            var out = "g \(split.core.count) \(split.stragglers.count)"
+            for line in split.core { out += " \(onePlace(line.y))" }
+            out += " /"
+            for line in split.stragglers { out += " \(onePlace(line.y))" }
+            return out
         case "P":
             guard parts.count > 2 else { return nil }
             let item = PdfLayoutItem(
@@ -138,5 +167,14 @@ import Testing
         let fraction = abs(Int(scaled) % 100)
         let sign = (scaled < 0 && whole == 0) ? "-" : ""
         return "\(sign)\(whole).\(fraction < 10 ? "0" : "")\(fraction)"
+    }
+
+    /// Rust's `{:.1}`, rounding half away from zero.
+    private func onePlace(_ value: Float) -> String {
+        let scaled = (Double(value) * 10).rounded(.toNearestOrAwayFromZero)
+        let whole = Int(scaled / 10)
+        let fraction = abs(Int(scaled) % 10)
+        let sign = (scaled < 0 && whole == 0) ? "-" : ""
+        return "\(sign)\(whole).\(fraction)"
     }
 }

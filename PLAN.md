@@ -2617,3 +2617,34 @@ readings**.
   than derived from the constants: the 45% line-fill bar lands at exactly
   126pt of a 280pt column and is inclusive, and 5 full lines out of 12 pass
   the 40% ratio where 4 do not.
+
+- **Wave 63 — the lines that ignore the columns.**
+  `PdfSpanningLines.swift` ports `identify_spanning_lines` and
+  `split_column_stragglers`, the third layer of the column stack.
+
+  Once the columns are known a real page breaks them: a title runs the full
+  width, a section header crosses the gutter, a footer belongs to neither
+  side. Those have to be lifted out before the columns are read in sequence,
+  or the title arrives halfway down column one.
+  - A spanning title and two columns of body text at the same height have
+    identical x extents. What separates them is **where the gaps fall** — a
+    real spanning line has no inter-item gap sitting at a gutter, because
+    nothing interrupts it there. One gutter gap anywhere disqualifies the
+    whole line, however far the others are from one.
+  - A line needs **two items** to have a gap to judge, so a title written as
+    a single wide run is skipped however wide it is. That starved the probe
+    at first — 5 of 37 cases marked anything until multi-piece titles were
+    added, then 22 of 60.
+  - Gaps under 5pt are word spacing and are not examined, so a gutter inside
+    one does not disqualify the line.
+  - `split_column_stragglers` cuts a column at any gap over three times its
+    **own** median line spacing, floored at 30pt. Uniformly wide spacing is
+    therefore not a break at all — five lines 200pt apart have a 600pt bar
+    and stay one cluster.
+  - Rust's `max_by_key` returns the **last** maximum where Swift's `max(by:)`
+    returns the first, so two equal-length clusters leave the *lower* one as
+    the core. Reproduced with a `>=` comparison.
+
+  715 probe cases agree on the first run. 17 unit tests; one of them had to
+  be corrected after the reference showed that uniformly wide spacing does
+  not split, which is a consequence of the threshold being relative.

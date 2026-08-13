@@ -1309,6 +1309,77 @@ pub fn probe_valleys(input: &str) -> String {
                 let refs: Vec<&TextItem> = items.iter().collect();
                 out.push_str(&format!("r {}\n", columns_have_prose(&columns, &refs) as u8));
             }
+            // M | xmin,xmax ... ; x,y,w,text ...
+            "M" => {
+                let bar = match parts.iter().position(|p| *p == "|") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let semi = match parts.iter().position(|p| *p == ";") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let columns: Vec<ColumnRegion> = parts[bar + 1..semi]
+                    .iter()
+                    .filter_map(|p| {
+                        let (a, b) = p.split_once(',')?;
+                        Some(ColumnRegion { x_min: a.parse().ok()?, x_max: b.parse().ok()? })
+                    })
+                    .collect();
+                let items: Vec<TextItem> = parts[semi + 1..]
+                    .iter()
+                    .filter_map(|p| {
+                        let f: Vec<&str> = p.split(',').collect();
+                        if f.len() < 4 {
+                            return None;
+                        }
+                        Some(item(
+                            f[0].parse().ok()?,
+                            f[1].parse().ok()?,
+                            f[2].parse().ok()?,
+                            12.0,
+                            f[3],
+                        ))
+                    })
+                    .collect();
+                let mask = identify_spanning_lines(&items, &columns);
+                out.push_str("m ");
+                for flag in &mask {
+                    out.push(if *flag { '1' } else { '0' });
+                }
+                out.push('\n');
+            }
+            // G y,itemcount ...  (one line per entry, y descending as given)
+            "G" => {
+                use crate::types::TextLine;
+                let lines_in: Vec<TextLine> = parts[1..]
+                    .iter()
+                    .filter_map(|p| {
+                        let f: Vec<&str> = p.split(',').collect();
+                        if f.len() < 2 {
+                            return None;
+                        }
+                        let y: f32 = f[0].parse().ok()?;
+                        let count: usize = f[1].parse().ok()?;
+                        Some(TextLine {
+                            items: (0..count).map(|i| item(i as f32 * 10.0, y, 8.0, 12.0, "w")).collect(),
+                            y,
+                            page: 1,
+                            adaptive_threshold: 0.10,
+                        })
+                    })
+                    .collect();
+                let (core, stragglers) = split_column_stragglers(lines_in);
+                out.push_str(&format!("g {} {}", core.len(), stragglers.len()));
+                for line in &core {
+                    out.push_str(&format!(" {:.1}", line.y));
+                }
+                out.push_str(" /");
+                for line in &stragglers {
+                    out.push_str(&format!(" {:.1}", line.y));
+                }
+                out.push('\n');
+            }
             // P y text
             "P" => {
                 let it = item(0.0, parts[1].parse().unwrap_or(0.0), 0.0, 12.0, parts[2]);
