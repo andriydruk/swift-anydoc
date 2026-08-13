@@ -917,6 +917,88 @@ RUSTEOF
 
 cat >> "$crate/src/extractor/fonts.rs" <<'RUSTEOF'
 
+/// Probe (added for swift-anydoc): the single-byte decoding fallbacks. Each
+/// line is `TAG arg...`, arguments hex-encoded where they are text.
+pub fn probe_singlebyte(input: &str) -> String {
+    fn unhex(hex: &str) -> Vec<u8> {
+        (0..hex.len() / 2)
+            .map(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).unwrap_or(0))
+            .collect()
+    }
+    fn hex(bytes: &[u8]) -> String {
+        let mut out = String::with_capacity(bytes.len() * 2);
+        for b in bytes {
+            out.push_str(&format!("{b:02x}"));
+        }
+        out
+    }
+
+    let mut out = String::new();
+    for line in input.lines() {
+        let parts: Vec<&str> = line.split(' ').collect();
+        match parts[0] {
+            "B" if parts.len() >= 3 => {
+                let bytes = unhex(parts[1]);
+                let cp = parts[2] == "1";
+                out.push_str(&format!(
+                    "b {}\n",
+                    hex(decode_single_byte_fallback(&bytes, cp).as_bytes())
+                ));
+            }
+            "N" if parts.len() >= 3 => {
+                let text = String::from_utf8_lossy(&unhex(parts[1])).to_string();
+                let cp = parts[2] == "1";
+                out.push_str(&format!(
+                    "n {}\n",
+                    hex(normalize_cp1252_controls(text, cp).as_bytes())
+                ));
+            }
+            "U" if parts.len() >= 3 => {
+                let name = if parts[1] == "-" {
+                    None
+                } else {
+                    Some(String::from_utf8_lossy(&unhex(parts[1])).to_string())
+                };
+                let cid = parts[2] == "1";
+                out.push_str(&format!(
+                    "u {}\n",
+                    should_use_cp1252_single_byte_fallback(name.as_deref(), cid) as u8
+                ));
+            }
+            "P" if parts.len() >= 2 => {
+                let text = String::from_utf8_lossy(&unhex(parts[1])).to_string();
+                out.push_str(&format!("p {}\n", hex(clean_symbol_pua(text).as_bytes())));
+            }
+            "S" if parts.len() >= 3 => {
+                let bytes = unhex(parts[1]);
+                let name = if parts[2] == "-" {
+                    None
+                } else {
+                    Some(String::from_utf8_lossy(&unhex(parts[2])).to_string())
+                };
+                match decode_symbol_fallback(&bytes, name.as_deref()) {
+                    None => out.push_str("s -\n"),
+                    Some(text) => out.push_str(&format!("s {}\n", hex(text.as_bytes()))),
+                }
+            }
+            "T" if parts.len() >= 2 => {
+                let text = String::from_utf8_lossy(&unhex(parts[1])).to_string();
+                out.push_str(&format!("t {}\n", score_text(&text)));
+            }
+            "C" if parts.len() >= 3 => {
+                let a = String::from_utf8_lossy(&unhex(parts[1])).to_string();
+                let b = String::from_utf8_lossy(&unhex(parts[2])).to_string();
+                out.push_str(&format!(
+                    "c {}\n",
+                    hex(choose_best_cmap_decode(a, b).as_bytes())
+                ));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 /// Probe (added for swift-anydoc): the `/Differences` array. A case is one
 /// line: an optional `@base-font` then space-separated `NNN` numbers and
 /// `/Name` entries.
@@ -2216,6 +2298,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::text_utils::probe_letterspacing(&input));
+        return;
+    }
+    if path == "--singlebyte" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::extractor::fonts::probe_singlebyte(&input));
         return;
     }
     if path == "--differences" {

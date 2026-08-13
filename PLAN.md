@@ -2448,3 +2448,30 @@ wrong before the third was right.
     same name elsewhere resolves to nothing.
 
 220 cases agree on the first run, mapping 471 codes.
+
+- **Wave 59 — single-byte decoding fallbacks.**
+  `PdfSingleByteDecode.swift` ports the eight functions that guess at bytes
+  when a font declares no usable encoding.
+
+  Windows-1252 is the right guess for most documents and exactly wrong for
+  TeX and symbol fonts, which put glyphs in the same byte range — so the guess
+  is made **per font, by name**. Getting it wrong is visible in the output:
+  a TeX font read that way turns `deficiente` into `de…ciente`.
+  - The five codepage slots with no Windows-1252 meaning (0x81, 0x8D, 0x8F,
+    0x90, 0x9D) fall through to Latin-1 rather than being rejected.
+  - The subset tag is stripped with `rsplit_once`, so the **last** `+`
+    separates it and `A+B+CMR10` is still a TeX font.
+  - Symbol and Wingdings map into the private-use area at F000. Most of the
+    range is recovered by removing the offset; three codes are bullets in
+    every such font and one is a checkmark, so those are named outright, and
+    below 0x20 the codepoint is left alone since removing the offset would
+    give a control character.
+  - `score_text` counts known words for ten and penalises a long letter run
+    that forms none — which is the shape of a wrong single-byte decoding,
+    plausible letters in implausible arrangements. CJK and kana count as
+    letters so a Japanese document is not scored as noise.
+  - A remapped decoding must beat the primary by **more than three** to be
+    taken: a near-tie is not evidence enough to overrule what the font said.
+
+429 cases agree on the first run, including **every byte value under both
+readings**.

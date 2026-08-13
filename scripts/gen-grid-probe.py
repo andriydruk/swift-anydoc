@@ -2605,6 +2605,73 @@ def difference_cases(random_count):
     return cases
 
 
+
+def singlebyte_cases(random_count):
+    """Cases for the single-byte decoding fallbacks."""
+    rng = random.Random(59_2026)
+
+    def h(text):
+        return text.encode("utf-8").hex()
+
+    def hb(values):
+        return bytes(values).hex()
+
+    lines = []
+
+    # Every byte, both with and without the Windows-1252 reading.
+    for flag in (0, 1):
+        for start in range(0, 256, 16):
+            lines.append(f"B {hb(range(start, start + 16))} {flag}")
+
+    # C1 normalisation over text that reached the C1 block some other way.
+    for text in ["a\u0080b", "\u0092quoted\u0093", "plain", "\u0081\u008d\u009d"]:
+        for flag in (0, 1):
+            lines.append(f"N {h(text)} {flag}")
+
+    # Which fonts get the Windows-1252 reading.
+    fonts = ["-", "Helvetica", "ABCDEF+Helvetica", "CMR10", "ABCDEF+CMR10", "cmr10",
+             "TeXCMMathsSymbols", "Symbol", "Wingdings", "ZapfDingbats", "MathJax",
+             "NotoEmoji", "DingbatsX", "ecrm1000", "msam10", "ttdc", "A+B+CMR10",
+             "SymbolMT", "Arial"]
+    for font in fonts:
+        for cid in (0, 1):
+            lines.append(f"U {'-' if font == '-' else h(font)} {cid}")
+
+    # The private-use fold, across the whole range.
+    for text in ["\uf0a1", "\uf0a7", "\uf0b7", "\uf0fc", "\uf041", "\uf020", "\uf01f",
+                 "\uf000", "\uf0ff", "plain", "a\uf041b"]:
+        lines.append(f"P {h(text)}")
+
+    # The symbol fallback.
+    for name in ["-", "Symbol", "Wingdings", "ZapfDingbats", "SymbolMT", "Helvetica"]:
+        for payload in [[0x41, 0x42], [0x00, 0x1F], [], [0x20, 0xFF]]:
+            lines.append(f"S {hb(payload)} {'-' if name == '-' else h(name)}")
+
+    # Scoring.
+    scored = ["", "the quick brown fox is in a box", "aaaaaaaaaaaaaaaaaaaa", "12345",
+              "\ufffd\ufffd\ufffd", "\u65e5\u672c\u8a9e\u3042\u30a2",
+              "de\u2026ciente", "a b c d e", "THE AND OF", "x" * 16]
+    for text in scored:
+        lines.append(f"T {h(text)}")
+
+    # Choosing between two decodings.
+    pairs = [("", ""), ("the and of", ""), ("", "the and of"),
+             ("the and of to in", "xxxxxxxxxxxxxxxxxxxx"),
+             ("xxxxxxxxxxxxxxxxxxxx", "the and of to in"),
+             ("abc", "abd")]
+    for a, b in pairs:
+        lines.append(f"C {h(a)} {h(b)}")
+
+    alphabet = "abc \u0080\u0092\uf041\ufffd\u65e5123"
+    for _ in range(random_count):
+        text = "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 24)))
+        lines.append(f"T {h(text)}")
+        lines.append(f"P {h(text)}")
+        lines.append(f"N {h(text)} {rng.randint(0, 1)}")
+
+    return lines
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory")
@@ -2886,6 +2953,18 @@ def main():
     with open(os.path.join(arguments.directory, "letterspacing-rust.txt"), "w",
               encoding="utf-8") as f:
         f.write("\n===\n".join(ls_answers))
+
+    sb_lines = singlebyte_cases(max(arguments.cases // 6, 60))
+    with open(os.path.join(arguments.directory, "singlebyte-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n".join(sb_lines))
+    r = subprocess.run(
+        [probe, "--singlebyte"], input="\n".join(sb_lines) + "\n", capture_output=True,
+        text=True, check=True
+    )
+    with open(os.path.join(arguments.directory, "singlebyte-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write(r.stdout)
 
     df_lines = difference_cases(max(arguments.cases // 3, 100))
     with open(os.path.join(arguments.directory, "difference-cases.txt"), "w",
