@@ -2606,6 +2606,102 @@ def difference_cases(random_count):
 
 
 
+def reading_cases(random_count):
+    """Cases for the leaves of image-anchored reading order."""
+    rng = random.Random(67_2026)
+    lines = []
+
+    def spec(items):
+        return " ".join("{},{},{},{}".format(x, y, w, t) for x, y, w, t in items)
+
+    prose = "a~sentence~of~genuine~running~prose"
+    short = "ab~cd"
+
+    # page_x_bounds: text only, images only, both, and the degenerate cases.
+    def B(images, items):
+        lines.append("B | {} ; {}".format(
+            " ".join("{},{},{},{}".format(*r) for r in images) or "-", spec(items)))
+    B([], [(20, 700, 100, "a"), (300, 690, 100, "b")])
+    B([(400, 0, 500, 100)], [(20, 700, 100, "a")])
+    B([(500, 0, 400, 100)], [(20, 700, 100, "a")])   # corners reversed
+    B([(-50, 0, 50, 100)], [(20, 700, 100, "a")])
+    B([], [])                                         # nothing at all
+    B([(100, 0, 200, 50)], [])                        # images only
+    B([], [(20, 700, 0, "a")])                        # single zero-width item
+    B([], [(20, 700, 0, "")])                         # degenerate extent
+    B([], [(20, 700, 100, "a"), (20, 690, 100, "b")])
+    for count in (1, 2, 5):
+        B([(i * 100, 0, i * 100 + 50, 50) for i in range(count)],
+          [(20, 700, 100, "a")])
+
+    # group_rows: the moving mean baseline is the point of these.
+    def G(items):
+        lines.append("G ; " + spec(items))
+    G([(20, 700, 50, "a"), (100, 700, 50, "b"), (200, 700, 50, "c")])
+    G([(20, 700 - r * 14, 50, "a") for r in range(6)])
+    # Gently rising text: each step is under the tolerance but the mean
+    # moves, so the row can chain further than a fixed baseline would allow.
+    for step in (0.5, 1.0, 1.5, 2.0, 2.9, 3.0, 3.1):
+        G([(20 + i * 40, 700 - i * step, 30, "x") for i in range(8)])
+    # Same baselines out of stream order.
+    G([(200, 700, 50, "c"), (20, 700, 50, "a"), (100, 700, 50, "b")])
+    G([(20, 690, 50, "b"), (20, 700, 50, "a")])
+    # Items sharing x, so the stable sort inside a row shows.
+    G([(20, 700, 50, "a"), (20, 700, 50, "b"), (20, 700, 50, "c")])
+    G([])
+    for _ in range(random_count // 2):
+        count = rng.randrange(0, 10)
+        G([(rng.randrange(0, 400), 700 - rng.randrange(0, 40),
+            rng.choice([0, 30, 60]), "x") for _ in range(count)])
+
+    # side_is_prose: the word, letter and CJK bars.
+    def W(items):
+        lines.append("W ; " + spec(items))
+    W([(0, 0, 0, prose)])
+    W([(0, 0, 0, short)])
+    W([])
+    for text in ("a~b~c", "abc~def~ghi", "abcd~defg~hij", "one~two", "one~two~three",
+                 "abcdefghij", "abcdefghij~k~l"):
+        W([(0, 0, 0, text)])
+    # Split across several runs, which are joined with a space first.
+    W([(0, 0, 0, "abcd"), (0, 0, 0, "defg"), (0, 0, 0, "hij")])
+    W([(0, 0, 0, "abcdefghij"), (0, 0, 0, "k")])
+    # CJK: ten characters is the alternative to three words, but the ten
+    # letters still have to come from somewhere.
+    cjk = "\u65e5\u672c\u8a9e" * 4
+    W([(0, 0, 0, cjk)])
+    W([(0, 0, 0, cjk + "~abcdefghij")])
+    W([(0, 0, 0, "\u65e5\u672c" + "~abcdefghij")])
+
+    # aligned_row_split: the gutter, the middle-half rule and the prose test.
+    def A(items, x_min=0.0, x_max=600.0):
+        lines.append("A {} {} ; {}".format(x_min, x_max, spec(items)))
+    for gap in (2, 6, 8, 10, 40, 100):
+        A([(100, 700, 100, prose), (200 + gap, 700, 100, prose)])
+    # The split must land between 25% and 75% of the page.
+    for left_x in (0, 40, 100, 200, 300, 400, 460):
+        A([(left_x, 700, 60, prose), (left_x + 100, 700, 60, prose)])
+    # One side not prose.
+    A([(100, 700, 100, prose), (240, 700, 100, short)])
+    A([(100, 700, 100, short), (240, 700, 100, prose)])
+    # Four runs splitting two-and-two, judged on all four.
+    A([(20, 700, 80, prose), (110, 700, 80, prose),
+       (320, 700, 80, prose), (410, 700, 80, prose)])
+    # Two candidate gaps of different widths -- the wider wins.
+    A([(20, 700, 60, prose), (150, 700, 60, prose), (400, 700, 60, prose)])
+    # Two candidate gaps of equal width -- the later one wins.
+    A([(20, 700, 60, prose), (160, 700, 60, prose), (300, 700, 60, prose)])
+    # A single run, and none.
+    A([(100, 700, 100, prose)])
+    A([])
+    for _ in range(random_count // 2):
+        count = rng.randrange(0, 5)
+        A([(rng.randrange(0, 500), 700, rng.choice([0, 40, 80]),
+            rng.choice([prose, short, "x"])) for _ in range(count)])
+
+    return lines
+
+
 def valley_cases(random_count):
     """Cases for the leaf tests of column detection.
 
@@ -3988,6 +4084,18 @@ def main():
         text=True, check=True
     )
     with open(os.path.join(arguments.directory, "singlebyte-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write(r.stdout)
+
+    rd_lines = reading_cases(max(arguments.cases // 6, 40))
+    with open(os.path.join(arguments.directory, "reading-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n".join(rd_lines))
+    r = subprocess.run(
+        [probe, "--reading"], input="\n".join(rd_lines) + "\n", capture_output=True,
+        text=True, check=True
+    )
+    with open(os.path.join(arguments.directory, "reading-rust.txt"), "w",
               encoding="utf-8") as f:
         f.write(r.stdout)
 

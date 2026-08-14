@@ -2761,3 +2761,44 @@ readings**.
   carriage returns 2→14 and style-mismatch splits 1→4. 17 unit tests, two of
   which the reference corrected: cumulative drift against a fixed baseline,
   and the ten-letter bar.
+
+- **Wave 67 — the leaves of image-anchored reading order.**
+  `PdfReadingOrder.swift` ports `page_x_bounds`, `group_rows`,
+  `side_is_prose` and `aligned_row_split` from
+  `extractor/reading_order.rs`.
+
+  Column detection asks one question of the whole page, which fails where the
+  flow changes partway down — two columns beside a figure, then full-width
+  text below it. The whole-page projection sees both shapes at once and
+  resolves neither. Reading order answers locally instead, by finding rows
+  that *individually* look like two columns; these four are what that is
+  built from.
+  - `group_rows` keeps its baseline as a **running mean**, recomputed each
+    time a run joins. The tolerance is therefore measured against a moving
+    point, and the mean lags: eight runs rising half a point each span 3.5pt
+    in total — past the 3pt tolerance — and still form one row. The line
+    grouper of wave 66 measures against a *fixed* first baseline and would
+    not allow that. The tolerance here is also inclusive where wave 66's is
+    strict.
+  - `side_is_prose` takes ten CJK characters as standing in for three words,
+    since Japanese and Chinese are set without spaces and a whole sentence
+    would otherwise count as one word.
+  - `aligned_row_split` recomputes both sides from the **whole row** against
+    each candidate split rather than taking the adjacent pair, so a row of
+    four runs splitting two-and-two is judged on all four. The widest
+    qualifying gap wins, and `max_by` keeps the last maximum — the same tie
+    direction as wave 63.
+  - `page_x_bounds` consults both corners of an image for each end, so a
+    region written right to left measures the same as one written left to
+    right; an empty page folds to infinities that the finite check rejects
+    rather than propagating.
+
+  126 probe cases agree on the first run, with both verdicts represented for
+  all four functions. 19 unit tests, one corrected by the reference: the
+  moving mean buys extra reach but not unlimited reach.
+
+  **Remaining in `reading_order.rs`:** `local_flow_below_full_width_image`,
+  `paired_column_images`, `infer_image_anchored_flow` and
+  `build_region_graph` — about 450 lines, a wave of their own. After those,
+  `group_into_lines_with_thresholds_and_regions_impl` closes the layout half
+  of the pipeline.

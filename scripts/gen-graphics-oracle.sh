@@ -70,6 +70,12 @@ perl -pi -e "s/^pub\\(crate\\) mod fonts;/pub mod fonts;/; s/^mod fonts;/pub mod
 perl -pi -e "s/^pub\\(crate\\) fn parse_encoding_dictionary/pub fn parse_encoding_dictionary/; s/^pub\\(crate\\) struct EncodingResult/pub struct EncodingResult/; s/^struct EncodingResult/pub struct EncodingResult/" \
     "$crate/src/extractor/fonts.rs"
 
+# `reading_order` is private too, and the probe below lives inside it.
+perl -pi -e "s/^pub\\(crate\\) mod reading_order;/pub mod reading_order;/; s/^mod reading_order;/pub mod reading_order;/" \
+    "$crate/src/extractor/mod.rs"
+perl -pi -e "s/^struct Row<'a> \\{/pub struct Row<'a> {/" \
+    "$crate/src/extractor/reading_order.rs"
+
 # `layout` is a private submodule of `extractor`; the probe below lives inside
 # it, so only the module itself needs widening.
 perl -pi -e "s/^pub\\(crate\\) mod layout;/pub mod layout;/; s/^mod layout;/pub mod layout;/" \
@@ -1536,6 +1542,132 @@ pub fn probe_valleys(input: &str) -> String {
 }
 RUSTEOF
 
+cat >> "$crate/src/extractor/reading_order.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): the leaves of image-anchored reading
+/// order. One case per line, tagged.
+pub fn probe_reading(input: &str) -> String {
+    use crate::types::{ItemType, TextItem};
+    fn item(x: f32, y: f32, width: f32, text: &str) -> TextItem {
+        TextItem {
+            text: text.replace('~', " "),
+            x,
+            y,
+            width,
+            height: 12.0,
+            font: "F1".to_string(),
+            font_size: 12.0,
+            page: 1,
+            is_bold: false,
+            is_italic: false,
+            is_underline: false,
+            is_strikeout: false,
+            item_type: ItemType::Text,
+            mcid: None,
+        }
+    }
+    fn parse_items(fields: &[&str]) -> Vec<TextItem> {
+        fields
+            .iter()
+            .filter_map(|p| {
+                let f: Vec<&str> = p.split(',').collect();
+                if f.len() < 4 {
+                    return None;
+                }
+                Some(item(
+                    f[0].parse().ok()?,
+                    f[1].parse().ok()?,
+                    f[2].parse().ok()?,
+                    f[3],
+                ))
+            })
+            .collect()
+    }
+
+    let mut out = String::new();
+    for line in input.lines() {
+        let parts: Vec<&str> = line.split(' ').filter(|p| !p.is_empty()).collect();
+        if parts.is_empty() {
+            continue;
+        }
+        match parts[0] {
+            // B | x0,y0,x1,y1 ... ; x,y,w,text ...
+            "B" => {
+                let (bar, semi) = match (
+                    parts.iter().position(|p| *p == "|"),
+                    parts.iter().position(|p| *p == ";"),
+                ) {
+                    (Some(a), Some(b)) => (a, b),
+                    _ => continue,
+                };
+                let images: Vec<ImageRegion> = parts[bar + 1..semi]
+                    .iter()
+                    .filter_map(|p| {
+                        let f: Vec<&str> = p.split(',').collect();
+                        if f.len() < 4 {
+                            return None;
+                        }
+                        Some((
+                            f[0].parse().ok()?,
+                            f[1].parse().ok()?,
+                            f[2].parse().ok()?,
+                            f[3].parse().ok()?,
+                        ))
+                    })
+                    .collect();
+                let items = parse_items(&parts[semi + 1..]);
+                match page_x_bounds(&items, &images) {
+                    None => out.push_str("b -\n"),
+                    Some((lo, hi)) => out.push_str(&format!("b {lo:.2}:{hi:.2}\n")),
+                }
+            }
+            // G ; x,y,w,text ...
+            "G" if parts.len() > 1 && parts[1] == ";" => {
+                let items = parse_items(&parts[2..]);
+                let rows = group_rows(&items);
+                out.push_str(&format!("gr {}", rows.len()));
+                for row in &rows {
+                    out.push_str(&format!(" {}@{:.2}", row.items.len(), row.y));
+                    for it in &row.items {
+                        out.push_str(&format!(",{:.1}", it.x));
+                    }
+                }
+                out.push('\n');
+            }
+            // W ; x,y,w,text ...
+            "W" => {
+                let semi = match parts.iter().position(|p| *p == ";") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let items = parse_items(&parts[semi + 1..]);
+                let refs: Vec<&TextItem> = items.iter().collect();
+                out.push_str(&format!("w {}\n", side_is_prose(&refs) as u8));
+            }
+            // A x_min x_max ; x,y,w,text ...
+            "A" => {
+                let semi = match parts.iter().position(|p| *p == ";") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let x_min: f32 = parts[1].parse().unwrap_or(0.0);
+                let x_max: f32 = parts[2].parse().unwrap_or(612.0);
+                let items = parse_items(&parts[semi + 1..]);
+                // The rows the splitter is given come from `group_rows`, so
+                // the case is grouped first and its first row used.
+                let rows = group_rows(&items);
+                match rows.first().and_then(|row| aligned_row_split(row, x_min, x_max)) {
+                    None => out.push_str("a -\n"),
+                    Some(split) => out.push_str(&format!("a {split:.2}\n")),
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+RUSTEOF
+
 cat >> "$crate/src/glyph_names.rs" <<'RUSTEOF'
 
 /// Probe (added for swift-anydoc): glyph-name resolution. One name per line.
@@ -2802,6 +2934,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::extractor::layout::probe_valleys(&input));
+        return;
+    }
+    if path == "--reading" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::extractor::reading_order::probe_reading(&input));
         return;
     }
     if path == "--cffname" {
