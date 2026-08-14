@@ -268,4 +268,127 @@ import Testing
         #expect(flow([hero], caption(rows: 6, step: 24)) != nil)
         #expect(flow([hero], caption(rows: 6, step: 25)) == nil)
     }
+
+    // MARK: - paired_column_images
+
+    /// Two stacked panels on each side of a split at x=300.
+    private func panels(
+        left: Int = 2, right: Int = 2, width: Float = 230, height: Float = 150,
+        top: Float = 900, step: Float = 200
+    ) -> [PdfImageRegion] {
+        var out: [PdfImageRegion] = []
+        for index in 0..<left {
+            let upper = top - Float(index) * step
+            out.append(PdfImageRegion(x0: 20, y0: upper - height, x1: 20 + width, y1: upper))
+        }
+        for index in 0..<right {
+            let upper = top - Float(index) * step
+            out.append(PdfImageRegion(x0: 320, y0: upper - height, x1: 320 + width, y1: upper))
+        }
+        return out
+    }
+
+    /// Unbalanced text below the panels: ten rows left, five right.
+    private func sides(left: Int = 10, right: Int = 5, step: Float = 14) -> [PdfLayoutItem] {
+        var out = (0..<left).map { item(20, 430 - Float($0) * step, 200, prose) }
+        out += (0..<right).map { item(320, 430 - Float($0) * step, 200, prose) }
+        return out
+    }
+
+    private func paired(
+        _ images: [PdfImageRegion], _ items: [PdfLayoutItem], splitX: Float = 300
+    ) -> PdfColumnFlowBand? {
+        pdfPairedColumnImages(items, images, splitX: splitX, xMin: 0, xMax: 600)
+    }
+
+    @Test func stackedPanelsEitherSideOfASplitAreABand() {
+        let band = paired(panels(), sides())
+        #expect(band != nil)
+        #expect(band?.splitX == 300)
+        // Three points above the topmost panel and below the lowest
+        // column-confined run.
+        #expect(band?.yTop == 903)
+        #expect(band?.yBottom == 301)
+    }
+
+    @Test func threeQualifyingImagesAreNeeded() {
+        #expect(paired(panels(left: 1, right: 1), sides()) == nil)
+        #expect(paired(panels(left: 2, right: 1), sides()) != nil)
+        #expect(paired(panels(left: 1, right: 2), sides()) != nil)
+    }
+
+    @Test func bothSidesMustCarryAnImage() {
+        #expect(paired(panels(left: 4, right: 0), sides()) == nil)
+        #expect(paired(panels(left: 0, right: 4), sides()) == nil)
+    }
+
+    @Test func anImageStraddlingTheSplitBelongsToNeitherColumn() {
+        // It is dropped rather than assigned, so it cannot make up the count.
+        let straddling = [PdfImageRegion(x0: 250, y0: 100, x1: 400, y1: 260)]
+        #expect(paired(panels(left: 1, right: 1) + straddling, sides()) == nil)
+    }
+
+    @Test func panelsSideBySideInOneRowAreNotAStack() {
+        // Three logos across a page header would otherwise satisfy the count
+        // and send an ordinary asymmetric page through sequential order.
+        #expect(paired(panels(step: 0), sides()) == nil)
+        #expect(paired(panels(step: 200), sides()) != nil)
+    }
+
+    @Test func stackedPanelsMustBeCloseEnoughToBeOnePanelRun() {
+        // The vertical gap may be at most half the taller panel's height —
+        // 75pt for these — and the bound is inclusive.
+        func spaced(_ lowerTop: Float) -> [PdfImageRegion] {
+            [
+                PdfImageRegion(x0: 20, y0: 750, x1: 250, y1: 900),
+                PdfImageRegion(x0: 20, y0: lowerTop - 150, x1: 250, y1: lowerTop),
+                PdfImageRegion(x0: 320, y0: 750, x1: 550, y1: 900),
+            ]
+        }
+        #expect(paired(spaced(675), sides()) != nil)  // gap exactly 75
+        #expect(paired(spaced(674), sides()) == nil)  // gap 76
+    }
+
+    @Test func theSplitMustSitNearThePageMiddle() {
+        // Between 40% and 60%. Note a moved split also changes which images
+        // count as column-confined, so this is not observable in isolation
+        // with panels at fixed positions — both effects point the same way.
+        #expect(paired(panels(), sides(), splitX: 300) != nil)
+        #expect(paired(panels(), sides(), splitX: 239) == nil)
+        #expect(paired(panels(), sides(), splitX: 361) == nil)
+    }
+
+    @Test func bothSidesNeedFiveRowsAndMustBeUnbalanced() {
+        // Evenly matched columns are ordinary two-column text, which the
+        // histogram already handles — so the balance must be under 0.55.
+        #expect(paired(panels(), sides(left: 4, right: 5)) == nil)
+        #expect(paired(panels(), sides(left: 5, right: 4)) == nil)
+        #expect(paired(panels(), sides(left: 5, right: 5)) == nil)  // balance 1.0
+        #expect(paired(panels(), sides(left: 10, right: 5)) != nil)  // 0.5
+        #expect(paired(panels(), sides(left: 10, right: 6)) == nil)  // 0.6
+        #expect(paired(panels(), sides(left: 12, right: 6)) != nil)  // 0.5
+    }
+
+    @Test func runsWithinThreePointsAreTheSameRow() {
+        // Ten runs three points apart collapse to one row and fail the count.
+        #expect(paired(panels(), sides(step: 3)) == nil)
+        #expect(paired(panels(), sides(step: 4)) != nil)
+    }
+
+    @Test func textConfinedToNeitherColumnProvesNothing() {
+        // Only column-confined text sets the lower extent, so a page whose
+        // text all straddles the split has no finite bottom.
+        let middle = (0..<10).map { item(250, 430 - Float($0) * 14, 100, prose) }
+        #expect(paired(panels(), middle) == nil)
+        #expect(paired(panels(), []) == nil)
+    }
+
+    @Test func theWidePanelBarDominatesTheQualifyingOne() {
+        // An image qualifies at 60pt wide but must be 35% of the page — 210pt
+        // here — to count toward the three *wide* panels, and three of each
+        // are required. So at this page size the 60pt bar is never the one
+        // that decides.
+        #expect(paired(panels(width: 209), sides()) == nil)
+        #expect(paired(panels(width: 210), sides()) != nil)
+    }
 }

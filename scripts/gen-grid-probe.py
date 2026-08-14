@@ -2763,6 +2763,61 @@ def reading_cases(random_count):
     # Non-prose sides, so no row splits at all.
     L([hero], caption(text="ab~cd"))
 
+    # paired_column_images: a page built from stacked panels either side of
+    # a known split, with unbalanced text around them.
+    def P2(images, items, split=300.0, x_min=0.0, x_max=600.0):
+        lines.append("P2 {} {} {} | {} ; {}".format(
+            split, x_min, x_max,
+            " ".join("{},{},{},{}".format(*r) for r in images) or "-", spec(items)))
+
+    def panels(left_n=2, right_n=2, width=230, height=150, top=900, step=200):
+        out = []
+        for i in range(left_n):
+            out.append((20, top - i * step - height, 20 + width, top - i * step))
+        for i in range(right_n):
+            out.append((320, top - i * step - height, 320 + width, top - i * step))
+        return out
+
+    def sides(left_rows=10, right_rows=5, top=430, step=14):
+        out = [(20, top - r * step, 200, prose) for r in range(left_rows)]
+        out += [(320, top - r * step, 200, prose) for r in range(right_rows)]
+        return out
+
+    P2(panels(), sides())
+    # The split must sit in the middle fifth of the page.
+    for split in (200, 239, 240, 300, 360, 361, 400):
+        P2(panels(), sides(), split=split)
+    # Three qualifying and three wide images are both needed.
+    for left_n, right_n in ((1, 1), (2, 1), (1, 2), (2, 2), (3, 3)):
+        P2(panels(left_n=left_n, right_n=right_n), sides())
+    # Narrow or short images do not qualify.
+    for width in (40, 59, 60, 100, 209, 210, 230):
+        P2(panels(width=width), sides())
+    for height in (20, 39, 40, 80, 150):
+        P2(panels(height=height), sides())
+    # An image straddling the split belongs to neither column.
+    P2(panels() + [(250, 100, 400, 260)], sides())
+    # Images all on one side.
+    P2(panels(left_n=4, right_n=0), sides())
+    P2(panels(left_n=0, right_n=4), sides())
+    # The vertical stack: panels side by side in one row must not qualify.
+    for step in (0, 60, 100, 150, 200, 300, 400):
+        P2(panels(step=step), sides())
+    # The images must span 45% of the page width vertically.
+    for step in (100, 130, 135, 140, 200):
+        P2(panels(step=step, height=100), sides())
+    # Row counts and the balance bar.
+    for left_rows, right_rows in ((3, 3), (5, 4), (4, 5), (5, 5), (10, 4),
+                                  (10, 5), (10, 6), (12, 6), (12, 7), (20, 4)):
+        P2(panels(), sides(left_rows=left_rows, right_rows=right_rows))
+    # Rows within 3pt collapse into one.
+    for step in (2, 3, 4, 14):
+        P2(panels(), sides(step=step))
+    # No text at all below the panels.
+    P2(panels(), [])
+    # Text only in the middle, confined to neither column.
+    P2(panels(), [(250, 430 - r * 14, 100, prose) for r in range(10)])
+
     return lines
 
 

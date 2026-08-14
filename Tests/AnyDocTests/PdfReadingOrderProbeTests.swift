@@ -81,6 +81,23 @@ import Testing
             else { return "lf -" }
             return "lf \(twoPlaces(band.splitX)),\(twoPlaces(band.yBottom)),"
                 + "\(twoPlaces(band.yTop))"
+        case "P2":
+            guard let bar = parts.firstIndex(of: "|"), let semi = parts.firstIndex(of: ";"),
+                parts.count > 3
+            else { return nil }
+            let images: [PdfImageRegion] = parts[(bar + 1)..<semi].compactMap {
+                let f = $0.split(separator: ",")
+                guard f.count >= 4, let x0 = Float(f[0]), let y0 = Float(f[1]),
+                    let x1 = Float(f[2]), let y1 = Float(f[3])
+                else { return nil }
+                return PdfImageRegion(x0: x0, y0: y0, x1: x1, y1: y1)
+            }
+            guard let band = pdfPairedColumnImages(
+                items(parts[(semi + 1)...]), images, splitX: Float(parts[1]) ?? 300,
+                xMin: Float(parts[2]) ?? 0, xMax: Float(parts[3]) ?? 600)
+            else { return "p2 -" }
+            return "p2 \(twoPlaces(band.splitX)),\(twoPlaces(band.yBottom)),"
+                + "\(twoPlaces(band.yTop))"
         case "A":
             guard let semi = parts.firstIndex(of: ";"), parts.count > 2 else { return nil }
             let rows = pdfGroupRows(items(parts[(semi + 1)...]))

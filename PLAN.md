@@ -2829,3 +2829,35 @@ readings**.
   exact boundaries: the caption gap is 60–120pt measured to the *padded* top,
   the band height limit lands between 24pt and 25pt of row spacing, and the
   aspect window is 434–612pt of height for a 510pt-wide anchor.
+
+- **Wave 69 — pages built from paired panels.**
+  `pdfPairedColumnImages` joins `PdfReadingOrder.swift`. Where wave 68 reads
+  a caption beneath one hero image, this recognises a page *built* from
+  stacked figures either side of a split — a catalogue or photo essay, where
+  the images mark the columns and the text fills around them.
+  - The demanding test is the **vertical stack**. Three logos in a row across
+    a header would otherwise satisfy the image count and send an ordinary
+    asymmetric page through sequential column order, so at least one pair on
+    the same side must sit one above the other: centres at least half the
+    shorter panel apart, and a vertical gap at most half the taller one —
+    inclusive at exactly half, which the tests pin at 75pt.
+  - An image straddling the split belongs to neither column and is dropped
+    rather than assigned, so it cannot make up the count.
+  - Only **column-confined** text sets the band's lower extent. A spanning
+    heading below the columns has to become the trailing full-width node
+    rather than stretching the band to the page foot; a page whose text all
+    straddles the split therefore has no finite bottom and is refused.
+  - The columns must be **unbalanced** — under 0.55 by row count, both sides
+    at five rows minimum. Evenly matched columns are ordinary two-column
+    text, which the histogram already handles.
+
+  236 probe cases agree on the first run. The generated cases were starved at
+  first — 2 bands in 56 — because the baseline shape had four rows on the
+  side where five is the floor; fixed, it reaches 16 bands in 56.
+
+  **Gates that mask each other, recorded rather than asserted:** several
+  constants cannot be isolated at a 600pt page. `MIN_IMAGE_WIDTH` (60pt) is
+  always dominated by the 35%-of-page wide-panel bar (210pt), since three of
+  *each* kind are required; and `MIN_IMAGE_HEIGHT` (40pt) is dominated by the
+  vertical-stack gap bound, which fires first on any shape short enough to
+  test it. The unit tests assert the bar that actually decides and say so.
