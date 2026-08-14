@@ -2685,3 +2685,44 @@ readings**.
   out explicitly.
 
   851 probe cases agree on the first run. 17 unit tests.
+
+- **Wave 65 — `detect_columns`, the assembly.**
+  `PdfDetectColumns.swift` ports the function waves 61–64 were built for. It
+  projects the page's text onto its x axis and tries three routes in order of
+  how much each assumes: absolute valleys the text genuinely avoids; relative
+  valleys, for justified text that fills its own gutter; and the XY cut, for
+  the sidebar a body-dominated histogram cannot see. Every route can decline,
+  and the page then comes back as one full-width column.
+  - Items over 60% of the page width are left out of the histogram. Without
+    that a title bridges the gutter and hides it, which is what would stop a
+    two-column abstract being found under a heading.
+  - The noise threshold is 15% of the busiest bin, **truncated** — so a page
+    whose busiest bin holds six items needs a genuinely empty gutter.
+  - Stray items in a gutter do two different things depending on shape:
+    enough of them *inside* it become their own narrow column, while enough
+    *bridging* it close the gutter entirely. Both are now pinned.
+  - The relative route needs 100 items and no detected table, and its result
+    must additionally read as prose — a relative valley is weaker evidence
+    than an absolute one and has to be corroborated.
+  - The regions span the *text's* extent, not the page's, so the margins fall
+    outside the first and last column.
+
+  1,043 probe cases agree on the first run, 105 of them for `detect_columns`
+  across all five outcomes (0–4 columns). Route instrumentation drove three
+  rounds of case design: the relative route fired 0 times at first, then 17
+  once the columns were made to touch with jagged edges; its prose rejection
+  needed touching cells crossed by a minority of rows.
+
+  **Two branches the probe does not reach, recorded rather than claimed.**
+  The edge-based fallback cannot be triggered: edge assignment gives each
+  side a subset of what centre assignment gives, so counts only shrink and
+  extents only narrow — neither turns a refusal into an acceptance. The only
+  gate that could flip is the list-marker check, and only for marker items
+  wide enough to straddle a gutter, which no real page produces. The XY cut
+  *inside* the relative branch looks outright unreachable: arriving there
+  means no run of empty bins clears the margins, while the XY cut needs a
+  15pt gap nothing spans — which would produce exactly such a run. Both are
+  left in place, being the reference's, with the reasoning at the call site.
+
+  `PdfLayout.swift` has dropped the multi-column caveat it carried since
+  wave 4. What remains is wiring the regions into line grouping.

@@ -166,6 +166,15 @@ import Testing
                 }
             }
             return "n \(pdfIsNewspaperLayout(perColumn, columns) ? 1 : 0)"
+        case "D":
+            guard let semi = parts.firstIndex(of: ";"), parts.count > 1 else { return nil }
+            let columns = pdfDetectColumns(
+                parseItems(parts[(semi + 1)...]), pageHasTable: parts[1] == "1")
+            var out = "d \(columns.count)"
+            for column in columns {
+                out += " \(twoPlaces(column.xMin)):\(twoPlaces(column.xMax))"
+            }
+            return out
         case "P":
             guard parts.count > 2 else { return nil }
             let item = PdfLayoutItem(

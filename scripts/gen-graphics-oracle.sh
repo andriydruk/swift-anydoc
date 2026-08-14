@@ -1455,6 +1455,36 @@ pub fn probe_valleys(input: &str) -> String {
                     is_newspaper_layout(&per_column, &columns) as u8
                 ));
             }
+            // D has_table ; x,y,w,text ...
+            "D" => {
+                let semi = match parts.iter().position(|p| *p == ";") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let has_table = parts[1] == "1";
+                let items: Vec<TextItem> = parts[semi + 1..]
+                    .iter()
+                    .filter_map(|p| {
+                        let f: Vec<&str> = p.split(',').collect();
+                        if f.len() < 4 {
+                            return None;
+                        }
+                        Some(item(
+                            f[0].parse().ok()?,
+                            f[1].parse().ok()?,
+                            f[2].parse().ok()?,
+                            12.0,
+                            f[3],
+                        ))
+                    })
+                    .collect();
+                let cols = detect_columns(&items, 1, has_table);
+                out.push_str(&format!("d {}", cols.len()));
+                for col in &cols {
+                    out.push_str(&format!(" {:.2}:{:.2}", col.x_min, col.x_max));
+                }
+                out.push('\n');
+            }
             // P y text
             "P" => {
                 let it = item(0.0, parts[1].parse().unwrap_or(0.0), 0.0, 12.0, parts[2]);

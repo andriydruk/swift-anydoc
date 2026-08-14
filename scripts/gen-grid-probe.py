@@ -3189,6 +3189,175 @@ def valley_cases(random_count):
     # instead, which is a deliberate divergence from a trap that cannot be
     # observed through the real entry point.
 
+    # --- detect_columns: the assembly of everything above ---
+
+    def emit_detect(items, has_table=0):
+        lines.append("D {} ; {}".format(has_table, items_spec(items)))
+
+    def page(rows, cols_x, width=200, step=14, top=700, text="word"):
+        out = []
+        for row in range(rows):
+            y = top - row * step
+            for x in cols_x:
+                out.append((x, y, width, text))
+        return out
+
+    # An empty page, and pages too small to judge.
+    emit_detect([])
+    for rows in (1, 5, 9, 10, 11):
+        emit_detect(page(rows, [20, 340]))
+    # A page narrower than 200pt however many items it has.
+    emit_detect(page(20, [0, 60], width=40))
+    emit_detect(page(20, [0, 300], width=40))
+    # The clean two-column case, with an empty gutter.
+    emit_detect(page(15, [20, 340]))
+    emit_detect(page(30, [20, 340]))
+    # Three and four columns.
+    emit_detect(page(15, [10, 170, 330], width=140))
+    emit_detect(page(15, [10, 160, 310, 460], width=130))
+    # A single column of prose.
+    emit_detect(page(30, [20], width=560))
+    # Full-width titles must not fill the gutter: over 60% of the page width
+    # they are left out of the histogram entirely.
+    for title_w in (300, 360, 367, 380, 500, 560):
+        emit_detect(page(15, [20, 340]) + [(20, 780, title_w, "title")])
+    # The 5% margin rule on valley centres.
+    for left_x in (0, 5, 20, 60):
+        emit_detect(page(15, [left_x, 340]))
+    # The 8pt minimum gutter, walked by narrowing the gap.
+    for gap in (2, 6, 8, 10, 20, 60):
+        emit_detect(page(15, [20, 220 + gap]))
+    # The noise threshold: a few stray items inside the gutter.
+    for strays in (0, 1, 2, 3, 5, 10):
+        extra = [(250, 700 - r * 14, 40, "x") for r in range(strays)]
+        emit_detect(page(20, [20, 340]) + extra)
+    # Justified text filling the gutter, dense enough for the relative path.
+    def justified(rows, left_x=20, left_w=280, right_x=310, right_w=280):
+        out = []
+        for row in range(rows):
+            y = 700 - row * 14
+            out.append((left_x, y, left_w, "a~line~of~running~prose~here"))
+            out.append((right_x, y, right_w, "a~line~of~running~prose~here"))
+        return out
+    for rows in (20, 40, 49, 50, 51, 60):
+        emit_detect(justified(rows))
+    # ... and the same page declared to have a table, which blocks both the
+    # relative path and the XY cut.
+    for rows in (20, 60):
+        emit_detect(justified(rows), has_table=1)
+    # A dense page of short scattered items, which the prose check rejects.
+    def scattered(rows):
+        out = []
+        for row in range(rows):
+            y = 700 - row * 14
+            for column in range(6):
+                out.append((20 + column * 95, y, 30, "c"))
+        return out
+    for rows in (10, 18, 20, 30):
+        emit_detect(scattered(rows))
+        emit_detect(scattered(rows), has_table=1)
+    # A sidebar the histogram misses but the XY cut finds.
+    def sidebar(body_rows=24, side_rows=6):
+        out = [(20, 700 - r * 12, 380, "body~text~running~on") for r in range(body_rows)]
+        out += [(430, 700 - r * 40, 150, "note") for r in range(side_rows)]
+        return out
+    for side_rows in (2, 3, 6, 12):
+        emit_detect(sidebar(side_rows=side_rows))
+        emit_detect(sidebar(side_rows=side_rows), has_table=1)
+    # Overlapping full-width paragraphs: no gutter anywhere.
+    emit_detect([(20, 700 - r * 14, 560, "full~width~paragraph~text") for r in range(30)])
+    # Items with no measured width, so the estimate drives the histogram.
+    emit_detect([(20, 700 - r * 14, 0, "left~column~text") for r in range(15)]
+                + [(340, 700 - r * 14, 0, "right~column~text") for r in range(15)])
+    # A page whose columns sit at different heights, so the vertical-overlap
+    # gate in validate_and_build_columns decides.
+    for offset in (0, 100, 200, 300):
+        out = [(20, 700 - r * 14, 200, "l") for r in range(15)]
+        out += [(340, 700 - offset - r * 14, 200, "r") for r in range(15)]
+        emit_detect(out)
+    # Random dense pages, biased toward two-column shapes.
+    rng2 = random.Random(65_2026)
+    for _ in range(40):
+        rows = rng2.randrange(5, 40)
+        gap = rng2.choice([0, 5, 10, 20, 40, 80])
+        left_w = rng2.choice([100, 200, 280, 380])
+        out = []
+        for row in range(rows):
+            y = 700 - row * rng2.choice([12, 14, 20])
+            out.append((20, y, left_w, "l"))
+            if rng2.random() < 0.9:
+                out.append((20 + left_w + gap, y, rng2.choice([100, 200, 280]), "r"))
+        emit_detect(out, has_table=rng2.choice([0, 0, 0, 1]))
+
+    # Touching columns with jagged right edges: the gutter bins are never
+    # empty, so the absolute search finds nothing and the relative one has to
+    # decide. Dense enough (>=100 items) to be allowed to try.
+    rng3 = random.Random(65_1207)
+    for rows in (48, 50, 55, 70):
+        for jag in (10, 20, 40, 60, 90):
+            out = []
+            for row in range(rows):
+                out.append((20, 700 - row * 12, 290 - rng3.randrange(0, jag),
+                            "a~line~of~running~prose~text"))
+                out.append((310, 700 - row * 12, 280 - rng3.randrange(0, jag),
+                            "a~line~of~running~prose~text"))
+            emit_detect(out)
+            emit_detect(out, has_table=1)
+    # The same shape but scattered short items, so the prose check rejects
+    # what the relative valley proposed.
+    for rows in (50, 60):
+        out = []
+        for row in range(rows):
+            for column in range(6):
+                out.append((20 + column * 95, 700 - row * 12,
+                            30 - rng3.randrange(0, 8), "c"))
+        emit_detect(out)
+    # Columns overlapping vertically by between a fifth and a third, where
+    # validate_and_build_columns declines at 0.30 and the XY cut accepts at
+    # 0.20 -- the only route to the edge-based and XY fallbacks.
+    for left_rows, right_rows, offset in [
+        (20, 20, 200), (20, 20, 240), (20, 20, 260), (24, 24, 250),
+        (30, 30, 300), (30, 30, 330), (16, 24, 220), (24, 16, 220),
+        (24, 16, 180), (24, 16, 260), (40, 12, 300), (12, 40, 300),
+    ]:
+        out = [(20, 700 - r * 14, 200, "l") for r in range(left_rows)]
+        out += [(340, 700 - offset - r * 14, 200, "r") for r in range(right_rows)]
+        emit_detect(out)
+        emit_detect(out, has_table=1)
+    # Sparse pages with touching columns: no absolute valley and under a
+    # hundred items, so the relative route is skipped and the fallbacks run.
+    for rows in (11, 20, 30, 45):
+        out = []
+        for row in range(rows):
+            out.append((20, 700 - row * 14, 290 - rng3.randrange(0, 40), "left~text"))
+            out.append((310, 700 - row * 14, 280, "right~text"))
+        emit_detect(out)
+        emit_detect(out, has_table=1)
+
+    # Touching cells either side of a gutter crossed by a minority of rows:
+    # no empty bins anywhere, a shallow dip in the middle, and short items
+    # that the prose check then refuses -- the relative route's rejection.
+    rng4 = random.Random(65_1307)
+    for rows in (50, 60):
+        for cross in (0.15, 0.25, 0.35, 0.5):
+            out = []
+            for row in range(rows):
+                y = 700 - row * 11
+                for cell in range(5):
+                    out.append((20 + cell * 56, y, 56, "cell"))
+                for cell in range(5):
+                    out.append((320 + cell * 56, y, 56, "cell"))
+                if rng4.random() < cross:
+                    out.append((300, y, 20, "x"))
+            emit_detect(out)
+    # Items straddling the gutter, whose centres fall on one side: centre and
+    # edge assignment then disagree about where they belong.
+    for straddle in (0, 4, 8, 12, 18):
+        out = [(20, 700 - r * 14, 200, "l") for r in range(20)]
+        out += [(340, 700 - r * 14, 200, "r") for r in range(20)]
+        out += [(250, 700 - r * 14, 90, "s") for r in range(straddle)]
+        emit_detect(out)
+
     # is_list_marker_column: the 80% bar, and what counts as a marker.
     markers = ["\u2022", "\u25cf", "\u25cb", "\u25e6", "\u25aa",
                "\u25ab", "\u25c6", "\u25c7", "\u25a0", "\u25a1"]

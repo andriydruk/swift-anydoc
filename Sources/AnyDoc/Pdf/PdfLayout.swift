@@ -6,10 +6,10 @@
 /// right, and decide from the horizontal gap whether two runs are one word or
 /// two.
 ///
-/// Deliberately **not** ported yet: multi-column detection, newspaper layout,
-/// XY-cut region splitting and the per-producer letter-spacing calibration.
-/// Those matter for magazine-style pages; a single-column document does not
-/// reach them. Anything relying on column structure must wait for that wave.
+/// Multi-column detection, newspaper layout and XY-cut splitting live in
+/// `PdfDetectColumns.swift` and the files it draws on (waves 61–65). This
+/// file still groups a single column's runs into lines; wiring the column
+/// regions into that grouping is the remaining step.
 
 /// A run of text after layout, with the geometry the joiner needs.
 struct PdfLayoutItem {
@@ -30,6 +30,12 @@ struct PdfLayoutItem {
     var isUnderline = false
     /// Detected the same way, and — as in the reference — never rendered.
     var isStrikeout = false
+    /// An image placeholder rather than text. Column detection excludes
+    /// these, since an image's left edge would otherwise count toward the
+    /// projection profile. Nothing sets this yet — image placeholders are
+    /// not extracted — so it stands in for the reference's `ItemType::Image`
+    /// until they are.
+    var isImage = false
     /// The marked-content id this item was drawn under, which is what links
     /// it to a node of the structure tree.
     ///
