@@ -3038,3 +3038,30 @@ readings**.
   narrow case (`compute_paragraph_threshold`), one confirmed faithful
   (`has_dot_leaders`). The name-based coverage estimate cannot see any of
   this: it counts a wrong port and a right one alike.
+
+- **Wave 75 — auditing the markdown cleanup.**
+  `PdfPostprocess.swift` audited against `markdown/postprocess.rs`. **No
+  divergence found** — the wave-5 port is faithful.
+
+  The eight helpers already had a differential probe from wave 5, driven by
+  a separate oracle. What this wave adds is the piece that probe skipped:
+  `clean_markdown` itself, whose ordering, `\n\n\n` collapsing and final trim
+  are behaviour of the composition rather than of any helper. Plus a second,
+  differently-shaped corpus over the helpers, since two corpora reach
+  branches one does not.
+
+  1,130 cases agree on the first run, 222 of them the composed pass in both
+  profiles.
+
+  **Audit tally, waves 72–75:** six files or clusters checked. Four diverged
+  (`detect_header_level`, `compute_heading_tiers`, `calculate_font_stats` via
+  `pdfBodyFontSize`, `compute_paragraph_threshold`); two were clean
+  (`has_dot_leaders`, all of `postprocess.rs`). The pattern so far: functions
+  ported as *simplifications* diverge, and functions ported *verbatim against
+  a probe* do not — which is an argument for the probe-first discipline
+  rather than for suspicion of old code as such.
+
+  **A note on redundancy.** Discovering the wave-5 probe only after building
+  a second one cost some duplicated effort. Both are kept: the corpora differ
+  and the overlap is cheap, but `PLAN.md` should be checked for existing
+  probe coverage before a new audit is designed.

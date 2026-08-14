@@ -2606,6 +2606,56 @@ def difference_cases(random_count):
 
 
 
+def postprocess_cases(random_count):
+    """Cases auditing the markdown cleanup helpers."""
+    rng = random.Random(75_2026)
+    lines = []
+
+    def emit(tag, text):
+        lines.append("{} {}".format(tag, text.replace(" ", "~").replace("\n", "^")))
+
+    corpus = [
+        "", " ", "  ", "a", "a b", "a  b", "a   b", "  indented  text",
+        "| a | b |", "|  a  |  b  |", "  | a | b |",
+        "a  b  c  d", "trailing  ", "  leading", "\n", "a\nb", "a\n\nb",
+        "a\n\n\nb", "a\n\n\n\nb", "  \n  \n  ",
+        "Vice  President", "- item  one", "1.  numbered",
+        "text ( a )", "text (a )", "text ( a)", "[ link ]", "{ x }",
+        "a )", "a ]", "a }", "a  )", "((( )))",
+        "word .", "word ,", "word !", "word ?", "word ;", "word :",
+        "word . next", "a . b . c", "end .", "3 . 14",
+        "Section ....... 42", "Section .... 42", "Section ... 42",
+        "Section .. 42", "a....b", "....", "..........",
+        "hyphen-\nated", "hyphen- \nated", "hyphen-\n ated",
+        "well-known", "well-\nknown word", "end-\n", "-\nstart",
+        "a-\nb-\nc", "co-\noperate and re-\nuse",
+        "7", "42", "  7  ", "page 7", "Page 7", "- 7 -", "[7]", "vii",
+        "VII", "iv", "1234", "12345", "7.", "7 of 9", "Chapter 7",
+        "a\n7\nb", "a\n\n7\n\nb", "text\n42\ntext",
+        "See https://example.com now", "http://x.y", "https://example.com/a?b=c",
+        "(https://example.com)", "https://example.com.", "https://example.com,",
+        "[already](https://example.com)", "www.example.com",
+        "visit https://a.b/c) and https://d.e/f.",
+        "mixed  https://x.y  spaces", "https://",
+        "# Heading  with  spaces", "## H2 .", "> quote  text",
+        "```\ncode  block\n```", "a\n\n\n\n\n\nb",
+    ]
+
+    tags = ["SP", "BR", "PU", "DL", "HY", "PN", "IP", "UR", "CM", "CC"]
+    for text in corpus:
+        for tag in tags:
+            emit(tag, text)
+
+    # Random markdown-ish strings.
+    pieces = ["a", "b", " ", "  ", "\n", "\n\n", ".", ",", ")", "]", "-",
+              "...", "....", "7", "42", "https://x.y", "|", "#", "word"]
+    for _ in range(random_count):
+        text = "".join(rng.choice(pieces) for _ in range(rng.randrange(0, 14)))
+        emit(rng.choice(tags), text)
+
+    return lines
+
+
 def heading_cases(random_count):
     """Cases for the heading-tier and heading-level pair."""
     rng = random.Random(72_2026)
@@ -4690,6 +4740,18 @@ def main():
         text=True, check=True
     )
     with open(os.path.join(arguments.directory, "singlebyte-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write(r.stdout)
+
+    pp_lines = postprocess_cases(max(arguments.cases // 2, 200))
+    with open(os.path.join(arguments.directory, "postprocess-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n".join(pp_lines))
+    r = subprocess.run(
+        [probe, "--postprocess"], input="\n".join(pp_lines) + "\n", capture_output=True,
+        text=True, check=True
+    )
+    with open(os.path.join(arguments.directory, "postprocess-rust.txt"), "w",
               encoding="utf-8") as f:
         f.write(r.stdout)
 

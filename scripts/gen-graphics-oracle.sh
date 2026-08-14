@@ -70,6 +70,12 @@ perl -pi -e "s/^pub\\(crate\\) mod fonts;/pub mod fonts;/; s/^mod fonts;/pub mod
 perl -pi -e "s/^pub\\(crate\\) fn parse_encoding_dictionary/pub fn parse_encoding_dictionary/; s/^pub\\(crate\\) struct EncodingResult/pub struct EncodingResult/; s/^struct EncodingResult/pub struct EncodingResult/" \
     "$crate/src/extractor/fonts.rs"
 
+# `markdown::postprocess` — the cleanup helpers, audited in wave 75.
+perl -pi -e "s/^pub\\(crate\\) mod postprocess;/pub mod postprocess;/; s/^mod postprocess;/pub mod postprocess;/" \
+    "$crate/src/markdown/mod.rs"
+perl -pi -e "s/^pub\\(crate\\) fn clean_markdown/pub fn clean_markdown/; s/^fn (collapse_consecutive_spaces|remove_spaces_before_closing_brackets|remove_spaces_before_sentence_punctuation|collapse_dot_leaders|fix_hyphenation|remove_page_numbers|is_page_number_line|format_urls)/pub fn \$1/" \
+    "$crate/src/markdown/postprocess.rs"
+
 # `markdown::analysis` holds the heading-tier and heading-level pair.
 perl -pi -e "s/^pub\\(crate\\) mod analysis;/pub mod analysis;/; s/^mod analysis;/pub mod analysis;/" \
     "$crate/src/markdown/mod.rs"
@@ -2097,6 +2103,63 @@ pub fn probe_heading(input: &str) -> String {
 }
 RUSTEOF
 
+cat >> "$crate/src/markdown/postprocess.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): the markdown cleanup helpers. One case
+/// per line: a tag, then the text with `~` for space and `^` for newline.
+pub fn probe_postprocess(input: &str) -> String {
+    fn decode(raw: &str) -> String {
+        raw.replace('~', " ").replace('^', "\n")
+    }
+    fn encode(text: &str) -> String {
+        text.replace(' ', "~").replace('\n', "^")
+    }
+
+    let mut out = String::new();
+    for line in input.lines() {
+        let (tag, rest) = match line.split_once(' ') {
+            Some(pair) => pair,
+            None => (line, ""),
+        };
+        let text = decode(rest);
+        let answer = match tag {
+            "SP" => {
+                let mut t = text.clone();
+                collapse_consecutive_spaces(&mut t);
+                encode(&t)
+            }
+            "BR" => {
+                let mut t = text.clone();
+                remove_spaces_before_closing_brackets(&mut t);
+                encode(&t)
+            }
+            "PU" => {
+                let mut t = text.clone();
+                remove_spaces_before_sentence_punctuation(&mut t);
+                encode(&t)
+            }
+            "DL" => encode(&collapse_dot_leaders(&text)),
+            "HY" => encode(&fix_hyphenation(&text)),
+            "PN" => encode(&remove_page_numbers(&text)),
+            "IP" => format!("{}", is_page_number_line(text.trim()) as u8),
+            "UR" => encode(&format_urls(&text)),
+            "CM" | "CC" => {
+                let mut options = crate::markdown::MarkdownOptions::default();
+                options.profile = if tag == "CC" {
+                    crate::markdown::MarkdownProfile::Compact
+                } else {
+                    crate::markdown::MarkdownProfile::Fidelity
+                };
+                encode(&clean_markdown(text.clone(), &options))
+            }
+            _ => continue,
+        };
+        out.push_str(&format!("{} {}\n", tag.to_lowercase(), answer));
+    }
+    out
+}
+RUSTEOF
+
 cat >> "$crate/src/glyph_names.rs" <<'RUSTEOF'
 
 /// Probe (added for swift-anydoc): glyph-name resolution. One name per line.
@@ -3377,6 +3440,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::markdown::analysis::probe_heading(&input));
+        return;
+    }
+    if path == "--postprocess" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::markdown::postprocess::probe_postprocess(&input));
         return;
     }
     if path == "--cffname" {
