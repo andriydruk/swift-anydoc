@@ -51,6 +51,10 @@ struct PdfTextLine {
     var items: [PdfLayoutItem]
     /// The line's baseline.
     var y: Float
+    /// The page this line came from. Line grouping runs per page, so this is
+    /// stamped by the caller; it matters where a calculation must not treat
+    /// two pages' lines as adjacent.
+    var page: Int = 1
     /// The join threshold this page was measured at, carried on the line so
     /// the word joiner can use it later. 0.10 for an ordinary page; higher
     /// for a letter-spaced one (see `PdfLetterSpacing.swift`).

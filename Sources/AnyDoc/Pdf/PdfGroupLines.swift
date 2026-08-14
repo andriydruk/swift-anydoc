@@ -24,6 +24,7 @@
 ///   charts have their own positioned-region ordering.
 func pdfGroupPageIntoLines(
     _ items: [PdfLayoutItem],
+    page: Int = 1,
     adaptiveThreshold: Float = 0.10,
     hasTable: Bool = false,
     chartRegions: [PdfImageRegion] = [],
@@ -36,7 +37,10 @@ func pdfGroupPageIntoLines(
 
     func grouped(_ items: [PdfLayoutItem]) -> [PdfTextLine] {
         var lines = pdfGroupSingleColumn(items)
-        for index in lines.indices { lines[index].adaptiveThreshold = adaptiveThreshold }
+        for index in lines.indices {
+            lines[index].adaptiveThreshold = adaptiveThreshold
+            lines[index].page = page
+        }
         return lines
     }
 

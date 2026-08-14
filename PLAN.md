@@ -3004,3 +3004,37 @@ readings**.
   faithful. 400 probe cases agree on the first run across all four
   predicates, each with both verdicts represented. 16 unit tests, all
   passing first try.
+
+- **Wave 74 — font statistics, and two more corrections.**
+  `PdfFontStats.swift` ports `FontStats`, both `calculate_font_stats`
+  variants, `font_size_rarity` and `bold_heading_level`. Everything the
+  heading detector decides rests on knowing which size is the body.
+
+  **`pdfBodyFontSize` diverged in four ways** and has been rewritten to call
+  the ported statistics:
+  - it weighted every *item* by character count, where the reference casts
+    **one vote per line** from its first item — which is what stops a page of
+    short captions outvoting its body text;
+  - it had no nine-point floor, so footnotes and superscripts could claim the
+    majority on a densely annotated page;
+  - it bucketed by **rounding** where the reference truncates, so 12.19 was
+    grouped with 12.2 rather than with 12.11;
+  - it fell back to 0 where the reference falls back to 12.
+
+  **`pdfParagraphThreshold` diverged once:** the reference only measures gaps
+  between lines on the **same page**, which this port could not express
+  because `PdfTextLine` had no page. Added, stamped by `pdfGroupPageIntoLines`
+  and used here. Usually the cross-page gap is negative and filtered anyway —
+  the check only bites when the pages differ in height — but the probe now
+  covers that case explicitly.
+
+  531 probe cases agree on the first run, including the truncation buckets,
+  the tie-to-the-smaller-size rule, and the page-boundary gaps. 11 unit
+  tests.
+
+  **Running tally of the audit habit (waves 72–74):** five functions checked,
+  three found diverging (`detect_header_level`, `compute_heading_tiers`,
+  `calculate_font_stats` via `pdfBodyFontSize`), one found diverging in a
+  narrow case (`compute_paragraph_threshold`), one confirmed faithful
+  (`has_dot_leaders`). The name-based coverage estimate cannot see any of
+  this: it counts a wrong port and a right one alike.

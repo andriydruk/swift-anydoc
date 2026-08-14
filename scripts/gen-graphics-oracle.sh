@@ -75,7 +75,9 @@ perl -pi -e "s/^pub\\(crate\\) mod analysis;/pub mod analysis;/; s/^mod analysis
     "$crate/src/markdown/mod.rs"
 perl -pi -e "s/^pub\\(crate\\) mod markdown;/pub mod markdown;/; s/^mod markdown;/pub mod markdown;/" \
     "$crate/src/lib.rs"
-perl -pi -e "s/^pub\\(crate\\) fn (compute_heading_tiers|detect_header_level|line_is_mostly_bold|has_dot_leaders|is_toc_entry_line|is_toc_marker_heading|is_heading_fragment)/pub fn \$1/" \
+perl -pi -e "s/^pub\\(crate\\) struct FontStats/pub struct FontStats/; s/^    pub\\(crate\\) (most_common_size|size_counts|total_lines)/    pub \$1/" \
+    "$crate/src/markdown/analysis.rs"
+perl -pi -e "s/^pub\\(crate\\) fn (compute_heading_tiers|detect_header_level|line_is_mostly_bold|has_dot_leaders|is_toc_entry_line|is_toc_marker_heading|is_heading_fragment|calculate_font_stats|calculate_font_stats_from_items|font_size_rarity|bold_heading_level|compute_paragraph_threshold)/pub fn \$1/" \
     "$crate/src/markdown/analysis.rs"
 
 # `reading_order` is private too, and the probe below lives inside it.
@@ -1959,6 +1961,104 @@ pub fn probe_heading(input: &str) -> String {
                     out.push_str(&format!(" {tier:.2}"));
                 }
                 out.push('\n');
+            }
+            // S mode ; size,text ...   (font stats; mode 1 = per item)
+            "S" => {
+                use crate::types::{ItemType, TextItem, TextLine};
+                let semi = match parts.iter().position(|p| *p == ";") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let per_item = parts[1] == "1";
+                let items: Vec<TextItem> = parts[semi + 1..]
+                    .iter()
+                    .filter_map(|p| {
+                        let f: Vec<&str> = p.split(',').collect();
+                        if f.len() < 2 {
+                            return None;
+                        }
+                        Some(TextItem {
+                            text: f[1].replace('~', " "),
+                            x: 0.0,
+                            y: 0.0,
+                            width: 10.0,
+                            height: 12.0,
+                            font: "F1".to_string(),
+                            font_size: f[0].parse().ok()?,
+                            page: 1,
+                            is_bold: false,
+                            is_italic: false,
+                            is_underline: false,
+                            is_strikeout: false,
+                            item_type: ItemType::Text,
+                            mcid: None,
+                        })
+                    })
+                    .collect();
+                let stats = if per_item {
+                    calculate_font_stats_from_items(&items)
+                } else {
+                    let lines_in: Vec<TextLine> = items
+                        .iter()
+                        .map(|it| TextLine {
+                            y: 0.0,
+                            page: 1,
+                            adaptive_threshold: 0.10,
+                            items: vec![it.clone()],
+                        })
+                        .collect();
+                    calculate_font_stats(&lines_in)
+                };
+                out.push_str(&format!(
+                    "fs {:.2} {} {}",
+                    stats.most_common_size, stats.total_lines, stats.size_counts.len()
+                ));
+                // Rarity for each distinct input size, so the map is compared
+                // rather than only its size.
+                let mut sizes: Vec<i32> = stats.size_counts.keys().copied().collect();
+                sizes.sort();
+                for key in sizes {
+                    out.push_str(&format!(
+                        " {}:{:.4}",
+                        key,
+                        font_size_rarity(key as f32 / 10.0, &stats)
+                    ));
+                }
+                out.push('\n');
+            }
+            // PT base ; page,y ...   (compute_paragraph_threshold)
+            "PT" => {
+                use crate::types::TextLine;
+                let semi = match parts.iter().position(|p| *p == ";") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let base: f32 = parts[1].parse().unwrap_or(10.0);
+                let lines_in: Vec<TextLine> = parts[semi + 1..]
+                    .iter()
+                    .filter_map(|p| {
+                        let f: Vec<&str> = p.split(',').collect();
+                        if f.len() < 2 {
+                            return None;
+                        }
+                        Some(TextLine {
+                            y: f[1].parse().ok()?,
+                            page: f[0].parse().ok()?,
+                            adaptive_threshold: 0.10,
+                            items: vec![],
+                        })
+                    })
+                    .collect();
+                out.push_str(&format!(
+                    "pt {:.3}\n",
+                    compute_paragraph_threshold(&lines_in, base)
+                ));
+            }
+            // BL n   (bold_heading_level for n tiers)
+            "BL" => {
+                let count: usize = parts[1].parse().unwrap_or(0);
+                let tiers = vec![12.0f32; count];
+                out.push_str(&format!("bl {}\n", bold_heading_level(&tiers)));
             }
             // F text   (the heading-fragment vetoes; ~ stands for a space)
             "F" => {

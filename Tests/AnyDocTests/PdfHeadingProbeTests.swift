@@ -63,6 +63,36 @@ import Testing
             var out = "ht \(tiers.count)"
             for tier in tiers { out += " \(twoPlaces(tier))" }
             return out
+        case "S":
+            guard let semi = parts.firstIndex(of: ";"), parts.count > 1 else { return nil }
+            let items: [PdfLayoutItem] = parts[(semi + 1)...].compactMap { field in
+                let f = field.split(separator: ",", omittingEmptySubsequences: false)
+                guard f.count >= 2, let size = Float(f[0]) else { return nil }
+                return PdfLayoutItem(
+                    text: f[1].replacingOccurrences(of: "~", with: " "), x: 0, y: 0, width: 10,
+                    fontSize: size, fontName: "F1")
+            }
+            let stats =
+                parts[1] == "1"
+                ? pdfFontStatsFromItems(items)
+                : pdfFontStats(items.map { PdfTextLine(items: [$0], y: 0) })
+            var out = "fs \(twoPlaces(stats.mostCommonSize)) \(stats.totalLines) "
+                + "\(stats.sizeCounts.count)"
+            for key in stats.sizeCounts.keys.sorted() {
+                out += " \(key):\(fourPlaces(pdfFontSizeRarity(Float(key) / 10, stats)))"
+            }
+            return out
+        case "PT":
+            guard let semi = parts.firstIndex(of: ";"), parts.count > 1 else { return nil }
+            let lines: [PdfTextLine] = parts[(semi + 1)...].compactMap { field in
+                let f = field.split(separator: ",")
+                guard f.count >= 2, let page = Int(f[0]), let y = Float(f[1]) else { return nil }
+                return PdfTextLine(items: [], y: y, page: page)
+            }
+            return "pt \(threePlaces(pdfParagraphThreshold(lines, bodySize: Float(parts[1]) ?? 10)))"
+        case "BL":
+            guard parts.count > 1, let count = Int(parts[1]) else { return nil }
+            return "bl \(pdfBoldHeadingLevel([Float](repeating: 12, count: count)))"
         case "F":
             let text = parts.dropFirst().joined(separator: " ")
                 .replacingOccurrences(of: "~", with: " ")
@@ -96,5 +126,26 @@ import Testing
         let fraction = abs(Int(scaled) % 100)
         let sign = (scaled < 0 && whole == 0) ? "-" : ""
         return "\(sign)\(whole).\(fraction < 10 ? "0" : "")\(fraction)"
+    }
+
+    private func fourPlaces(_ value: Float) -> String {
+        let scaled = (Double(value) * 10000).rounded(.toNearestOrAwayFromZero)
+        let whole = Int(scaled / 10000)
+        let fraction = abs(Int(scaled) % 10000)
+        let sign = (scaled < 0 && whole == 0) ? "-" : ""
+        var digits = "\(fraction)"
+        while digits.count < 4 { digits = "0" + digits }
+        return "\(sign)\(whole).\(digits)"
+    }
+
+    private func threePlaces(_ value: Float) -> String {
+        if value.isNaN { return "NaN" }
+        let scaled = (Double(value) * 1000).rounded(.toNearestOrAwayFromZero)
+        let whole = Int(scaled / 1000)
+        let fraction = abs(Int(scaled) % 1000)
+        let sign = (scaled < 0 && whole == 0) ? "-" : ""
+        var digits = "\(fraction)"
+        while digits.count < 3 { digits = "0" + digits }
+        return "\(sign)\(whole).\(digits)"
     }
 }

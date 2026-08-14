@@ -2769,6 +2769,101 @@ def heading_cases(random_count):
                 "...", "....", "3", "42", "Contents", "of", "≤", "±", ":"]))
         F(" ".join(pieces))
 
+    def S(entries, per_item=0):
+        lines.append("S {} ; {}".format(
+            per_item, " ".join("{},{}".format(size, text) for size, text in entries)))
+
+    def BL(n):
+        lines.append("BL {}".format(n))
+
+    # --- calculate_font_stats / from_items ---
+    # An ordinary document: mostly body, a few headings.
+    body = [(10, "body~line")] * 20 + [(24, "Title")] + [(16, "Section")] * 3
+    S(body)
+    S(body, per_item=1)
+    # Nothing at all.
+    S([])
+    S([], per_item=1)
+    # Everything under the nine-point floor, so no size votes.
+    S([(8, "tiny")] * 10)
+    S([(8.9, "tiny")] * 10)
+    S([(9.0, "small")] * 10)
+    # Ties, which go to the smaller size.
+    S([(10, "a")] * 5 + [(12, "b")] * 5)
+    S([(12, "a")] * 5 + [(10, "b")] * 5)
+    S([(10, "a")] * 5 + [(12, "b")] * 5 + [(11, "c")] * 5)
+    # Truncation rather than rounding at the tenth boundary: 12.19 and 12.11
+    # share a key, 12.2 does not.
+    for size in (12.0, 12.09, 12.1, 12.11, 12.19, 12.2, 12.25, 12.29, 12.3):
+        S([(size, "x")] * 3 + [(20, "y")])
+    S([(12.11, "a")] * 3 + [(12.19, "b")] * 3)
+    S([(12.19, "a")] * 3 + [(12.2, "b")] * 3)
+    # A single size, and a wide spread.
+    S([(11, "only")])
+    S([(9 + i, "size{}".format(i)) for i in range(12)])
+    # Sizes just under and over the floor mixed together.
+    S([(8.5, "a")] * 10 + [(10, "b")] * 3)
+    # Fractional sizes that truncate to the same key.
+    S([(10.04, "a"), (10.05, "b"), (10.09, "c"), (10.1, "d")])
+    for _ in range(random_count // 2):
+        entries = [(round(rng.uniform(6.0, 30.0), 2), "t")
+                   for _ in range(rng.randrange(0, 15))]
+        S(entries, per_item=rng.choice([0, 1]))
+
+    # --- bold_heading_level ---
+    for n in range(0, 9):
+        BL(n)
+
+    def PT(base, entries):
+        lines.append("PT {} ; {}".format(
+            base, " ".join("{},{}".format(page, y) for page, y in entries)))
+
+    # --- compute_paragraph_threshold ---
+    # Evenly spaced lines on one page.
+    PT(10, [(1, 700 - r * 14) for r in range(12)])
+    # Too few gaps to trust a median.
+    for count in (1, 3, 5, 6, 7):
+        PT(10, [(1, 700 - r * 14) for r in range(count)])
+    # Double-spaced text, where a fixed multiple of the base would fail.
+    PT(10, [(1, 700 - r * 28) for r in range(12)])
+    # Gaps at and past the ten-times-base ceiling, which are dropped.
+    for gap in (50, 99, 100, 101, 150):
+        entries = [(1, 700 - r * 14) for r in range(8)]
+        entries.append((1, entries[-1][1] - gap))
+        entries += [(1, entries[-1][1] - 14 * (r + 1)) for r in range(4)]
+        PT(10, entries)
+    # A page break: the same lines split across two pages, where the gap
+    # between them must not count.
+    for split in (0, 3, 6, 12):
+        entries = [(1 if r < split else 2, 700 - r * 14) for r in range(12)]
+        PT(10, entries)
+    # A page break that produces a *positive* gap under the ceiling, which is
+    # the only case where the page check changes the answer.
+    entries = [(1, 700 - r * 14) for r in range(6)]
+    entries += [(2, 600 - r * 40) for r in range(6)]
+    PT(10, entries)
+    # The floor at 1.5x base beats a tiny median.
+    for step in (2, 6, 11, 12, 13, 20, 40):
+        PT(10, [(1, 700 - r * step) for r in range(12)])
+    # Negative and zero gaps are skipped.
+    PT(10, [(1, 700 + r * 14) for r in range(12)])
+    PT(10, [(1, 700) for _ in range(12)])
+    # A different base size scales both the ceiling and the floor.
+    for base in (6, 8, 12, 20):
+        PT(base, [(1, 700 - r * 14) for r in range(12)])
+    PT(0, [(1, 700 - r * 14) for r in range(12)])
+    for _ in range(random_count // 3):
+        entries = []
+        y = 700.0
+        page = 1
+        for _ in range(rng.randrange(0, 20)):
+            entries.append((page, round(y, 1)))
+            y -= rng.choice([0, 5, 12, 14, 30, 120, -20])
+            if rng.random() < 0.15:
+                page += 1
+                y = 700.0
+        PT(rng.choice([8.0, 10.0, 12.0]), entries)
+
     return lines
 
 

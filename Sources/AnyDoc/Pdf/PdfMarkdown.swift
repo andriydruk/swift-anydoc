@@ -12,25 +12,14 @@
 /// document whose headings differ from the body only by weight will not have
 /// them detected.
 
-/// The most common font size across the lines, weighted by how much text is
-/// set in it. Weighting by characters rather than by run keeps a page of
-/// short large captions from outvoting its body text.
+/// The document's body font size.
+///
+/// **Rewritten in wave 74.** The original took every item's characters as
+/// votes and bucketed by rounding; the reference casts one vote per *line*
+/// from its first item, ignores anything under nine points, and truncates
+/// rather than rounds when bucketing. See `PdfFontStats.swift`.
 func pdfBodyFontSize(_ lines: [PdfTextLine]) -> Float {
-    var weight: [Int: Int] = [:]
-    for line in lines {
-        for item in line.items {
-            let trimmed = item.text.rustTrim()
-            if trimmed.isEmpty { continue }
-            // Bucket to a tenth of a point: nominally equal sizes differ in
-            // the last bits after the transform.
-            let bucket = Int((item.fontSize * 10).rounded())
-            weight[bucket, default: 0] += trimmed.unicodeScalars.count
-        }
-    }
-    guard let best = weight.max(by: { ($0.value, -$0.key) < ($1.value, -$1.key) }) else {
-        return 0
-    }
-    return Float(best.key) / 10
+    pdfFontStats(lines).mostCommonSize
 }
 
 /// Boldness by *character mass*, so a heading with an unbold section-number

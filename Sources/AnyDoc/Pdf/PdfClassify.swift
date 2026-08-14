@@ -226,6 +226,11 @@ func pdfParagraphThreshold(_ lines: [PdfTextLine], bodySize: Float) -> Float {
 
     var gaps: [Float] = []
     for (previous, next) in zip(lines, lines.dropFirst()) {
+        // Only gaps *within* a page: two pages' lines are never adjacent,
+        // and the drop from one page's foot to the next page's head is not
+        // leading. Usually that gap is negative and filtered anyway, but not
+        // when the pages differ in height.
+        guard previous.page == next.page else { continue }
         let gap = previous.y - next.y
         if gap > 0, gap < bodySize * 10 { gaps.append(gap) }
     }
