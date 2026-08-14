@@ -51,6 +51,12 @@ import Testing
             var out = "n \(numbering.kind == .decimal ? "d" : "m") \(numbering.depth)"
             for part in numbering.parts { out += " \(part)" }
             return out
+        case "T":
+            let fields = text.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: false)
+            guard fields.count >= 3 else { return "t 0" }
+            return "t \(pdfTitleLike(String(fields[2]), numbered: fields[0] == "1", bold: fields[1] == "1") ? 1 : 0)"
+        case "S":
+            return "s \(pdfCompleteSidebarLabel(text) ? 1 : 0)"
         case "A":
             return "a \(pdfHasAdditionalDecimalNumbering(text) ? 1 : 0)"
         case "H":

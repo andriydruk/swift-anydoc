@@ -2646,6 +2646,33 @@ def numbering_cases(random_count):
                  "|1", "1|", "|", "1,2,3|1,2", "1,2|1,3", "2|1,1"):
         emit("H", pair)
 
+    # --- title_like and complete_sidebar_label ---
+    titles = [
+        "Introduction", "The Quick Brown Fox", "a lowercase heading",
+        "Mixed Case Heading Here", "ALL CAPS HEADING", "Ends with period.",
+        "Ends with comma,", "Ends with semicolon;", "Ends with colon:",
+        "abc", "abcd", "x y", "1. Numbered Heading", "- bullet item",
+        "* star item", "\u2022 dot item", "Figure 1: A caption here",
+        "Table 2. Results", "Section ... 42", "or inversely",
+        "S = kB ln W, (2)", "a b c d e f g h i j k l", "a b c d e f g h i j k l m",
+        "The", "1234", "!!!!", "iPhone Settings Page", "the of and",
+        "A Title With Twelve Words Here To Test The Upper Bound Now",
+        "x" * 139, "x" * 140, "x" * 141, "", "   ",
+    ]
+    for text in titles:
+        for numbered in (0, 1):
+            for bold in (0, 1):
+                lines.append("T {} {} {}".format(numbered, bold, text.replace(" ", "~")))
+
+    sidebars = [
+        "Complete Label", "Wrapped label-", "ends with the", "ends with of",
+        "ends with THE", "ends with Of", "G 02", "G 2", "GG 02", "G 0a",
+        "G", "02", "a 1", "\u00c5 02", "label with and", "label with android",
+        "", "   ", "-", "one", "two words",
+    ]
+    for text in sidebars:
+        lines.append("S " + text.replace(" ", "~"))
+
     # Random tokens and lines.
     letters = "IVXLCDM"
     for _ in range(random_count // 2):

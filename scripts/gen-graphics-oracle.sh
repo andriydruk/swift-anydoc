@@ -73,7 +73,7 @@ perl -pi -e "s/^pub\\(crate\\) fn parse_encoding_dictionary/pub fn parse_encodin
 # `markdown::heading` — the numbering parser.
 perl -pi -e "s/^pub\\(crate\\) mod heading;/pub mod heading;/; s/^mod heading;/pub mod heading;/" \
     "$crate/src/markdown/mod.rs"
-perl -pi -e "s/^fn (roman_value|parse_numbering|has_additional_decimal_numbering|numbering_forms_hierarchy)/pub fn \$1/; s/^enum NumberingKind/pub enum NumberingKind/" \
+perl -pi -e "s/^fn (roman_value|parse_numbering|has_additional_decimal_numbering|numbering_forms_hierarchy|title_like|complete_sidebar_label)/pub fn \$1/; s/^enum NumberingKind/pub enum NumberingKind/" \
     "$crate/src/markdown/heading.rs"
 
 # `markdown::postprocess` — the cleanup helpers, audited in wave 75.
@@ -2199,6 +2199,15 @@ pub fn probe_numbering(input: &str) -> String {
                     out.push('\n');
                 }
             },
+            "T" => {
+                // T numbered bold text
+                let mut fields = text.splitn(3, ' ');
+                let numbered = fields.next() == Some("1");
+                let bold = fields.next() == Some("1");
+                let body = fields.next().unwrap_or("");
+                out.push_str(&format!("t {}\n", title_like(body, numbered, bold) as u8));
+            }
+            "S" => out.push_str(&format!("s {}\n", complete_sidebar_label(&text) as u8)),
             "A" => out.push_str(&format!(
                 "a {}\n",
                 has_additional_decimal_numbering(&text) as u8

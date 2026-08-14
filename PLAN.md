@@ -3095,3 +3095,25 @@ readings**.
   352 probe cases agree on the first run. 18 unit tests; one expectation was
   wrong — I worked `IIX` out as 8 by hand where the rule gives 10, which the
   probe had already covered.
+
+- **Wave 77 — does this line read as a title?**
+  `PdfTitleLike.swift` ports `title_like` and `complete_sidebar_label` from
+  `markdown/heading.rs` — the second of the three signals `PdfMarkdown.swift`
+  records as missing. Where wave 76 asked whether a line is *numbered*, these
+  ask whether it looks like a heading at all, which is what lets a bold line
+  at body size be promoted.
+  - Length bounds first (one to twelve words, four to a hundred and forty
+    characters), then wave 73's vetoes, then capitalisation — with **numbered
+    or bold standing in** for capitalisation entirely.
+  - A numbered line is let through the list veto on purpose: telling a
+    section run from an ordinary ordered list belongs to the sequence logic,
+    not to this predicate.
+  - `complete_sidebar_label` refuses a trailing hyphen or a dangling
+    preposition, since either means the label continues on another line, and
+    refuses a one-letter-plus-number pair like `G 02` as a navigation code.
+
+  509 probe cases agree on the first run. 12 unit tests. Two expectations
+  were wrong for the same reason and it is worth recording: a short
+  *lowercase* line is caught by wave 73's fragment rule long before the
+  length bounds are reached, so isolating a bound needs capitalised text.
+  The predicates compose more tightly than they read.
