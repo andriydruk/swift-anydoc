@@ -2802,3 +2802,30 @@ readings**.
   `build_region_graph` — about 450 lines, a wave of their own. After those,
   `group_into_lines_with_thresholds_and_regions_impl` closes the layout half
   of the pipeline.
+
+- **Wave 68 — two columns beneath a hero image.**
+  `pdfLocalFlowBelowFullWidthImage` joins `PdfReadingOrder.swift`, built
+  entirely on wave 67's leaves.
+
+  The shape it recognises is narrow on purpose. A local column flow below an
+  image is unambiguous only for **one** nearly square figure: a wide report
+  banner or full-page artwork frequently sits above unrelated page furniture
+  whose aligned labels mimic prose columns perfectly well.
+  - Exactly one image may qualify as full-width (0.65 of the page and 60pt
+    tall). A second one disqualifies the page rather than being ignored — and
+    so does an image between the 0.65 counting bar and the 0.85 anchor bar.
+  - The anchor must be near-square: its height between 0.85× and 1.2× its
+    width, measured against itself rather than the page.
+  - Only the 220 points below the image are searched, four rows must agree on
+    the split to within 20pt, the band must sit 60–120pt below the image, and
+    it must be no more than 130pt tall.
+  - The clustering places each row in the **first** cluster whose running
+    mean is close enough, and that mean then moves — so the result depends on
+    the order rows were found in. `max_by_key` keeps the last maximum, the
+    same tie direction as waves 63 and 67.
+
+  180 probe cases agree on the first run, 19 producing a band and 35 refusing.
+  27 unit tests. Four expectations were wrong and the reference supplied the
+  exact boundaries: the caption gap is 60–120pt measured to the *padded* top,
+  the band height limit lands between 24pt and 25pt of row spacing, and the
+  aspect window is 434–612pt of height for a 510pt-wide anchor.

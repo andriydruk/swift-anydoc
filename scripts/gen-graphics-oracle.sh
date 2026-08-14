@@ -1644,6 +1644,41 @@ pub fn probe_reading(input: &str) -> String {
                 let refs: Vec<&TextItem> = items.iter().collect();
                 out.push_str(&format!("w {}\n", side_is_prose(&refs) as u8));
             }
+            // L x_min x_max | x0,y0,x1,y1 ... ; x,y,w,text ...
+            "L" => {
+                let (bar, semi) = match (
+                    parts.iter().position(|p| *p == "|"),
+                    parts.iter().position(|p| *p == ";"),
+                ) {
+                    (Some(a), Some(b)) => (a, b),
+                    _ => continue,
+                };
+                let x_min: f32 = parts[1].parse().unwrap_or(0.0);
+                let x_max: f32 = parts[2].parse().unwrap_or(612.0);
+                let images: Vec<ImageRegion> = parts[bar + 1..semi]
+                    .iter()
+                    .filter_map(|p| {
+                        let f: Vec<&str> = p.split(',').collect();
+                        if f.len() < 4 {
+                            return None;
+                        }
+                        Some((
+                            f[0].parse().ok()?,
+                            f[1].parse().ok()?,
+                            f[2].parse().ok()?,
+                            f[3].parse().ok()?,
+                        ))
+                    })
+                    .collect();
+                let items = parse_items(&parts[semi + 1..]);
+                match local_flow_below_full_width_image(&items, &images, x_min, x_max) {
+                    None => out.push_str("lf -\n"),
+                    Some(band) => out.push_str(&format!(
+                        "lf {:.2},{:.2},{:.2}\n",
+                        band.split_x, band.y_bottom, band.y_top
+                    )),
+                }
+            }
             // A x_min x_max ; x,y,w,text ...
             "A" => {
                 let semi = match parts.iter().position(|p| *p == ";") {

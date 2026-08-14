@@ -137,3 +137,101 @@ func pdfAlignedRowSplit(_ row: PdfRow, xMin: Float, xMax: Float) -> Float? {
     }
     return best?.splitX
 }
+
+/// Rows must agree on a split before it is believed.
+private let pdfMinAlignedRows = 4
+/// Two rows' splits within this are the same split.
+private let pdfSplitClusterTolerance: Float = 20
+
+/// A band of two-column flow, found beneath a full-width figure.
+struct PdfColumnFlowBand: Equatable {
+    var splitX: Float
+    var yBottom: Float
+    var yTop: Float
+}
+
+/// Two columns running beneath a single square hero image.
+///
+/// The shape this recognises is narrow on purpose. A local column flow below
+/// an image is only unambiguous for **one** nearly square figure: a wide
+/// report banner or full-page artwork frequently sits above unrelated page
+/// furniture whose aligned labels mimic prose columns perfectly well. So the
+/// anchor has to be near-square and near-full-width, and there has to be
+/// exactly one of it.
+///
+/// Everything after that is corroboration — four rows agreeing on where the
+/// split falls, the band sitting a plausible distance below the image, and
+/// the band being short enough to be a caption block rather than a page.
+func pdfLocalFlowBelowFullWidthImage(
+    _ items: [PdfLayoutItem], _ images: [PdfImageRegion], xMin: Float, xMax: Float
+) -> PdfColumnFlowBand? {
+    let pageWidth = xMax - xMin
+    let fullWidth = images.filter { image in
+        let width = abs(image.x1 - image.x0)
+        let height = abs(image.y1 - image.y0)
+        return width >= pageWidth * 0.65 && height >= 60
+    }
+    guard fullWidth.count == 1, let anchor = fullWidth.first else { return nil }
+
+    let anchorWidth = abs(anchor.x1 - anchor.x0)
+    let anchorHeight = abs(anchor.y1 - anchor.y0)
+    guard anchorWidth >= pageWidth * 0.85,
+        anchorHeight >= anchorWidth * 0.85,
+        anchorHeight <= anchorWidth * 1.2
+    else { return nil }
+
+    let imageBottom = min(anchor.y0, anchor.y1)
+    if !imageBottom.isFinite { return nil }
+
+    // Only the 220 points immediately below the image are considered; text
+    // further down belongs to the page's own flow.
+    let below = items.filter { $0.y < imageBottom && $0.y >= imageBottom - 220 }
+    var candidates: [(splitX: Float, y: Float)] = []
+    for row in pdfGroupRows(below) {
+        if let split = pdfAlignedRowSplit(row, xMin: xMin, xMax: xMax) {
+            candidates.append((split, row.y))
+        }
+    }
+    if candidates.count < pdfMinAlignedRows { return nil }
+
+    // Cluster by split position. The first cluster whose *running mean* is
+    // close enough takes the candidate, and that mean then moves — so the
+    // clustering depends on the order the rows were found in.
+    var clusters: [[(splitX: Float, y: Float)]] = []
+    for candidate in candidates {
+        var placed = false
+        for index in clusters.indices {
+            let mean = clusters[index].reduce(0) { $0 + $1.splitX } / Float(clusters[index].count)
+            if abs(mean - candidate.splitX) <= pdfSplitClusterTolerance {
+                clusters[index].append(candidate)
+                placed = true
+                break
+            }
+        }
+        if !placed { clusters.append([candidate]) }
+    }
+
+    // Rust's `max_by_key` keeps the **last** maximum, so `>=` here.
+    var dominant: [(splitX: Float, y: Float)] = []
+    for cluster in clusters where cluster.count >= dominant.count { dominant = cluster }
+    if dominant.isEmpty || dominant.count < pdfMinAlignedRows { return nil }
+
+    let splitX = dominant.reduce(0) { $0 + $1.splitX } / Float(dominant.count)
+    var yTop = -Float.infinity
+    var yBottom = Float.infinity
+    for entry in dominant {
+        yTop = max(yTop, entry.y)
+        yBottom = min(yBottom, entry.y)
+    }
+    yTop += 3
+    yBottom -= 3
+
+    // The band must sit a caption's distance below the image — closer and
+    // it is part of the figure, further and it is unrelated text.
+    let imageGap = imageBottom - yTop
+    guard imageGap >= 60, imageGap <= 120 else { return nil }
+    // And be short enough to be a block rather than a page of its own.
+    if yTop - yBottom > 130 { return nil }
+
+    return PdfColumnFlowBand(splitX: splitX, yBottom: yBottom, yTop: yTop)
+}

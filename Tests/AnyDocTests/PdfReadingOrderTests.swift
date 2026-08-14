@@ -171,4 +171,101 @@ import Testing
         #expect(pdfAlignedRowSplit(row([item(100, 700, 100, prose)]), xMin: 0, xMax: 600) == nil)
         #expect(pdfAlignedRowSplit(PdfRow(y: 0, items: []), xMin: 0, xMax: 600) == nil)
     }
+
+    // MARK: - local_flow_below_full_width_image
+
+    /// A 510×500 hero image sitting from y=500 to y=1000.
+    private let hero = PdfImageRegion(x0: 45, y0: 500, x1: 555, y1: 1000)
+
+    /// Two columns of caption prose below it.
+    private func caption(rows: Int = 6, top: Float = 430, step: Float = 14) -> [PdfLayoutItem] {
+        var out: [PdfLayoutItem] = []
+        for row in 0..<rows {
+            let y = top - Float(row) * step
+            out.append(item(20, y, 200, prose))
+            out.append(item(320, y, 200, prose))
+        }
+        return out
+    }
+
+    private func flow(
+        _ images: [PdfImageRegion], _ items: [PdfLayoutItem]
+    ) -> PdfColumnFlowBand? {
+        pdfLocalFlowBelowFullWidthImage(items, images, xMin: 0, xMax: 600)
+    }
+
+    @Test func twoColumnsBelowASquareHeroImageAreABand() {
+        let band = flow([hero], caption())
+        #expect(band != nil)
+        #expect(band?.splitX == 270)
+        // The band is padded three points either side of the outermost rows.
+        #expect(band?.yTop == 433)
+        #expect(band?.yBottom == 357)
+    }
+
+    @Test func exactlyOneFullWidthImageIsRequired() {
+        // A local flow below an image is only unambiguous for a single
+        // figure; two of them and the text between could belong to either.
+        #expect(flow([hero], caption()) != nil)
+        #expect(flow([hero, PdfImageRegion(x0: 45, y0: 1100, x1: 555, y1: 1600)], caption())
+            == nil)
+        #expect(flow([], caption()) == nil)
+        // A small image alongside is not full-width and does not count.
+        #expect(flow([hero, PdfImageRegion(x0: 45, y0: 200, x1: 100, y1: 260)], caption()) != nil)
+    }
+
+    @Test func theAnchorMustBeNearlySquare() {
+        // Between 0.85× and 1.2× its own width. A wide banner sits above
+        // unrelated page furniture whose aligned labels mimic prose columns.
+        func anchored(height: Float) -> PdfImageRegion {
+            PdfImageRegion(x0: 45, y0: 1000 - height, x1: 555, y1: 1000)
+        }
+        #expect(flow([anchored(height: 433)], caption(top: 1000 - 433 - 65)) == nil)
+        #expect(flow([anchored(height: 434)], caption(top: 1000 - 434 - 65)) != nil)
+        #expect(flow([anchored(height: 612)], caption(top: 1000 - 612 - 65)) != nil)
+        #expect(flow([anchored(height: 613)], caption(top: 1000 - 613 - 65)) == nil)
+    }
+
+    @Test func theAnchorMustAlsoBeNearlyFullWidth() {
+        // 0.65 of the page to count as full-width at all, 0.85 to be the
+        // anchor — so an image between the two disqualifies the page rather
+        // than being ignored.
+        func wide(_ width: Float) -> [PdfImageRegion] {
+            [PdfImageRegion(x0: 45, y0: 500, x1: 45 + width, y1: 1000)]
+        }
+        #expect(flow(wide(389), caption()) == nil)
+        #expect(flow(wide(510), caption()) != nil)
+    }
+
+    @Test func fourRowsMustAgreeOnTheSplit() {
+        #expect(flow([hero], caption(rows: 3)) == nil)
+        #expect(flow([hero], caption(rows: 4)) != nil)
+    }
+
+    @Test func rowsThatDisagreeFormNoDominantCluster() {
+        // Eight rows whose splits step across the page: no cluster of four.
+        var out: [PdfLayoutItem] = []
+        for row in 0..<8 {
+            let y = 430 - Float(row) * 14
+            let offset = Float(row % 4) * 60
+            out.append(item(20 + offset, y, 150, prose))
+            out.append(item(260 + offset, y, 150, prose))
+        }
+        #expect(flow([hero], out) == nil)
+    }
+
+    @Test func theBandMustSitACaptionsDistanceBelowTheImage() {
+        // Between 60 and 120 points. Closer and it is part of the figure;
+        // further and it is unrelated text.
+        #expect(flow([hero], caption(top: 439)) == nil)
+        #expect(flow([hero], caption(top: 435)) != nil)
+        #expect(flow([hero], caption(top: 379)) != nil)
+        #expect(flow([hero], caption(top: 375)) == nil)
+    }
+
+    @Test func theBandMustBeShortEnoughToBeABlock() {
+        // Rows spread over more than 130 points are a page, not a caption.
+        #expect(flow([hero], caption(rows: 6, step: 24)) != nil)
+        #expect(flow([hero], caption(rows: 6, step: 25)) == nil)
+    }
 }

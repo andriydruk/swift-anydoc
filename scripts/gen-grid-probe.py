@@ -2699,6 +2699,70 @@ def reading_cases(random_count):
         A([(rng.randrange(0, 500), 700, rng.choice([0, 40, 80]),
             rng.choice([prose, short, "x"])) for _ in range(count)])
 
+    # local_flow_below_full_width_image: a square hero image with two
+    # columns of caption prose beneath it.
+    def L(images, items, x_min=0.0, x_max=600.0):
+        lines.append("L {} {} | {} ; {}".format(
+            x_min, x_max,
+            " ".join("{},{},{},{}".format(*r) for r in images) or "-", spec(items)))
+
+    def caption(rows=6, top=430, step=14, left_x=20, left_w=200, right_x=320, right_w=200,
+                text=None):
+        body = text or prose
+        out = []
+        for r in range(rows):
+            y = top - r * step
+            out.append((left_x, y, left_w, body))
+            out.append((right_x, y, right_w, body))
+        return out
+
+    # A 510x500 image from y=1000 down to y=500 on a 600pt page.
+    hero = (45, 500, 555, 1000)
+    L([hero], caption())
+    # The image-gap band: 60..120 points below the image bottom.
+    for top in (500, 460, 441, 440, 439, 400, 381, 380, 379, 340):
+        L([hero], caption(top=top))
+    # Aspect ratio: near-square only.
+    for height in (300, 420, 433, 434, 510, 611, 612, 700):
+        L([(45, 1000 - height, 555, 1000)], caption(top=1000 - height - 65))
+    # Width against the page: 0.65 to be counted, 0.85 to be the anchor.
+    for width in (300, 389, 390, 400, 500, 509, 510, 560):
+        L([(45, 500, 45 + width, 1000)], caption())
+    # Height floor for counting as full width at all.
+    for height in (40, 59, 60, 61, 100):
+        L([(45, 1000 - height, 555, 1000)], caption(top=1000 - height - 65))
+    # Exactly one full-width image, never two.
+    L([hero, (45, 1100, 555, 1600)], caption())
+    L([hero, (45, 200, 100, 260)], caption())
+    L([], caption())
+    # Four rows must agree.
+    for rows in (2, 3, 4, 5, 8):
+        L([hero], caption(rows=rows))
+    # Rows whose splits disagree, so no cluster reaches four.
+    out = []
+    for r in range(8):
+        y = 430 - r * 14
+        offset = (r % 4) * 60
+        out.append((20 + offset, y, 150, prose))
+        out.append((260 + offset, y, 150, prose))
+    L([hero], out)
+    # Splits within the 20pt tolerance still cluster together.
+    out = []
+    for r in range(6):
+        y = 430 - r * 14
+        offset = (r % 3) * 6
+        out.append((20, y, 200 + offset, prose))
+        out.append((320 + offset, y, 200, prose))
+    L([hero], out)
+    # The band must be short: rows spread over more than 130 points.
+    for step in (14, 20, 25, 26, 30):
+        L([hero], caption(rows=6, step=step))
+    # Text below the 220pt window is not considered.
+    for top in (430, 350, 290, 281, 280, 270):
+        L([hero], caption(top=top))
+    # Non-prose sides, so no row splits at all.
+    L([hero], caption(text="ab~cd"))
+
     return lines
 
 
