@@ -120,6 +120,38 @@ import Testing
                     + "@\(onePlace(node.items.first?.x ?? 0))"
             }
             return out
+        case "GL":
+            guard let bar = parts.firstIndex(of: "|"), let semi = parts.firstIndex(of: ";"),
+                parts.count > 3
+            else { return nil }
+            func regions(_ fields: ArraySlice<String>) -> [PdfImageRegion] {
+                fields.compactMap {
+                    let f = $0.split(separator: ",")
+                    guard f.count >= 4, let x0 = Float(f[0]), let y0 = Float(f[1]),
+                        let x1 = Float(f[2]), let y1 = Float(f[3])
+                    else { return nil }
+                    return PdfImageRegion(x0: x0, y0: y0, x1: x1, y1: y1)
+                }
+            }
+            let regionFields = parts[(bar + 1)..<semi]
+            var charts: [PdfImageRegion] = []
+            var images: [PdfImageRegion] = []
+            if let slash = regionFields.firstIndex(of: "/") {
+                charts = regions(regionFields[regionFields.startIndex..<slash])
+                images = regions(regionFields[(slash + 1)...])
+            } else {
+                charts = regions(regionFields)
+            }
+            let grouped = pdfGroupPageIntoLines(
+                items(parts[(semi + 1)...]), adaptiveThreshold: Float(parts[1]) ?? 0.10,
+                hasTable: parts[2] == "1", chartRegions: charts, imageRegions: images,
+                filterPageNumbers: parts[3] == "1")
+            var out = "gl \(grouped.count)"
+            for line in grouped {
+                out += " \(line.items.count)@\(onePlace(line.y))"
+                for item in line.items { out += ",\(onePlace(item.x))" }
+            }
+            return out
         case "A":
             guard let semi = parts.firstIndex(of: ";"), parts.count > 2 else { return nil }
             let rows = pdfGroupRows(items(parts[(semi + 1)...]))

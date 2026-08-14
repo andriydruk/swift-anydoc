@@ -51,6 +51,10 @@ struct PdfTextLine {
     var items: [PdfLayoutItem]
     /// The line's baseline.
     var y: Float
+    /// The join threshold this page was measured at, carried on the line so
+    /// the word joiner can use it later. 0.10 for an ordinary page; higher
+    /// for a letter-spaced one (see `PdfLetterSpacing.swift`).
+    var adaptiveThreshold: Float = 0.10
 
     /// The leftmost edge of the line.
     var minX: Float { items.map(\.x).min() ?? 0 }

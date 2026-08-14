@@ -2899,3 +2899,41 @@ readings**.
   **Next:** `group_into_lines_with_thresholds_and_regions_impl` in
   `layout.rs` now has every dependency ported, and closes the layout half of
   the pipeline.
+
+- **Wave 71 — the layout assembly.**
+  `PdfGroupLines.swift` ports
+  `group_into_lines_with_thresholds_and_regions_impl`. Everything waves 61–70
+  built is wired together here: given a page's items it decides the columns,
+  checks whether the images imply a local flow, files each item into a
+  column, groups each column into lines, and emits reading order.
+
+  The reference loops over pages and looks per-page parameters up in maps;
+  this port takes one page's items and those parameters directly, which is
+  the same thing with the loop lifted out.
+  - **Two orderings, chosen by `is_newspaper_layout`.** Tabular interleaves
+    the columns by baseline and merges same-baseline lines into one; a
+    newspaper emits whole columns in turn. The same page shape produces
+    completely different output depending on which fires.
+  - Items are filed by greatest horizontal **overlap** rather than by centre
+    point, which is what stops an item leaning into the gutter being
+    misfiled.
+  - A straggler *above* the columns joins the shared material; one *below*
+    stays with its column, since sorting it back by baseline would
+    re-interleave the flows the ordering exists to separate.
+  - Chart regions blind the histogram to chart-internal text only — two
+    points of slack, and measured on the **raw** width. A page with any chart
+    also skips the image-anchored path entirely.
+
+  336 probe cases agree on the first run, 80 of them for the assembly — which
+  is the whole stack composed, so a divergence anywhere beneath would surface
+  here. Path instrumentation drove three rounds: the spanning-line branches
+  of the newspaper ordering fired **zero** times until the cases used dense
+  *balanced* columns, since an unbalanced page reads as tabular.
+
+  **A harness lesson worth keeping.** The first attempt put the new probe arm
+  in `probe_reading` while the cases went to the valleys file, so the arm was
+  never reached and the answer file was silently empty. Before that, the case
+  text came out as `<function valley_cases.<locals>.prose>` — a name
+  collision with a local in the generator — which was still valid input but
+  exercised none of the prose-dependent branches. Both were caught by
+  checking output *shape* rather than trusting a passing comparison.

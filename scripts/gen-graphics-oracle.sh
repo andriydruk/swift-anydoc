@@ -73,6 +73,8 @@ perl -pi -e "s/^pub\\(crate\\) fn parse_encoding_dictionary/pub fn parse_encodin
 # `reading_order` is private too, and the probe below lives inside it.
 perl -pi -e "s/^pub\\(crate\\) mod reading_order;/pub mod reading_order;/; s/^mod reading_order;/pub mod reading_order;/" \
     "$crate/src/extractor/mod.rs"
+perl -pi -e "s/^pub\\(crate\\) fn group_into_lines_with_thresholds_and_regions/pub fn group_into_lines_with_thresholds_and_regions/" \
+    "$crate/src/extractor/layout.rs"
 perl -pi -e "s/^struct Row<'a> \\{/pub struct Row<'a> {/" \
     "$crate/src/extractor/reading_order.rs"
 
@@ -1769,6 +1771,78 @@ pub fn probe_reading(input: &str) -> String {
                         out.push('\n');
                     }
                 }
+            }
+            // GL threshold table filter | chart... / image... ; x,y,w,text ...
+            //   The whole layout assembly for one page.
+            "GL" => {
+                use std::collections::{HashMap, HashSet};
+                let (bar, semi) = match (
+                    parts.iter().position(|p| *p == "|"),
+                    parts.iter().position(|p| *p == ";"),
+                ) {
+                    (Some(a), Some(b)) => (a, b),
+                    _ => continue,
+                };
+                let threshold: f32 = parts[1].parse().unwrap_or(0.10);
+                let has_table = parts[2] == "1";
+                let filter_numbers = parts[3] == "1";
+                let slash = parts[bar + 1..semi].iter().position(|p| *p == "/");
+                let parse_regions = |fields: &[&str]| -> Vec<(f32, f32, f32, f32)> {
+                    fields
+                        .iter()
+                        .filter_map(|p| {
+                            let f: Vec<&str> = p.split(',').collect();
+                            if f.len() < 4 {
+                                return None;
+                            }
+                            Some((
+                                f[0].parse().ok()?,
+                                f[1].parse().ok()?,
+                                f[2].parse().ok()?,
+                                f[3].parse().ok()?,
+                            ))
+                        })
+                        .collect()
+                };
+                let (charts, imgs) = match slash {
+                    Some(index) => (
+                        parse_regions(&parts[bar + 1..bar + 1 + index]),
+                        parse_regions(&parts[bar + 2 + index..semi]),
+                    ),
+                    None => (parse_regions(&parts[bar + 1..semi]), Vec::new()),
+                };
+                let items = parse_items(&parts[semi + 1..]);
+
+                let mut thresholds: HashMap<u32, f32> = HashMap::new();
+                thresholds.insert(1, threshold);
+                let mut tables: HashSet<u32> = HashSet::new();
+                if has_table {
+                    tables.insert(1);
+                }
+                let mut chart_map: HashMap<u32, Vec<(f32, f32, f32, f32)>> = HashMap::new();
+                if !charts.is_empty() {
+                    chart_map.insert(1, charts);
+                }
+                let mut image_map: HashMap<u32, Vec<ImageRegion>> = HashMap::new();
+                if !imgs.is_empty() {
+                    image_map.insert(1, imgs);
+                }
+
+                let lines_out = if filter_numbers {
+                    crate::extractor::layout::group_into_lines_with_thresholds_and_regions(
+                        items, &thresholds, &tables, &chart_map, &image_map,
+                    )
+                } else {
+                    crate::extractor::layout::group_into_lines_preserving_all_text(items)
+                };
+                out.push_str(&format!("gl {}", lines_out.len()));
+                for line in &lines_out {
+                    out.push_str(&format!(" {}@{:.1}", line.items.len(), line.y));
+                    for it in &line.items {
+                        out.push_str(&format!(",{:.1}", it.x));
+                    }
+                }
+                out.push('\n');
             }
             // A x_min x_max ; x,y,w,text ...
             "A" => {

@@ -2889,6 +2889,161 @@ def reading_cases(random_count):
     edge.append((55, 325, 210, "on~the~bottom~edge"))
     I([(55, 450, 490, 880)], edge)
 
+    # The layout assembly for one page: columns, regions, ordering.
+    # A local name: `prose` is already taken in this generator.
+    gl_prose = "a~sentence~of~genuine~running~prose~text"
+
+    def GL(items, threshold=0.10, table=0, filter_numbers=1, charts=(), imgs=()):
+        regions = " ".join("{},{},{},{}".format(*r) for r in charts)
+        if imgs:
+            regions = (regions + " / " if regions else "/ ") + " ".join(
+                "{},{},{},{}".format(*r) for r in imgs)
+        lines.append("GL {} {} {} | {} ; {}".format(
+            threshold, table, filter_numbers, regions or "-", spec(items)))
+
+    def two_col(rows=12, left_x=20, left_w=200, right_x=340, right_w=200, top=700, step=14,
+                text=None):
+        body = text or gl_prose
+        out = []
+        for r in range(rows):
+            y = top - r * step
+            out.append((left_x, y, left_w, body))
+            out.append((right_x, y, right_w, body))
+        return out
+
+    def one_col(rows=12, top=700, step=14):
+        return [(20, top - r * step, 560, gl_prose) for r in range(rows)]
+
+    # Single column, and a page too small to have columns at all.
+    GL(one_col())
+    GL(one_col(rows=3))
+    GL([])
+    # Two columns: tabular (balanced) and newspaper (unbalanced) orderings.
+    GL(two_col())
+    GL(two_col(rows=30))
+    out = two_col(rows=30)
+    out += [(20, 700 - r * 14, 200, gl_prose) for r in range(30, 45)]
+    GL(out)
+    # A full-width title above two columns, which must not be split.
+    GL([(20, 760, 560, "A~full~width~title~across~the~page")] + two_col())
+    GL([(20, 760, 260, "A~full~width~title"), (300, 760, 280, "across~the~page")] + two_col())
+    # A footer below the columns.
+    GL(two_col() + [(20, 300, 560, "a~full~width~footer~line~here")])
+    # Page numbers, filtered or preserved.
+    numbered = two_col() + [(300, 60, 20, "7"), (300, 780, 20, "3")]
+    GL(numbered, filter_numbers=1)
+    GL(numbered, filter_numbers=0)
+    # A page declared to have a table, which blocks the column fallbacks.
+    GL(two_col(rows=30), table=1)
+    GL(two_col(rows=30), table=0)
+    # Adaptive thresholds are carried onto the lines rather than used here.
+    for threshold in (0.10, 0.55, 1.20):
+        GL(two_col(), threshold=threshold)
+    # Chart regions blind the histogram to chart-internal text only.
+    chart = [(240, 400, 400, 700)]
+    scattered = two_col()
+    scattered += [(260 + (r % 3) * 40, 690 - r * 20, 30, "12") for r in range(12)]
+    GL(scattered, charts=chart)
+    GL(scattered)
+    # Image regions send the page down the region-graph path -- but only
+    # when there are no charts.
+    hero = [(55, 450, 490, 880)]
+    hero_page = [(55, 700, 430, "heading~above~the~band")]
+    for r in range(5):
+        y = 380 - r * 14
+        hero_page.append((55, y, 210, "left~column~prose~words"))
+        hero_page.append((280, y, 210, "right~column~prose~words"))
+    GL(hero_page, imgs=hero)
+    GL(hero_page, imgs=hero, charts=chart)
+    GL(hero_page)
+    # Three and four column pages.
+    def n_col(n, rows=12, width=None):
+        w = width or (560 // n - 20)
+        return [(20 + c * (w + 20), 700 - r * 14, w, gl_prose)
+                for r in range(rows) for c in range(n)]
+    for n in (3, 4):
+        GL(n_col(n))
+        GL(n_col(n, rows=30))
+    # Columns of very different lengths, which drives newspaper detection.
+    for right_rows in (5, 8, 12, 20, 28):
+        out = [(20, 700 - r * 14, 200, gl_prose) for r in range(30)]
+        out += [(340, 700 - r * 14, 200, gl_prose) for r in range(right_rows)]
+        GL(out)
+    # Stragglers: a cluster far below the column body.
+    out = two_col(rows=20)
+    out += [(20, 200 - r * 14, 200, gl_prose) for r in range(3)]
+    GL(out)
+    # Random pages, biased toward two-column shapes.
+    rng5 = random.Random(71_2026)
+    for _ in range(30):
+        rows = rng5.randrange(3, 35)
+        gap = rng5.choice([0, 10, 40, 120])
+        lw = rng5.choice([150, 200, 280])
+        out = []
+        for r in range(rows):
+            y = 700 - r * rng5.choice([12, 14, 18])
+            out.append((20, y, lw, rng5.choice([gl_prose, "short", "12"])))
+            if rng5.random() < 0.85:
+                out.append((20 + lw + gap, y, rng5.choice([150, 200]), gl_prose))
+        GL(out, table=rng5.choice([0, 0, 0, 1]),
+           filter_numbers=rng5.choice([0, 1, 1]))
+
+    # A page of nothing but page numbers, which the filter empties.
+    GL([(300, 60, 20, "7"), (300, 780, 20, "3")], filter_numbers=1)
+    GL([(300, 60, 20, "7"), (300, 780, 20, "3")], filter_numbers=0)
+    # Newspaper pages carrying full-width material above and below, so the
+    # spanning lines reach the newspaper ordering rather than the tabular one.
+    for above, below in ((1, 0), (0, 1), (2, 2), (3, 0)):
+        out = []
+        for i in range(above):
+            out.append((20, 780 + i * 20, 560, "a~full~width~heading~above~the~columns"))
+        for i in range(below):
+            out.append((20, 200 - i * 20, 560, "a~full~width~footer~below~the~columns"))
+        out += [(20, 700 - r * 14, 200, gl_prose) for r in range(30)]
+        out += [(340, 700 - r * 14, 200, gl_prose) for r in range(12)]
+        GL(out)
+    # ... and the same with the full-width material written as two runs.
+    for above in (1, 2):
+        out = []
+        for i in range(above):
+            out.append((20, 780 + i * 20, 250, "a~full~width~heading"))
+            out.append((300, 780 + i * 20, 260, "above~the~columns~here"))
+        out += [(20, 700 - r * 14, 200, gl_prose) for r in range(30)]
+        out += [(340, 700 - r * 14, 200, gl_prose) for r in range(12)]
+        GL(out)
+    # More chart-blinded pages, with the chart in each column and spanning.
+    for region in ((240, 400, 400, 700), (20, 400, 220, 700), (100, 300, 500, 700)):
+        GL(scattered, charts=[region])
+    # More region-graph pages: hero images of several sizes.
+    for height in (430, 460, 500):
+        img = [(55, 880 - height, 490, 880)]
+        page = [(55, 700, 430, "heading~above~the~band")]
+        for r in range(5):
+            y = 880 - height - 70 - r * 14
+            page.append((55, y, 210, "left~column~prose~words"))
+            page.append((280, y, 210, "right~column~prose~words"))
+        GL(page, imgs=img)
+
+    # Dense *balanced* columns are what reads as newspaper, so the spanning
+    # material only reaches that ordering on a page shaped like this.
+    for above, below in ((1, 0), (0, 1), (2, 2), (3, 1)):
+        out = []
+        for i in range(above):
+            out.append((20, 780 + i * 20, 560, "a~full~width~heading~above~the~columns"))
+        for i in range(below):
+            out.append((20, 200 - i * 20, 560, "a~full~width~footer~below~the~columns"))
+        out += [(20, 700 - r * 14, 200, gl_prose) for r in range(30)]
+        out += [(340, 700 - r * 14, 200, gl_prose) for r in range(26)]
+        GL(out)
+    # ... and with a straggler cluster far below one column, so stragglers
+    # and spanning lines are ordered together.
+    out = []
+    out.append((20, 780, 560, "a~full~width~heading~above~the~columns"))
+    out += [(20, 700 - r * 14, 200, gl_prose) for r in range(30)]
+    out += [(340, 700 - r * 14, 200, gl_prose) for r in range(26)]
+    out += [(20, 120 - r * 14, 200, gl_prose) for r in range(3)]
+    GL(out)
+
     return lines
 
 
