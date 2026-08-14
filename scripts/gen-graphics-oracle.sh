@@ -75,7 +75,7 @@ perl -pi -e "s/^pub\\(crate\\) mod analysis;/pub mod analysis;/; s/^mod analysis
     "$crate/src/markdown/mod.rs"
 perl -pi -e "s/^pub\\(crate\\) mod markdown;/pub mod markdown;/; s/^mod markdown;/pub mod markdown;/" \
     "$crate/src/lib.rs"
-perl -pi -e "s/^pub\\(crate\\) fn (compute_heading_tiers|detect_header_level|line_is_mostly_bold)/pub fn \$1/" \
+perl -pi -e "s/^pub\\(crate\\) fn (compute_heading_tiers|detect_header_level|line_is_mostly_bold|has_dot_leaders|is_toc_entry_line|is_toc_marker_heading|is_heading_fragment)/pub fn \$1/" \
     "$crate/src/markdown/analysis.rs"
 
 # `reading_order` is private too, and the probe below lives inside it.
@@ -1959,6 +1959,17 @@ pub fn probe_heading(input: &str) -> String {
                     out.push_str(&format!(" {tier:.2}"));
                 }
                 out.push('\n');
+            }
+            // F text   (the heading-fragment vetoes; ~ stands for a space)
+            "F" => {
+                let text = parts[1..].join(" ").replace('~', " ");
+                out.push_str(&format!(
+                    "f {}{}{}{}\n",
+                    has_dot_leaders(&text) as u8,
+                    is_toc_entry_line(&text) as u8,
+                    is_toc_marker_heading(&text) as u8,
+                    is_heading_fragment(&text) as u8
+                ));
             }
             // B ; bold,text ...   (line_is_mostly_bold over several runs)
             "B" => {

@@ -2972,3 +2972,35 @@ readings**.
   point are indistinguishable, so a 10.6pt line matches an 11pt tier; and a
   size exactly half a point outside every tier is placed *after* the tiers
   rather than rejected, so a tenth of a point turns H2 into H4.
+
+- **Wave 73 — the heading vetoes.**
+  `PdfHeadingFragment.swift` ports `is_toc_entry_line`,
+  `is_toc_marker_heading` and `is_heading_fragment` from
+  `markdown/analysis.rs`.
+
+  A table-of-contents entry and a display equation are both short, both sit
+  alone on a line, and both are often set larger or bolder than body text, so
+  the size heuristics promote them to headings. These three are the veto:
+  each recognises a shape that cannot be a heading however it is typeset.
+  - `is_toc_entry_line` catches what `has_dot_leaders` misses. That one wants
+    **two** groups of dots and so passes over a single-group leader; a
+    trailing run of dots followed by a one-to-four-digit number is strong
+    enough evidence on its own.
+  - `is_heading_fragment`'s equation-suffix rule is deliberately hard to
+    satisfy: a trailing `(N)` alone is not enough, because real headings end
+    with parenthesised numbers too — `Nicaea (325)`, appendix numbering. It
+    needs a comma or colon immediately before, or a mathematical operator
+    somewhere in the line.
+  - It also recognises a page-of-total running header — `LIVSMEDELSVERKET PM
+    2 (10)` — by the pair reading as a plausible page and total, with no
+    maths anywhere.
+  - The suffix rule splits on the **space character**, not on whitespace, so
+    a tab before the equation number leaves it inside one token and the whole
+    branch is missed. Pinned by a test, since it looks like an oversight and
+    is reproduced deliberately.
+
+  **Audit, following wave 72:** `has_dot_leaders` was checked against the
+  reference and needed no change — `pdfHasDotLeaders` from wave 5 is
+  faithful. 400 probe cases agree on the first run across all four
+  predicates, each with both verdicts represented. 16 unit tests, all
+  passing first try.

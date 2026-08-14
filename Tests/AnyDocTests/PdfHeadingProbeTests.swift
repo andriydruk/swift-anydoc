@@ -63,6 +63,14 @@ import Testing
             var out = "ht \(tiers.count)"
             for tier in tiers { out += " \(twoPlaces(tier))" }
             return out
+        case "F":
+            let text = parts.dropFirst().joined(separator: " ")
+                .replacingOccurrences(of: "~", with: " ")
+            let flags = [
+                pdfHasDotLeaders(text), pdfIsTocEntryLine(text),
+                pdfIsTocMarkerHeading(text), pdfIsHeadingFragment(text),
+            ]
+            return "f " + flags.map { $0 ? "1" : "0" }.joined()
         case "B":
             guard let semi = parts.firstIndex(of: ";") else { return nil }
             let items: [PdfLayoutItem] = parts[(semi + 1)...].compactMap { field in

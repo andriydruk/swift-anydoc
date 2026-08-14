@@ -2708,6 +2708,67 @@ def heading_cases(random_count):
                 for _ in range(rng.randrange(0, 5))]
         B(runs)
 
+    def F(text):
+        lines.append("F " + text.replace(" ", "~"))
+
+    # --- has_dot_leaders ---
+    for text in ("Section .... 42", "Section ... 42", "Section ... ... 42",
+                 "a.b.c", "....", "...", "..", ".", "", "a...b...c",
+                 "Chapter one. Then two. Then three.",
+                 "an ellipsis ... alone", "two ... groups ... here",
+                 "....leading", "trailing....", "a....b"):
+        F(text)
+
+    # --- is_toc_entry_line ---
+    for text in ("Measurement Lab worksheet ... 3", "Worksheet .... 42",
+                 "Worksheet ..12", "Worksheet ...12345", "Worksheet ...1234",
+                 "Worksheet ... ", "Worksheet 3", "Worksheet...3",
+                 "Worksheet ..3", "Worksheet ...3   ", "...3", "3", "...",
+                 "Worksheet ... 0", "Worksheet ....... 3"):
+        F(text)
+
+    # --- is_toc_marker_heading ---
+    for text in ("Contents", "contents", "CONTENTS", " Contents ", "Contents:",
+                 "Contents::", "Contents :", "Table of Contents",
+                 "table of contents", "TABLE OF CONTENTS", "Table Of Contents:",
+                 "Table  of  Contents", "Contents of the Book", "Content",
+                 "Contents page", ":"):
+        F(text)
+
+    # --- is_heading_fragment ---
+    # The short-lowercase rule.
+    for text in ("or inversely", "and therefore", "Or Inversely", "inversely",
+                 "a", "A", "or inversely then", "the quick brown",
+                 "3 or", "(2) or", "  or inversely  ", "42", "(2)"):
+        F(text)
+    # Equation-number suffix needing corroboration.
+    for text in ("S = kB ln W, (2)", "Nicaea (325)", "Appendix A (3)",
+                 "Some Heading (12)", "Total mass, (4)", "Total mass: (4)",
+                 "Total mass (4)", "E = mc2 (5)", "Rate ≤ limit (6)",
+                 "Value ± error (7)", "Sum ∑ terms (8)", "Plain words (9)",
+                 "Heading (1234)", "Heading ()", "Heading (a)", "Heading (12"):
+        F(text)
+    # Page-of-total running headers.
+    for text in ("LIVSMEDELSVERKET PM 2 (10)", "PM 10 (2)", "PM 2 (2)",
+                 "PM 0 (0)", "PM -1 (5)", "PM 2x (10)", "Report 3 (12)"):
+        F(text)
+    # Lead-ins ending with a colon.
+    for text in ("Rearranging Equation (8) gives:", "Procedure:",
+                 "Steps for Using the Microscope:", "See (12) below:",
+                 "Equation (8):", "Equation 8 gives:", "(8):"):
+        F(text)
+    # Tabs rather than spaces, which the space-only split treats differently.
+    F("S = kB ln W,\t(2)")
+    F("PM 2\t(10)")
+
+    for _ in range(random_count // 2):
+        pieces = []
+        for _ in range(rng.randrange(1, 6)):
+            pieces.append(rng.choice([
+                "Heading", "value", "=", "mass,", "mass:", "(2)", "(12)", "(1234)",
+                "...", "....", "3", "42", "Contents", "of", "≤", "±", ":"]))
+        F(" ".join(pieces))
+
     return lines
 
 
