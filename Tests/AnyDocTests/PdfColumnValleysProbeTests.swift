@@ -134,6 +134,38 @@ import Testing
             out += " /"
             for line in split.stragglers { out += " \(onePlace(line.y))" }
             return out
+        case "X":
+            guard let semi = parts.firstIndex(of: ";"), parts.count > 2 else { return nil }
+            let split = pdfTryXyCutSplit(
+                parseItems(parts[(semi + 1)...]), pageXMin: Float(parts[1]) ?? 0,
+                pageXMax: Float(parts[2]) ?? 612)
+            guard let split else { return "x -" }
+            return "x "
+                + split.map { "\(twoPlaces($0.xMin)):\(twoPlaces($0.xMax))" }
+                .joined(separator: " ")
+        case "N":
+            guard let bar = parts.firstIndex(of: "|"), let semi = parts.firstIndex(of: ";")
+            else { return nil }
+            let columns: [PdfColumnRegion] = parts[(bar + 1)..<semi].compactMap {
+                let halves = $0.split(separator: ",")
+                guard halves.count == 2, let low = Float(halves[0]), let high = Float(halves[1])
+                else { return nil }
+                return PdfColumnRegion(xMin: low, xMax: high)
+            }
+            var perColumn: [[PdfTextLine]] = [[]]
+            for token in parts[(semi + 1)...] {
+                if token == "/" {
+                    perColumn.append([])
+                } else if let y = Float(token) {
+                    let line = PdfTextLine(
+                        items: [
+                            PdfLayoutItem(
+                                text: "w", x: 0, y: y, width: 8, fontSize: 12, fontName: "F1")
+                        ], y: y)
+                    perColumn[perColumn.count - 1].append(line)
+                }
+            }
+            return "n \(pdfIsNewspaperLayout(perColumn, columns) ? 1 : 0)"
         case "P":
             guard parts.count > 2 else { return nil }
             let item = PdfLayoutItem(

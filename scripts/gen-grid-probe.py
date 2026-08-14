@@ -3059,6 +3059,136 @@ def valley_cases(random_count):
     # Every gap oversized, so every line is its own segment.
     emit_split([(900 - r * 200, 1) for r in range(5)])
 
+    # --- try_xy_cut_split ---
+
+    def emit_xy(items, x_min=0.0, x_max=612.0):
+        lines.append("X {} {} ; {}".format(x_min, x_max, items_spec(items)))
+
+    def sides(left_n=12, right_n=12, left_x=20, left_w=200, right_x=340, right_w=200,
+              right_y0=700):
+        out = [(left_x, 700 - r * 14, left_w, "l") for r in range(left_n)]
+        out += [(right_x, right_y0 - r * 14, right_w, "r") for r in range(right_n)]
+        return out
+
+    # A clean sidebar cut, and the page-width floor.
+    emit_xy(sides())
+    for x_max in (150.0, 199.0, 200.0, 201.0, 612.0):
+        emit_xy(sides(), x_max=x_max)
+    # The 15pt gap floor, walked by sliding the right side toward the left.
+    for start in (215, 220, 229, 230, 231, 240, 300):
+        emit_xy(sides(right_x=start))
+    # Overlapping items, which give a negative gap and must never win.
+    emit_xy([(20, 700 - r * 14, 400, "a") for r in range(12)]
+            + [(200, 700 - r * 14, 400, "b") for r in range(12)])
+    # An item reaching across others, so the running maximum matters: without
+    # it a false gap would appear behind the long item.
+    emit_xy([(20, 760, 560, "banner")] + sides())
+    emit_xy([(20, 760, 560, "banner")] + sides(right_x=400))
+    # The 10% margin rule, walked by moving the cut toward each edge.
+    for right_x in (70, 80, 90, 100, 500, 540, 560, 580):
+        emit_xy(sides(left_w=20, right_x=right_x, right_w=20))
+    # Item counts: the major side needs 10 and the minor 3.
+    for left_n in (0, 1, 2, 3, 4, 9, 10, 11):
+        emit_xy(sides(left_n=left_n))
+    for right_n in (0, 2, 3, 9, 10, 11):
+        emit_xy(sides(right_n=right_n))
+    # Vertical overlap at the 20% bar: the right side slid down the page.
+    for offset in (0, 100, 140, 145, 150, 200, 400):
+        emit_xy(sides(right_y0=700 - offset))
+    # Everything on one baseline, so the y range is floored at 1.
+    emit_xy([(20 + r * 5, 700, 4, "l") for r in range(12)]
+            + [(400 + r * 5, 700, 4, "r") for r in range(12)])
+    # Unmeasured widths, so the estimate decides where the edges are.
+    for text in ("a", "medium~text", "a~much~longer~run~of~text~here"):
+        emit_xy([(20, 700 - r * 14, 0, text) for r in range(12)]
+                + [(400, 700 - r * 14, 0, text) for r in range(12)])
+    # Two items only, and a page of identical items.
+    emit_xy([(20, 700, 100, "a"), (400, 700, 100, "b")])
+    emit_xy([(20, 700 - r * 14, 100, "a") for r in range(24)])
+
+    # --- is_newspaper_layout ---
+
+    def emit_news(columns, groups):
+        body = []
+        for index, group in enumerate(groups):
+            if index:
+                body.append("/")
+            body.extend(str(y) for y in group)
+        lines.append("N | {} ; {}".format(
+            " ".join("{},{}".format(a, b) for a, b in columns), " ".join(body)))
+
+    def run(count, start=700, step=14):
+        return [start - r * step for r in range(count)]
+
+    even2 = [(0, 300), (300, 612)]
+    # Fewer than two columns.
+    emit_news(even2, [run(20)])
+    # The five-line floor.
+    for count in (3, 4, 5, 6):
+        emit_news(even2, [run(count), run(20)])
+    # Dense and balanced: the 0.7 ratio, walked.
+    for short in (15, 16, 20, 21, 28, 29, 30):
+        emit_news(even2, [run(short), run(30)])
+    # Unbalanced and dense: the Y-collision fallback at the 0.5 bar.
+    for aligned in (0, 4, 7, 8, 9, 12, 16):
+        short = [700 - r * 14 if r < aligned else 100 - r * 14 for r in range(16)]
+        emit_news(even2, [short, run(30)])
+    # Three columns, and the collision check against any other column.
+    emit_news([(0, 200), (200, 400), (400, 612)], [run(16), run(30), run(28)])
+    emit_news([(0, 200), (200, 400), (400, 612)],
+              [[100 - r * 14 for r in range(16)], run(30), run(28)])
+    # The sidebar branch: every guard walked one at a time from a passing base.
+    sidebar_cols = [(0, 400), (400, 580)]
+    sparse = [700 - r * 40 for r in range(8)]
+    dense = run(30)
+    emit_news(sidebar_cols, [dense, sparse])
+    # width ratio
+    for narrow_start in (300, 380, 400, 410, 450):
+        emit_news([(0, narrow_start), (narrow_start, 580)], [dense, sparse])
+    # line balance and body size
+    for sparse_n in (5, 8, 9, 10, 11, 14):
+        emit_news(sidebar_cols, [dense, [700 - r * 40 for r in range(sparse_n)]])
+    for body_n in (15, 19, 20, 21, 30):
+        emit_news(sidebar_cols, [run(body_n), sparse])
+    # narrow-column width floor
+    for narrow_w in (100, 155, 159, 160, 161, 200):
+        emit_news([(0, 400), (580 - narrow_w, 580)], [dense, sparse])
+    # the density ratio at 2.5
+    for step in (14, 28, 34, 35, 36, 40, 80):
+        emit_news(sidebar_cols, [dense, [700 - r * step for r in range(8)]])
+    # the narrower column must also be the emptier one
+    emit_news(sidebar_cols, [sparse, dense])
+    # a single-line column, whose average gap is zero
+    emit_news(sidebar_cols, [dense, [700] * 6])
+
+    # The dense-balanced route to "newspaper", which was thin: enough lines
+    # in the shortest column that the sidebar branch is skipped entirely.
+    for short in (15, 18, 22, 25, 30, 40):
+        for long in (30, 40, 60):
+            if short <= long:
+                emit_news(even2, [run(short), run(long)])
+    # A narrow column packed with lines is a reference table, not a sidebar,
+    # so the narrower column must also be the emptier one.
+    for narrow_lines in (6, 8, 10, 12):
+        emit_news([(0, 400), (400, 580)],
+                  [[700 - r * 40 for r in range(narrow_lines)], run(30)])
+        emit_news([(0, 180), (180, 580)],
+                  [run(30), [700 - r * 40 for r in range(narrow_lines)]])
+    # A single column, and none at all.
+    emit_news(even2, [run(30)])
+    emit_news(even2, [])
+    emit_news([(0, 612)], [run(20)])
+    # Narrow pages for the xy cut, and pages with a single item.
+    for x_max in (0.0, 50.0, 199.9):
+        emit_xy(sides(), x_max=x_max)
+    emit_xy([(20, 700, 100, "only")])
+    # NOT emitted: an empty item list. `try_xy_cut_split` indexes
+    # `0..len - 1`, which underflows to a huge range and panics -- confirmed
+    # against the reference binary. Its own caller returns early for any page
+    # under twenty items, so the case is unreachable there; this port guards
+    # instead, which is a deliberate divergence from a trap that cannot be
+    # observed through the real entry point.
+
     # is_list_marker_column: the 80% bar, and what counts as a marker.
     markers = ["\u2022", "\u25cf", "\u25cb", "\u25e6", "\u25aa",
                "\u25ab", "\u25c6", "\u25c7", "\u25a0", "\u25a1"]

@@ -1380,6 +1380,81 @@ pub fn probe_valleys(input: &str) -> String {
                 }
                 out.push('\n');
             }
+            // X x_min x_max ; x,y,w,text ...
+            "X" => {
+                let semi = match parts.iter().position(|p| *p == ";") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let x_min: f32 = parts[1].parse().unwrap_or(0.0);
+                let x_max: f32 = parts[2].parse().unwrap_or(612.0);
+                let items: Vec<TextItem> = parts[semi + 1..]
+                    .iter()
+                    .filter_map(|p| {
+                        let f: Vec<&str> = p.split(',').collect();
+                        if f.len() < 4 {
+                            return None;
+                        }
+                        Some(item(
+                            f[0].parse().ok()?,
+                            f[1].parse().ok()?,
+                            f[2].parse().ok()?,
+                            12.0,
+                            f[3],
+                        ))
+                    })
+                    .collect();
+                let refs: Vec<&TextItem> = items.iter().collect();
+                match try_xy_cut_split(&refs, x_min, x_max, 1) {
+                    None => out.push_str("x -\n"),
+                    Some(cols) => {
+                        out.push_str("x");
+                        for col in &cols {
+                            out.push_str(&format!(" {:.2}:{:.2}", col.x_min, col.x_max));
+                        }
+                        out.push('\n');
+                    }
+                }
+            }
+            // N | xmin,xmax ... ; y y y / y y y / ...   (one group per column)
+            "N" => {
+                use crate::types::TextLine;
+                let bar = match parts.iter().position(|p| *p == "|") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let semi = match parts.iter().position(|p| *p == ";") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let columns: Vec<ColumnRegion> = parts[bar + 1..semi]
+                    .iter()
+                    .filter_map(|p| {
+                        let (a, b) = p.split_once(',')?;
+                        Some(ColumnRegion { x_min: a.parse().ok()?, x_max: b.parse().ok()? })
+                    })
+                    .collect();
+                let mut per_column: Vec<Vec<TextLine>> = vec![Vec::new()];
+                for token in &parts[semi + 1..] {
+                    if *token == "/" {
+                        per_column.push(Vec::new());
+                        continue;
+                    }
+                    if let Ok(y) = token.parse::<f32>() {
+                        let last = per_column.len() - 1;
+                        per_column[last].push(TextLine {
+                            items: vec![item(0.0, y, 8.0, 12.0, "w")],
+                            y,
+                            page: 1,
+                            adaptive_threshold: 0.10,
+                        });
+                    }
+                }
+                out.push_str(&format!(
+                    "n {}\n",
+                    is_newspaper_layout(&per_column, &columns) as u8
+                ));
+            }
             // P y text
             "P" => {
                 let it = item(0.0, parts[1].parse().unwrap_or(0.0), 0.0, 12.0, parts[2]);

@@ -2648,3 +2648,40 @@ readings**.
   715 probe cases agree on the first run. 17 unit tests; one of them had to
   be corrected after the reference showed that uniformly wide spacing does
   not split, which is a consequence of the threshold being relative.
+
+- **Wave 64 — the XY cut, and telling a newspaper from a table.**
+  `PdfXyCut.swift` ports `try_xy_cut_split` and `is_newspaper_layout`, the
+  last two pieces before `detect_columns` itself becomes portable.
+
+  `try_xy_cut_split` runs *before* the projection histogram and asks a
+  simpler question: is there one clean vertical cut with everything on either
+  side of it? A page with a wide sidebar answers yes where a histogram,
+  dominated by the body column, often does not.
+  - The sweep tracks the furthest right edge seen **so far**, not the
+    previous item's. A full-width banner therefore *suppresses* the cut
+    entirely rather than leaving a false gap behind it — the opposite of what
+    the obvious implementation would do, and worth a test of its own.
+  - The cut lands midway between the two blocks, so a cut reaching the page
+    margin means the blocks sit close together near an edge, not far apart.
+    Two unit tests were wrong on exactly this before the reference corrected
+    them.
+  - Overlapping items give a negative gap and the running best starts at
+    zero, so they can never win.
+
+  **A deliberate divergence, and the first crash found in the reference.**
+  `try_xy_cut_split` indexes `0..len - 1`, which underflows on an empty item
+  list. Running the reference binary on that case kills it outright —
+  `index out of bounds: the len is 0 but the index is 0` at `layout.rs:272`.
+  Its own caller returns early for any page under twenty items, so the case
+  is unreachable through the real entry point; this port guards instead. The
+  probe case is deliberately not generated, with a comment saying why.
+
+  `is_newspaper_layout` decides whether the columns are independent flows.
+  Three routes to yes: dense columns of similar length; a narrow sparse
+  sidebar beside a dense body, behind six simultaneous guards; or, for
+  unequal columns, the shortest one's lines mostly colliding with another's.
+  Note `min_by_key` returns the **first** minimum where `max_by_key` returns
+  the last — the opposite of wave 63's trap, and the reason both are spelled
+  out explicitly.
+
+  851 probe cases agree on the first run. 17 unit tests.
