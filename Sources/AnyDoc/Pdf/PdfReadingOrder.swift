@@ -350,3 +350,87 @@ func pdfPairedColumnImages(
     guard leftRows >= 5, rightRows >= 5, balance < 0.55 else { return nil }
     return PdfColumnFlowBand(splitX: splitX, yBottom: yBottom, yTop: yTop)
 }
+
+/// Whether a region is read across the page or as one column of a pair.
+enum PdfRegionKind: Equatable {
+    case fullWidth
+    case column
+}
+
+/// A partition of the page, in reading order.
+struct PdfRegionNode {
+    var kind: PdfRegionKind
+    var items: [PdfLayoutItem]
+}
+
+/// The column-flow band a page's images imply, if any.
+///
+/// Two recognisers, tried in order of how much they are told. A split already
+/// found by column detection lets `pdfPairedColumnImages` look for panels
+/// either side of it; failing that — or with no split to work from —
+/// `pdfLocalFlowBelowFullWidthImage` looks for a hero image to anchor on.
+///
+/// Note the paired recogniser is *only* reachable when a split was detected,
+/// so a page whose columns the histogram could not find is judged solely on
+/// its hero image.
+func pdfInferImageAnchoredFlow(
+    _ items: [PdfLayoutItem], _ images: [PdfImageRegion], detectedSplit: Float?
+) -> PdfColumnFlowBand? {
+    if items.isEmpty || images.isEmpty { return nil }
+    guard let bounds = pdfPageXBounds(items, images) else { return nil }
+    if let split = detectedSplit,
+        let band = pdfPairedColumnImages(
+            items, images, splitX: split, xMin: bounds.xMin, xMax: bounds.xMax)
+    {
+        return band
+    }
+    return pdfLocalFlowBelowFullWidthImage(
+        items, images, xMin: bounds.xMin, xMax: bounds.xMax)
+}
+
+/// Partition a page into `above → left → right → below`.
+///
+/// These four are the reading-order graph: everything above the band, then
+/// its two columns, then everything below. Expressing it as an ordered list
+/// rather than a real DAG is enough because the shape is always this one —
+/// the band is a horizontal slice, so nothing can be beside the material
+/// above or below it.
+///
+/// Empty regions are dropped, so a page with nothing above its band starts at
+/// the left column. Direction is decided from the **columns only**, ignoring
+/// the full-width material — a right-to-left page reads its right column
+/// first.
+func pdfBuildRegionGraph(
+    _ items: [PdfLayoutItem], band: PdfColumnFlowBand
+) -> [PdfRegionNode] {
+    var above: [PdfLayoutItem] = []
+    var left: [PdfLayoutItem] = []
+    var right: [PdfLayoutItem] = []
+    var below: [PdfLayoutItem] = []
+    for item in items {
+        if item.y > band.yTop {
+            above.append(item)
+        } else if item.y < band.yBottom {
+            below.append(item)
+        } else if item.x + pdfEffectiveItemWidth(item) / 2 < band.splitX {
+            left.append(item)
+        } else {
+            right.append(item)
+        }
+    }
+
+    let rightToLeft = pdfIsRtlText((left + right).map(\.text))
+    var ordered: [(PdfRegionKind, [PdfLayoutItem])] = [(.fullWidth, above)]
+    if rightToLeft {
+        ordered.append((.column, right))
+        ordered.append((.column, left))
+    } else {
+        ordered.append((.column, left))
+        ordered.append((.column, right))
+    }
+    ordered.append((.fullWidth, below))
+
+    return ordered.compactMap { kind, items in
+        items.isEmpty ? nil : PdfRegionNode(kind: kind, items: items)
+    }
+}

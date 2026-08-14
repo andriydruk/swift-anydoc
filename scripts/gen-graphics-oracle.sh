@@ -1715,6 +1715,61 @@ pub fn probe_reading(input: &str) -> String {
                     )),
                 }
             }
+            // I split|- | x0,y0,x1,y1 ... ; x,y,w,text ...
+            //   The whole pipeline: infer the band, then the region graph.
+            "I" => {
+                let (bar, semi) = match (
+                    parts.iter().position(|p| *p == "|"),
+                    parts.iter().position(|p| *p == ";"),
+                ) {
+                    (Some(a), Some(b)) => (a, b),
+                    _ => continue,
+                };
+                let split: Option<f32> = if parts[1] == "-" {
+                    None
+                } else {
+                    parts[1].parse().ok()
+                };
+                let images: Vec<ImageRegion> = parts[bar + 1..semi]
+                    .iter()
+                    .filter_map(|p| {
+                        let f: Vec<&str> = p.split(',').collect();
+                        if f.len() < 4 {
+                            return None;
+                        }
+                        Some((
+                            f[0].parse().ok()?,
+                            f[1].parse().ok()?,
+                            f[2].parse().ok()?,
+                            f[3].parse().ok()?,
+                        ))
+                    })
+                    .collect();
+                let items = parse_items(&parts[semi + 1..]);
+                match infer_image_anchored_flow(&items, &images, split) {
+                    None => out.push_str("i -\n"),
+                    Some(band) => {
+                        out.push_str(&format!(
+                            "i {:.2},{:.2},{:.2}",
+                            band.split_x, band.y_bottom, band.y_top
+                        ));
+                        for node in build_region_graph(items, band) {
+                            // The first item's x identifies which column a
+                            // node is, which the counts alone cannot.
+                            out.push_str(&format!(
+                                " {}:{}@{:.1}",
+                                match node.kind {
+                                    RegionKind::FullWidth => "f",
+                                    RegionKind::Column => "c",
+                                },
+                                node.items.len(),
+                                node.items.first().map_or(0.0, |it| it.x)
+                            ));
+                        }
+                        out.push('\n');
+                    }
+                }
+            }
             // A x_min x_max ; x,y,w,text ...
             "A" => {
                 let semi = match parts.iter().position(|p| *p == ";") {

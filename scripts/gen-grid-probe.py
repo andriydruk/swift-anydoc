@@ -2818,6 +2818,77 @@ def reading_cases(random_count):
     # Text only in the middle, confined to neither column.
     P2(panels(), [(250, 430 - r * 14, 100, prose) for r in range(10)])
 
+    # infer_image_anchored_flow + build_region_graph, end to end.
+    def I(images, items, split=None, ):
+        lines.append("I {} | {} ; {}".format(
+            "-" if split is None else split,
+            " ".join("{},{},{},{}".format(*r) for r in images) or "-", spec(items)))
+
+    # The reference's own doc-test shape: a hero image with a caption below.
+    hero_items = [(55, 230, 430, "A~full~width~caption"),
+                  (55, 80, 430, "A~trailing~full~width~heading")]
+    for index in range(5):
+        y = 170 - index * 14
+        hero_items.append((55, y, 210, "left~column~prose~words"))
+        hero_items.append((280, y, 210, "right~column~prose~words"))
+    I([(55, 250, 490, 680)], hero_items)
+    # ... and with a split supplied, which sends it down the paired path
+    # first -- which declines here, so the hero path answers anyway.
+    for split in (200, 272, 300, 400):
+        I([(55, 250, 490, 680)], hero_items, split=split)
+
+    # The paired-panel page, with and without a split.
+    paired_items = sides()
+    I(panels(), paired_items)
+    for split in (240, 300, 360):
+        I(panels(), paired_items, split=split)
+
+    # Nothing to work with.
+    I([], hero_items)
+    I([(55, 250, 490, 680)], [])
+    I([], [])
+
+    # Region graph shapes: material above, below, both and neither.
+    def band_page(above=2, below=2, left=5, right=5, top=380, step=14):
+        out = []
+        for i in range(above):
+            out.append((55, 700 + i * 20, 430, "heading~above~the~band"))
+        for i in range(below):
+            out.append((55, 60 - i * 20, 430, "heading~below~the~band"))
+        for i in range(left):
+            out.append((55, top - i * step, 210, "left~column~prose~words"))
+        for i in range(right):
+            out.append((280, top - i * step, 210, "right~column~prose~words"))
+        return out
+    for above, below in ((0, 0), (1, 0), (0, 1), (2, 2), (3, 1)):
+        I([(55, 450, 490, 880)], band_page(above=above, below=below))
+    # A right-to-left page, where the columns swap order. Four words a side,
+    # since the prose test wants three and Arabic has no CJK exemption.
+    arabic_left = "\u0645\u0631\u062d\u0628\u0627~\u0628\u0627\u0644\u0639\u0627\u0644\u0645~\u0627\u0644\u064a\u0648\u0645~\u062c\u0645\u064a\u0644"
+    arabic_right = "\u0627\u0644\u0633\u0644\u0627\u0645~\u0639\u0644\u064a\u0643\u0645~\u0648\u0631\u062d\u0645\u0629~\u0627\u0644\u0644\u0647"
+    rtl = []
+    for i in range(2):
+        rtl.append((55, 700 + i * 20, 430, "heading"))
+    for i in range(5):
+        y = 380 - i * 14
+        rtl.append((55, y, 210, arabic_left))
+        rtl.append((280, y, 210, arabic_right))
+    I([(55, 450, 490, 880)], rtl)
+    # The same page in English, so the pair differs only in direction.
+    ltr = []
+    for i in range(2):
+        ltr.append((55, 700 + i * 20, 430, "heading"))
+    for i in range(5):
+        y = 380 - i * 14
+        ltr.append((55, y, 210, "left~column~prose~words"))
+        ltr.append((280, y, 210, "right~column~prose~words"))
+    I([(55, 450, 490, 880)], ltr)
+    # Items exactly on the band's edges, which belong to the columns.
+    edge = band_page(above=0, below=0)
+    edge.append((55, 383, 210, "on~the~top~edge"))
+    edge.append((55, 325, 210, "on~the~bottom~edge"))
+    I([(55, 450, 490, 880)], edge)
+
     return lines
 
 

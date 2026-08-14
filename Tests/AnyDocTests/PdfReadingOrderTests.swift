@@ -391,4 +391,106 @@ import Testing
         #expect(paired(panels(width: 209), sides()) == nil)
         #expect(paired(panels(width: 210), sides()) != nil)
     }
+
+    // MARK: - infer_image_anchored_flow and build_region_graph
+
+    /// A page with a hero image, columns beneath it, and optional full-width
+    /// material above and below.
+    private func bandPage(
+        above: Int = 2, below: Int = 2, left: Int = 5, right: Int = 5, top: Float = 380,
+        leftText: String? = nil, rightText: String? = nil
+    ) -> [PdfLayoutItem] {
+        var out: [PdfLayoutItem] = []
+        for index in 0..<above {
+            out.append(item(55, 700 + Float(index) * 20, 430, "heading above the band"))
+        }
+        for index in 0..<below {
+            out.append(item(55, 60 - Float(index) * 20, 430, "heading below the band"))
+        }
+        for index in 0..<left {
+            out.append(item(55, top - Float(index) * 14, 210, leftText ?? "left column prose words"))
+        }
+        for index in 0..<right {
+            out.append(
+                item(280, top - Float(index) * 14, 210, rightText ?? "right column prose words"))
+        }
+        return out
+    }
+
+    private let heroImage = [PdfImageRegion(x0: 55, y0: 450, x1: 490, y1: 880)]
+
+    private func graph(
+        _ images: [PdfImageRegion], _ items: [PdfLayoutItem], split: Float? = nil
+    ) -> [PdfRegionNode]? {
+        guard let band = pdfInferImageAnchoredFlow(items, images, detectedSplit: split)
+        else { return nil }
+        return pdfBuildRegionGraph(items, band: band)
+    }
+
+    @Test func aPageNeedsBothTextAndImagesToHaveAFlow() {
+        #expect(pdfInferImageAnchoredFlow(bandPage(), [], detectedSplit: nil) == nil)
+        #expect(pdfInferImageAnchoredFlow([], heroImage, detectedSplit: nil) == nil)
+        #expect(pdfInferImageAnchoredFlow([], [], detectedSplit: nil) == nil)
+    }
+
+    @Test func theGraphRunsAboveThenColumnsThenBelow() {
+        let nodes = graph(heroImage, bandPage(above: 2, below: 2))
+        #expect(nodes?.count == 4)
+        #expect(nodes?[0].kind == .fullWidth)
+        #expect(nodes?[1].kind == .column)
+        #expect(nodes?[2].kind == .column)
+        #expect(nodes?[3].kind == .fullWidth)
+        // Left column before right on a left-to-right page.
+        #expect(nodes?[1].items.first?.x == 55)
+        #expect(nodes?[2].items.first?.x == 280)
+    }
+
+    @Test func emptyRegionsAreDropped() {
+        // A page with nothing above its band starts at the left column, so
+        // callers never see a placeholder node.
+        #expect(graph(heroImage, bandPage(above: 0, below: 0))?.count == 2)
+        #expect(graph(heroImage, bandPage(above: 1, below: 0))?.count == 3)
+        #expect(graph(heroImage, bandPage(above: 0, below: 1))?.count == 3)
+        #expect(graph(heroImage, bandPage(above: 0, below: 0))?.allSatisfy { $0.kind == .column }
+            == true)
+    }
+
+    @Test func aRightToLeftPageReadsItsRightColumnFirst() {
+        // Direction is decided from the columns alone, ignoring the
+        // full-width material above and below.
+        let arabic = bandPage(
+            above: 1, below: 0, leftText: "مرحبا بالعالم اليوم جميل",
+            rightText: "السلام عليكم ورحمة الله")
+        let nodes = graph(heroImage, arabic)
+        #expect(nodes?.count == 3)
+        #expect(nodes?[1].items.first?.x == 280)
+        #expect(nodes?[2].items.first?.x == 55)
+        // The same page in English keeps the ordinary order.
+        let english = bandPage(above: 1, below: 0)
+        #expect(graph(heroImage, english)?[1].items.first?.x == 55)
+    }
+
+    @Test func aDetectedSplitIsTriedAgainstPairedPanelsFirst() {
+        // The paired recogniser is only reachable when a split was found. On
+        // a hero page it declines whatever the split, and the hero path
+        // answers instead — so the split changes nothing here.
+        let page = bandPage()
+        let none = pdfInferImageAnchoredFlow(page, heroImage, detectedSplit: nil)
+        for split: Float in [200, 272, 300, 400] {
+            #expect(
+                pdfInferImageAnchoredFlow(page, heroImage, detectedSplit: split) == none,
+                "split \(split)")
+        }
+    }
+
+    @Test func itemsOnTheBandsEdgesBelongToTheColumns() {
+        // The comparisons are strict at both ends, so a run exactly on the
+        // top or bottom edge is column material rather than full-width.
+        var page = bandPage(above: 0, below: 0)
+        page.append(item(55, 383, 210, "on the top edge"))
+        page.append(item(55, 325, 210, "on the bottom edge"))
+        let nodes = graph(heroImage, page)
+        #expect(nodes?.count == 2)
+        #expect(nodes?[0].items.count == 7)
+    }
 }

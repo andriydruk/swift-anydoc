@@ -98,6 +98,28 @@ import Testing
             else { return "p2 -" }
             return "p2 \(twoPlaces(band.splitX)),\(twoPlaces(band.yBottom)),"
                 + "\(twoPlaces(band.yTop))"
+        case "I":
+            guard let bar = parts.firstIndex(of: "|"), let semi = parts.firstIndex(of: ";"),
+                parts.count > 1
+            else { return nil }
+            let images: [PdfImageRegion] = parts[(bar + 1)..<semi].compactMap {
+                let f = $0.split(separator: ",")
+                guard f.count >= 4, let x0 = Float(f[0]), let y0 = Float(f[1]),
+                    let x1 = Float(f[2]), let y1 = Float(f[3])
+                else { return nil }
+                return PdfImageRegion(x0: x0, y0: y0, x1: x1, y1: y1)
+            }
+            let pageItems = items(parts[(semi + 1)...])
+            let split = parts[1] == "-" ? nil : Float(parts[1])
+            guard let band = pdfInferImageAnchoredFlow(pageItems, images, detectedSplit: split)
+            else { return "i -" }
+            var out = "i \(twoPlaces(band.splitX)),\(twoPlaces(band.yBottom)),"
+                + "\(twoPlaces(band.yTop))"
+            for node in pdfBuildRegionGraph(pageItems, band: band) {
+                out += " \(node.kind == .fullWidth ? "f" : "c"):\(node.items.count)"
+                    + "@\(onePlace(node.items.first?.x ?? 0))"
+            }
+            return out
         case "A":
             guard let semi = parts.firstIndex(of: ";"), parts.count > 2 else { return nil }
             let rows = pdfGroupRows(items(parts[(semi + 1)...]))

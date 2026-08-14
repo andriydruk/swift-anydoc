@@ -2861,3 +2861,41 @@ readings**.
   *each* kind are required; and `MIN_IMAGE_HEIGHT` (40pt) is dominated by the
   vertical-stack gap bound, which fires first on any shape short enough to
   test it. The unit tests assert the bar that actually decides and say so.
+
+- **Wave 70 — `reading_order.rs` complete.**
+  `pdfInferImageAnchoredFlow` and `pdfBuildRegionGraph` finish the file that
+  waves 67–69 were building. All eight of its functions are now ported.
+
+  The inference is a two-step fallback: a split already found by column
+  detection lets the paired-panel recogniser look either side of it, and
+  failing that — or with no split at all — the hero-image recogniser tries.
+  **The paired path is only reachable when a split was detected**, so a page
+  whose columns the histogram could not find is judged solely on its hero
+  image.
+
+  `build_region_graph` partitions the page into `above → left → right →
+  below`. An ordered list rather than a real DAG is enough because the shape
+  is always this one: the band is a horizontal slice, so nothing can sit
+  beside the material above or below it.
+  - Empty regions are dropped, so a page with nothing above its band starts
+    at the left column and callers never see a placeholder.
+  - Direction comes from the **columns only**, ignoring the full-width
+    material — a right-to-left page reads its right column first.
+  - Both band comparisons are strict, so a run exactly on the top or bottom
+    edge is column material rather than full-width.
+
+  256 probe cases agree on the first run. The probe initially emitted only
+  node *counts*, which cannot tell a right-to-left page from a left-to-right
+  one — both give `f:1 c:5 c:5`. It now emits each node's first x as well,
+  and the two orders are distinguishable: `c:5@280 c:5@55` against
+  `c:5@55 c:5@280`.
+
+  Two case-design corrections along the way: the region-graph pages had their
+  columns 17pt below the image where the caption gap wants 60–120, and the
+  Arabic test text had two words where the prose bar wants three — Arabic
+  gets no CJK exemption, since that is keyed on the CJK blocks rather than on
+  scripts written without spaces generally.
+
+  **Next:** `group_into_lines_with_thresholds_and_regions_impl` in
+  `layout.rs` now has every dependency ported, and closes the layout half of
+  the pipeline.
