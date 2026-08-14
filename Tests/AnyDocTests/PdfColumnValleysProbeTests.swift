@@ -175,6 +175,26 @@ import Testing
                 out += " \(twoPlaces(column.xMin)):\(twoPlaces(column.xMax))"
             }
             return out
+        case "S1":
+            guard let semi = parts.firstIndex(of: ";") else { return nil }
+            let items: [PdfLayoutItem] = parts[(semi + 1)...].compactMap { field in
+                let f = field.split(separator: ",", omittingEmptySubsequences: false)
+                guard f.count >= 6, let x = Float(f[0]), let y = Float(f[1]),
+                    let width = Float(f[2]), let size = Float(f[4])
+                else { return nil }
+                var item = PdfLayoutItem(
+                    text: f[5].replacingOccurrences(of: "~", with: " "), x: x, y: y,
+                    width: width, fontSize: size, fontName: "F1")
+                item.isBold = f[3] == "1"
+                return item
+            }
+            let grouped = pdfGroupSingleColumn(items)
+            var out = "s1 \(pdfShouldUseYSorting(items) ? 1 : 0) \(grouped.count)"
+            for line in grouped {
+                out += " \(line.items.count)@\(onePlace(line.y))"
+                for item in line.items { out += ",\(onePlace(item.x))" }
+            }
+            return out
         case "P":
             guard parts.count > 2 else { return nil }
             let item = PdfLayoutItem(

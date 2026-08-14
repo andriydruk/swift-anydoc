@@ -2726,3 +2726,38 @@ readings**.
 
   `PdfLayout.swift` has dropped the multi-column caveat it carried since
   wave 4. What remains is wiring the regions into line grouping.
+
+- **Wave 66 — one column's runs into lines.**
+  `PdfSingleColumn.swift` ports `group_single_column` and
+  `should_use_y_sorting`, the grouper the region pipeline calls per column.
+
+  Wave 4's grouper sorted every run by baseline and trusted the result. This
+  one does not: a PDF's stream order is usually already reading order, and
+  sorting destroys information when two runs share a baseline. So stream
+  order is kept unless it looks *chaotic* — more than two in five large
+  vertical jumps going the wrong way — and the grouping then walks it in
+  sequence, merging only ever into the line most recently opened.
+  - That one-line lookback is why the merge tests are thorough. A run
+    returning to an earlier baseline opens a new line rather than rejoining
+    the old one.
+  - The tolerance is measured against the line's **own** baseline, its first
+    run's, which never moves. Drift therefore accumulates against a fixed
+    point: a 1pt drift per run is fine for three runs and breaks at the
+    fourth.
+  - The subtlest test splits two columns whose gutter was too narrow for
+    column detection. Same baseline, a void wider than three font sizes or
+    30pt, and the incoming run starting with a letter — then **both sides
+    must read as prose**, at three words and ten letters in, two words and
+    eight already on the line. Word count alone is not enough: `abc def ghi`
+    is three words and nine letters and stays joined.
+  - An uppercase start additionally needs a style mismatch — a wholly bold
+    line beside a regular run — or rows of same-styled labels would shatter.
+    The *whole* line must be bold, so a bold-label-and-value row survives.
+  - The void uses the **raw** width, not the estimate used elsewhere, so a
+    run with no measured width is treated as a point and the void reads as
+    wider.
+
+  1,138 probe cases agree on the first run. Branch instrumentation lifted
+  carriage returns 2→14 and style-mismatch splits 1→4. 17 unit tests, two of
+  which the reference corrected: cumulative drift against a fixed baseline,
+  and the ten-letter bar.

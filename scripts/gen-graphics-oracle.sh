@@ -1485,6 +1485,45 @@ pub fn probe_valleys(input: &str) -> String {
                 }
                 out.push('\n');
             }
+            // S1 ; x,y,w,bold,text ...   (single-column grouping)
+            "S1" => {
+                let semi = match parts.iter().position(|p| *p == ";") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let items: Vec<TextItem> = parts[semi + 1..]
+                    .iter()
+                    .filter_map(|p| {
+                        let f: Vec<&str> = p.split(',').collect();
+                        if f.len() < 6 {
+                            return None;
+                        }
+                        let mut it = item(
+                            f[0].parse().ok()?,
+                            f[1].parse().ok()?,
+                            f[2].parse().ok()?,
+                            f[4].parse().unwrap_or(12.0),
+                            f[5],
+                        );
+                        it.is_bold = f[3] == "1";
+                        Some(it)
+                    })
+                    .collect();
+                let ysort = should_use_y_sorting(&items) as u8;
+                let lines_out = group_single_column(items, 0.10);
+                out.push_str(&format!("s1 {} {}", ysort, lines_out.len()));
+                for line in &lines_out {
+                    // Structure only: how many runs on the line, its
+                    // baseline, and the x each run ended up at. Comparing
+                    // the joined text would drag in word joining, which is
+                    // a different function's business.
+                    out.push_str(&format!(" {}@{:.1}", line.items.len(), line.y));
+                    for it in &line.items {
+                        out.push_str(&format!(",{:.1}", it.x));
+                    }
+                }
+                out.push('\n');
+            }
             // P y text
             "P" => {
                 let it = item(0.0, parts[1].parse().unwrap_or(0.0), 0.0, 12.0, parts[2]);

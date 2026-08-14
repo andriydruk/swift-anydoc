@@ -3358,6 +3358,135 @@ def valley_cases(random_count):
         out += [(250, 700 - r * 14, 90, "s") for r in range(straddle)]
         emit_detect(out)
 
+    # --- group_single_column and should_use_y_sorting ---
+
+    def emit_single(items):
+        # x,y,w,bold,fontsize,text
+        lines.append("S1 ; " + " ".join(
+            "{},{},{},{},{},{}".format(x, y, w, b, fs, t) for x, y, w, b, fs, t in items))
+
+    def prose(x, y, w=200, bold=0, size=12, text="a~line~of~running~prose~text"):
+        return (x, y, w, bold, size, text)
+
+    # Ordinary stacked lines, in stream order.
+    emit_single([prose(20, 700 - r * 14) for r in range(10)])
+    # Two runs per line, left to right and out of order.
+    out = []
+    for r in range(8):
+        y = 700 - r * 14
+        out.append(prose(20, y, 100, text="left"))
+        out.append(prose(130, y, 100, text="right"))
+    emit_single(out)
+    out = []
+    for r in range(8):
+        y = 700 - r * 14
+        out.append(prose(130, y, 100, text="right"))
+        out.append(prose(20, y, 100, text="left"))
+    emit_single(out)
+
+    # should_use_y_sorting: chaotic stream order, walked around 0.4.
+    for ups in range(0, 9):
+        out = []
+        y = 700.0
+        for step in range(8):
+            out.append(prose(20, y))
+            y += 120 if step < ups else -120
+        emit_single(out)
+    # Too few items, and too few jumps to judge.
+    for count in (2, 4, 5, 6):
+        emit_single([prose(20, 700 - r * 14) for r in range(count)])
+    for jumps in (0, 1, 2, 3, 4):
+        out = [prose(20, 700 - r * 2) for r in range(8)]
+        for j in range(jumps):
+            out.append(prose(20, 900 + j * 200))
+        emit_single(out)
+
+    # The 3pt baseline tolerance, walked.
+    for drift in (0.0, 0.4, 0.6, 1.0, 2.9, 3.0, 3.1, 5.0):
+        out = []
+        for r in range(6):
+            out.append(prose(20 + r * 60, 700 - r * drift, 50, text="run"))
+        emit_single(out)
+    # Same left margin with a small y change: stacked lines, not one line.
+    for dx in (0, 2, 4, 5, 6, 20):
+        out = [prose(20, 700, 50, text="a"), prose(20 + dx, 699, 50, text="b")]
+        out += [prose(20, 700 - r * 14, 50, text="c") for r in range(1, 6)]
+        emit_single(out)
+    # Starting to the left of where the line reached.
+    for back in (0, 5, 9, 10, 11, 30):
+        out = [prose(100, 700, 50, text="a"), prose(100 - back, 699, 50, text="b")]
+        out += [prose(20, 700 - r * 14, 50, text="c") for r in range(1, 6)]
+        emit_single(out)
+
+    # The wide-void prose split: same baseline, a big gap, both sides wordy.
+    long_text = "a~sentence~of~genuine~running~prose"
+    for gap in (20, 30, 36, 37, 40, 80, 200):
+        out = [prose(20, 700, 100, text=long_text),
+               prose(120 + gap, 700, 100, text=long_text)]
+        out += [prose(20, 700 - r * 14, 100, text="filler") for r in range(1, 6)]
+        emit_single(out)
+    # Font size drives the threshold where it exceeds 30.
+    for size in (6, 10, 12, 20, 40):
+        out = [prose(20, 700, 100, size=size, text=long_text),
+               prose(220, 700, 100, size=size, text=long_text)]
+        out += [prose(20, 700 - r * 14, 100, text="filler") for r in range(1, 6)]
+        emit_single(out)
+    # The incoming run must start with a letter and be substantial prose.
+    for incoming in ("42", "42~is~the~answer~here", "the~answer~is~here~now",
+                     "short~two", "a~b~c", "abc~def~ghi", "no", "~", "3.14~pages~of~it"):
+        out = [prose(20, 700, 100, text=long_text), prose(220, 700, 100, text=incoming)]
+        out += [prose(20, 700 - r * 14, 100, text="filler") for r in range(1, 6)]
+        emit_single(out)
+    # The line side must be wordy too -- a short label keeps its value.
+    for line_text in ("Name", "Name~here", "a~b", "a~much~longer~line~of~prose"):
+        out = [prose(20, 700, 100, text=line_text), prose(220, 700, 100, text=long_text)]
+        out += [prose(20, 700 - r * 14, 100, text="filler") for r in range(1, 6)]
+        emit_single(out)
+    # An uppercase start needs a style mismatch as well as prose.
+    upper = "A~Sentence~Of~Genuine~Running~Prose"
+    for line_bold, item_bold in ((0, 0), (1, 0), (0, 1), (1, 1)):
+        out = [prose(20, 700, 100, bold=line_bold, text=long_text),
+               prose(220, 700, 100, bold=item_bold, text=upper)]
+        out += [prose(20, 700 - r * 14, 100, text="filler") for r in range(1, 6)]
+        emit_single(out)
+    # ... and the *whole* line must be bold, not merely its last run.
+    out = [prose(20, 700, 40, bold=0, text="Label"),
+           prose(70, 700, 40, bold=1, text=long_text),
+           prose(320, 700, 100, bold=0, text=upper)]
+    out += [prose(20, 700 - r * 14, 100, text="filler") for r in range(1, 6)]
+    emit_single(out)
+    # A zero-width run, so the gap is measured from its left edge alone.
+    for width in (0, 50, 100):
+        out = [prose(20, 700, width, text=long_text), prose(220, 700, 100, text=long_text)]
+        out += [prose(20, 700 - r * 14, 100, text="filler") for r in range(1, 6)]
+        emit_single(out)
+    # An empty column.
+    emit_single([])
+
+    # More carriage returns: a run starting left of where the line reached,
+    # with several runs already on it.
+    for back in (11, 15, 30, 60):
+        for runs in (1, 2, 3):
+            out = [prose(100 + i * 60, 700, 50, text="r") for i in range(runs)]
+            out.append(prose(100 - back, 699, 50, text="b"))
+            out += [prose(20, 700 - r * 14, 50, text="c") for r in range(1, 5)]
+            emit_single(out)
+    # More style-mismatch splits: an all-bold line beside a regular run
+    # starting uppercase, and the near misses around it.
+    upper2 = "Another~Sentence~Of~Running~Prose"
+    for runs, item_bold in [(1, 0), (2, 0), (3, 0), (1, 1), (2, 1)]:
+        out = [prose(20 + i * 60, 700, 50, bold=1, text=long_text) for i in range(runs)]
+        out.append(prose(20 + runs * 60 + 200, 700, 100, bold=item_bold, text=upper2))
+        out += [prose(20, 700 - r * 14, 50, text="c") for r in range(1, 5)]
+        emit_single(out)
+    # One run of the line not bold, so the whole-line test fails.
+    for odd in (0, 1, 2):
+        out = [prose(20 + i * 60, 700, 50, bold=0 if i == odd else 1, text=long_text)
+               for i in range(3)]
+        out.append(prose(400, 700, 100, bold=0, text=upper2))
+        out += [prose(20, 700 - r * 14, 50, text="c") for r in range(1, 5)]
+        emit_single(out)
+
     # is_list_marker_column: the 80% bar, and what counts as a marker.
     markers = ["\u2022", "\u25cf", "\u25cb", "\u25e6", "\u25aa",
                "\u25ab", "\u25c6", "\u25c7", "\u25a0", "\u25a1"]
