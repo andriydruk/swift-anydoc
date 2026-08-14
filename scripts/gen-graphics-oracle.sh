@@ -70,6 +70,14 @@ perl -pi -e "s/^pub\\(crate\\) mod fonts;/pub mod fonts;/; s/^mod fonts;/pub mod
 perl -pi -e "s/^pub\\(crate\\) fn parse_encoding_dictionary/pub fn parse_encoding_dictionary/; s/^pub\\(crate\\) struct EncodingResult/pub struct EncodingResult/; s/^struct EncodingResult/pub struct EncodingResult/" \
     "$crate/src/extractor/fonts.rs"
 
+# `markdown::analysis` holds the heading-tier and heading-level pair.
+perl -pi -e "s/^pub\\(crate\\) mod analysis;/pub mod analysis;/; s/^mod analysis;/pub mod analysis;/" \
+    "$crate/src/markdown/mod.rs"
+perl -pi -e "s/^pub\\(crate\\) mod markdown;/pub mod markdown;/; s/^mod markdown;/pub mod markdown;/" \
+    "$crate/src/lib.rs"
+perl -pi -e "s/^pub\\(crate\\) fn (compute_heading_tiers|detect_header_level|line_is_mostly_bold)/pub fn \$1/" \
+    "$crate/src/markdown/analysis.rs"
+
 # `reading_order` is private too, and the probe below lives inside it.
 perl -pi -e "s/^pub\\(crate\\) mod reading_order;/pub mod reading_order;/; s/^mod reading_order;/pub mod reading_order;/" \
     "$crate/src/extractor/mod.rs"
@@ -1868,6 +1876,116 @@ pub fn probe_reading(input: &str) -> String {
 }
 RUSTEOF
 
+cat >> "$crate/src/markdown/analysis.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): the heading-tier and heading-level pair.
+pub fn probe_heading(input: &str) -> String {
+    use crate::types::{ItemType, TextItem, TextLine};
+    fn item(size: f32, bold: bool, text: &str) -> TextItem {
+        TextItem {
+            text: text.replace('~', " "),
+            x: 0.0,
+            y: 0.0,
+            width: 10.0,
+            height: size,
+            font: "F1".to_string(),
+            font_size: size,
+            page: 1,
+            is_bold: bold,
+            is_italic: false,
+            is_underline: false,
+            is_strikeout: false,
+            item_type: ItemType::Text,
+            mcid: None,
+        }
+    }
+
+    let mut out = String::new();
+    for line in input.lines() {
+        let parts: Vec<&str> = line.split(' ').filter(|p| !p.is_empty()).collect();
+        if parts.is_empty() {
+            continue;
+        }
+        match parts[0] {
+            // L font base | tier ... | bold
+            "L" => {
+                let bars: Vec<usize> = parts
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, p)| **p == "|")
+                    .map(|(i, _)| i)
+                    .collect();
+                if bars.len() < 2 {
+                    continue;
+                }
+                let font: f32 = parts[1].parse().unwrap_or(12.0);
+                let base: f32 = parts[2].parse().unwrap_or(10.0);
+                let tiers: Vec<f32> = parts[bars[0] + 1..bars[1]]
+                    .iter()
+                    .filter_map(|p| p.parse().ok())
+                    .collect();
+                let bold = parts.get(bars[1] + 1).map_or(false, |p| *p == "1");
+                match detect_header_level(font, base, &tiers, bold) {
+                    None => out.push_str("hl -\n"),
+                    Some(level) => out.push_str(&format!("hl {level}\n")),
+                }
+            }
+            // T base ; size,bold,text ...
+            "T" => {
+                let semi = match parts.iter().position(|p| *p == ";") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let base: f32 = parts[1].parse().unwrap_or(10.0);
+                let lines_in: Vec<TextLine> = parts[semi + 1..]
+                    .iter()
+                    .filter_map(|p| {
+                        let f: Vec<&str> = p.split(',').collect();
+                        if f.len() < 3 {
+                            return None;
+                        }
+                        let it = item(f[0].parse().ok()?, f[1] == "1", f[2]);
+                        Some(TextLine {
+                            y: 0.0,
+                            page: 1,
+                            adaptive_threshold: 0.10,
+                            items: vec![it],
+                        })
+                    })
+                    .collect();
+                let tiers = compute_heading_tiers(&lines_in, base);
+                out.push_str(&format!("ht {}", tiers.len()));
+                for tier in &tiers {
+                    out.push_str(&format!(" {tier:.2}"));
+                }
+                out.push('\n');
+            }
+            // B ; bold,text ...   (line_is_mostly_bold over several runs)
+            "B" => {
+                let semi = match parts.iter().position(|p| *p == ";") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let items: Vec<TextItem> = parts[semi + 1..]
+                    .iter()
+                    .filter_map(|p| {
+                        let f: Vec<&str> = p.split(',').collect();
+                        if f.len() < 2 {
+                            return None;
+                        }
+                        Some(item(12.0, f[0] == "1", f[1]))
+                    })
+                    .collect();
+                let line = TextLine { y: 0.0, page: 1, adaptive_threshold: 0.10, items };
+                out.push_str(&format!("mb {}\n", line_is_mostly_bold(&line) as u8));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+RUSTEOF
+
 cat >> "$crate/src/glyph_names.rs" <<'RUSTEOF'
 
 /// Probe (added for swift-anydoc): glyph-name resolution. One name per line.
@@ -3141,6 +3259,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::extractor::reading_order::probe_reading(&input));
+        return;
+    }
+    if path == "--heading" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::markdown::analysis::probe_heading(&input));
         return;
     }
     if path == "--cffname" {

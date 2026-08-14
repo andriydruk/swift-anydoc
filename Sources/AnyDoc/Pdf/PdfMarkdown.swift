@@ -33,6 +33,21 @@ func pdfBodyFontSize(_ lines: [PdfTextLine]) -> Float {
     return Float(best.key) / 10
 }
 
+/// Boldness by *character mass*, so a heading with an unbold section-number
+/// prefix — `4. ` followed by a bold title — still counts as bold.
+///
+/// Half the characters is the bar, and it is inclusive.
+func pdfLineIsMostlyBold(_ line: PdfTextLine) -> Bool {
+    var bold = 0
+    var total = 0
+    for item in line.items {
+        let count = item.text.rustTrim().unicodeScalars.count
+        total += count
+        if item.isBold { bold += count }
+    }
+    return total > 0 && bold * 2 >= total
+}
+
 /// The distinct heading sizes, largest first.
 ///
 /// Only a line's *first* item votes, as in the reference: a heading's size is
@@ -40,7 +55,9 @@ func pdfBodyFontSize(_ lines: [PdfTextLine]) -> Float {
 /// excluded, or a large page number would claim the top tier and displace
 /// the document's real headings.
 func pdfHeadingTiers(_ lines: [PdfTextLine], bodySize: Float) -> [Float] {
-    guard bodySize > 0 else { return [] }
+    // No guard on a zero body size: the reference has none, and relies on
+    // float division giving infinity — every line then clears the ratio gate
+    // rather than the document producing no tiers at all.
     var sizes: [Float] = []
     for line in lines {
         guard let first = line.items.first else { continue }
@@ -51,27 +68,80 @@ func pdfHeadingTiers(_ lines: [PdfTextLine], bodySize: Float) -> [Float] {
         sizes.append(first.fontSize)
     }
     sizes.sort(by: >)
-    // Cluster within half a point, keeping the first seen as the tier.
+    // Cluster within half a point, keeping the first seen as the tier. The
+    // reference compares against *any* existing tier; since the sizes descend
+    // and tiers only grow, the last one is always the closest, so comparing
+    // against it alone is equivalent.
     var tiers: [Float] = []
     for size in sizes {
         if let last = tiers.last, abs(last - size) < 0.5 { continue }
         tiers.append(size)
     }
+
+    // Books often set section headings barely above body size — 11pt bold
+    // over 10pt text — and nothing clears the 1.2 gate. Falling back to bold
+    // lines modestly larger than the body gives those documents an H1
+    // instead of every heading defaulting to H2.
+    if tiers.isEmpty {
+        var boldSizes: [Float] = []
+        for line in lines {
+            let text = pdfLineText(line).rustTrim()
+            if text.isEmpty { continue }
+            if !text.unicodeScalars.contains(where: { $0.properties.isAlphabetic }) { continue }
+            guard let first = line.items.first else { continue }
+            if first.isBold && first.fontSize / bodySize >= 1.05 { boldSizes.append(first.fontSize) }
+        }
+        boldSizes.sort(by: >)
+        for size in boldSizes where !tiers.contains(where: { abs($0 - size) < 0.5 }) {
+            tiers.append(size)
+        }
+    }
+
+    // Four tiers at most, which is also as deep as the levels below go.
+    if tiers.count > 4 { tiers.removeLast(tiers.count - 4) }
     return tiers
 }
 
 /// The heading level of a line's size, or `nil` for body text.
-func pdfHeadingLevel(fontSize: Float, bodySize: Float, tiers: [Float]) -> Int? {
-    guard bodySize > 0 else { return nil }
+///
+/// Three routes, and the order matters. A bold line between 1.05 and 1.2
+/// times the body size is checked against the tiers *first*: sub-gate tiers
+/// only exist because of the bold fallback above, and honouring them for
+/// non-bold text at the same size would promote every caption.
+func pdfHeadingLevel(
+    fontSize: Float, bodySize: Float, tiers: [Float], isBold: Bool = false
+) -> Int? {
+    // Again no zero guard. A zero body size makes the ratio infinite and
+    // every line a heading; a zero *font* size makes it NaN, and since every
+    // NaN comparison is false the ratio gate is passed and the fallback
+    // returns 4. Both are the reference's behaviour.
     let ratio = fontSize / bodySize
+
+    if ratio >= 1.05 && ratio < 1.2 && isBold && !tiers.isEmpty {
+        for (index, tier) in tiers.enumerated() where abs(fontSize - tier) < 0.5 {
+            return index + 1
+        }
+    }
+
     // Below a fifth larger than the body it is not a heading by size alone.
     if ratio < 1.2 { return nil }
-    for (index, tier) in tiers.enumerated() where abs(fontSize - tier) < 0.5 {
-        return index + 1
+
+    if !tiers.isEmpty {
+        for (index, tier) in tiers.enumerated() where abs(fontSize - tier) < 0.5 {
+            return index + 1
+        }
+        // Much larger but matching no tier: place it after the known tiers.
+        if ratio >= 1.5 { return min(tiers.count + 1, 4) }
+        return nil
     }
-    // Much larger but matching no tier: place it after the known tiers.
-    if ratio >= 1.5 { return min(tiers.count + 1, 4) }
-    return nil
+
+    // No tiers were discovered at all, so the ratio decides alone. Note this
+    // never returns `nil`: past the 1.2 gate with no tiers, everything is a
+    // heading of some level.
+    if ratio >= 2.0 { return 1 }
+    if ratio >= 1.5 { return 2 }
+    if ratio >= 1.25 { return 3 }
+    return 4
 }
 
 /// A block of the reconstructed document.
@@ -173,7 +243,9 @@ func pdfBuildBlocks(_ lines: [PdfTextLine], formatted: Bool = false) -> [PdfBloc
             || plain.rustSplitWhitespace().count > headingMaximumWords
             || pdfStartsWithBulletMarker(plain)
             ? nil
-            : pdfHeadingLevel(fontSize: size, bodySize: bodySize, tiers: tiers)
+            : pdfHeadingLevel(
+                fontSize: size, bodySize: bodySize, tiers: tiers,
+                isBold: pdfLineIsMostlyBold(line))
 
         if let level {
             closeParagraph()

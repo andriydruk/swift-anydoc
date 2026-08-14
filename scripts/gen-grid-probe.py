@@ -2606,6 +2606,111 @@ def difference_cases(random_count):
 
 
 
+def heading_cases(random_count):
+    """Cases for the heading-tier and heading-level pair."""
+    rng = random.Random(72_2026)
+    lines = []
+
+    def L(font, base, tiers, bold=0):
+        lines.append("L {} {} | {} | {}".format(
+            font, base, " ".join(str(t) for t in tiers), bold))
+
+    def T(base, entries):
+        lines.append("T {} ; {}".format(
+            base, " ".join("{},{},{}".format(size, bold, text)
+                           for size, bold, text in entries)))
+
+    def B(runs):
+        lines.append("B ; " + " ".join("{},{}".format(b, t) for b, t in runs))
+
+    # --- detect_header_level ---
+    tiers = [24.0, 16.0, 13.0]
+    # The 1.2 gate, and tier matching either side of it.
+    for font in (10, 11.9, 12, 12.1, 13, 13.4, 13.6, 16, 24, 30, 40):
+        for bold in (0, 1):
+            L(font, 10, tiers, bold)
+    # The bold sub-gate between 1.05 and 1.2, which only bold lines reach.
+    for font in (10.4, 10.5, 10.6, 11, 11.5, 11.9, 12.0):
+        for bold in (0, 1):
+            L(font, 10, [11.0, 10.6], bold)
+            L(font, 10, [], bold)
+    # Tier tolerance is half a point, exclusive.
+    for font in (15.4, 15.5, 15.6, 16.4, 16.5, 16.6):
+        L(font, 10, tiers)
+    # Large ratios with no matching tier: placed after the last tier, capped.
+    for count in (0, 1, 2, 3, 4, 5, 6):
+        L(40, 10, [100.0] * count)
+    # No tiers at all -- the ratio decides alone and never returns nothing.
+    for ratio in (1.2, 1.24, 1.25, 1.3, 1.49, 1.5, 1.9, 2.0, 2.5, 10.0):
+        L(round(10 * ratio, 3), 10, [])
+    # A zero or negative base size.
+    for base in (0, -1):
+        L(12, base, tiers)
+    # Random combinations.
+    for _ in range(random_count):
+        base = rng.choice([8.0, 10.0, 12.0])
+        font = round(base * rng.uniform(0.8, 3.0), 2)
+        count = rng.randrange(0, 5)
+        ts = sorted((round(base * rng.uniform(1.0, 3.0), 2) for _ in range(count)),
+                    reverse=True)
+        L(font, base, ts, rng.choice([0, 1]))
+
+    # --- compute_heading_tiers ---
+    # Ordinary documents: a few heading sizes over body text.
+    T(10, [(24, 0, "Title"), (16, 0, "Section"), (10, 0, "body~text~here")])
+    T(10, [(24, 0, "Title"), (24, 0, "Another"), (16, 0, "Section")])
+    # Sizes clustering within half a point.
+    T(10, [(16.0, 0, "A"), (16.4, 0, "B"), (16.6, 0, "C"), (17.2, 0, "D")])
+    # Digit-only lines must not define a tier.
+    T(10, [(24, 0, "7"), (16, 0, "Section~heading")])
+    T(10, [(24, 0, "7"), (24, 0, "8"), (16, 0, "Section~heading")])
+    T(10, [(24, 0, "Chapter~7"), (16, 0, "Section~heading")])
+    T(10, [(24, 0, "-~7~-"), (16, 0, "Section")])
+    # More than four tiers, which are capped.
+    T(10, [(40 - i * 3, 0, "H{}".format(i)) for i in range(8)])
+    # Nothing clears the 1.2 gate: the bold fallback supplies the tiers.
+    for size in (10.4, 10.5, 10.6, 11, 11.9):
+        T(10, [(size, 1, "Bold~section~heading"), (10, 0, "body~text")])
+        T(10, [(size, 0, "Plain~section~heading"), (10, 0, "body~text")])
+    # ... and the fallback's own digit-only exclusion.
+    T(10, [(11, 1, "7"), (10, 0, "body~text")])
+    T(10, [(11, 1, "7"), (11, 1, "Real~heading"), (10, 0, "body")])
+    # Several bold sizes in the fallback, clustered and capped.
+    T(10, [(11 + i * 0.3, 1, "H{}".format(i)) for i in range(10)])
+    # Empty input, and lines with no items' worth of text.
+    T(10, [])
+    T(0, [(24, 0, "Title")])
+    for _ in range(random_count // 2):
+        base = rng.choice([9.0, 10.0, 11.0])
+        entries = []
+        for _ in range(rng.randrange(0, 8)):
+            entries.append((round(base * rng.uniform(0.9, 3.0), 2),
+                            rng.choice([0, 1]),
+                            rng.choice(["heading", "7", "12.4", "a~heading~here", "-"])))
+        T(base, entries)
+
+    # --- line_is_mostly_bold ---
+    B([(1, "bold")])
+    B([(0, "plain")])
+    B([])
+    # Half the characters is the bar, and it is inclusive.
+    B([(1, "abcd"), (0, "efgh")])
+    B([(1, "abcd"), (0, "efghi")])
+    B([(1, "abcde"), (0, "efgh")])
+    # A section-number prefix that is not bold.
+    B([(0, "4.~"), (1, "A~bold~section~title")])
+    B([(0, "4.~a~rather~long~unbold~prefix"), (1, "bold")])
+    # Whitespace is trimmed per run before counting.
+    B([(1, "~~a~~"), (0, "bcd")])
+    B([(0, "~~~~~~"), (1, "ab")])
+    for _ in range(random_count // 2):
+        runs = [(rng.choice([0, 1]), rng.choice(["a", "abc", "abcdef", "~", "a~b"]))
+                for _ in range(rng.randrange(0, 5))]
+        B(runs)
+
+    return lines
+
+
 def reading_cases(random_count):
     """Cases for the leaves of image-anchored reading order."""
     rng = random.Random(67_2026)
@@ -4429,6 +4534,18 @@ def main():
         text=True, check=True
     )
     with open(os.path.join(arguments.directory, "singlebyte-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write(r.stdout)
+
+    hd_lines = heading_cases(max(arguments.cases // 5, 60))
+    with open(os.path.join(arguments.directory, "heading-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n".join(hd_lines))
+    r = subprocess.run(
+        [probe, "--heading"], input="\n".join(hd_lines) + "\n", capture_output=True,
+        text=True, check=True
+    )
+    with open(os.path.join(arguments.directory, "heading-rust.txt"), "w",
               encoding="utf-8") as f:
         f.write(r.stdout)
 

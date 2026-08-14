@@ -2937,3 +2937,38 @@ readings**.
   collision with a local in the generator — which was still valid input but
   exercised none of the prose-dependent branches. Both were caught by
   checking output *shape* rather than trusting a passing comparison.
+
+- **Wave 72 — completing heading detection.**
+  The first wave to *fix* an existing port rather than add new surface.
+  `pdfHeadingTiers` and `pdfHeadingLevel` were written in wave 5 as
+  simplifications of `compute_heading_tiers` and `detect_header_level`, and
+  the probe found three branches missing outright:
+  - **The bold sub-gate.** A bold line between 1.05 and 1.2 times body size
+    is checked against the tiers *before* the ratio gate. Tiers that low only
+    exist because of the bold fallback below, and honouring them for non-bold
+    text at the same size would promote every caption.
+  - **The bold tier fallback.** When nothing clears the 1.2 gate at all, bold
+    lines from 1.05 up supply the tiers. Books set section headings 11pt bold
+    over 10pt body, and without this every heading in such a document
+    defaults to H2.
+  - **The no-tiers ratio fallback.** With no tiers discovered, the ratio
+    decides alone — and never returns nothing. Past the gate, everything is a
+    heading of some level. The old port returned `nil` for a 1.3 ratio where
+    the reference gives H3.
+
+  Also added: the four-tier cap, and `pdfLineIsMostlyBold`, which measures
+  boldness by **character mass** so a heading with an unbold `4. ` prefix
+  still counts as bold. The caller in `PdfMarkdown.swift` now threads it.
+
+  **My own defensive guards were the divergence.** I added `bodySize > 0`
+  checks to both functions; the reference has neither and relies on float
+  division giving infinity — every line then clears the ratio gate rather
+  than the document producing no tiers. The probe caught both immediately.
+  A zero *font* size gives NaN, and since every NaN comparison is false the
+  gate is passed and the fallback returns 4.
+
+  268 probe cases agree once the guards came out. 17 unit tests; two
+  expectations were wrong in instructive ways — tiers closer than half a
+  point are indistinguishable, so a 10.6pt line matches an 11pt tier; and a
+  size exactly half a point outside every tier is placed *after* the tiers
+  rather than rejected, so a tenth of a point turns H2 into H4.
