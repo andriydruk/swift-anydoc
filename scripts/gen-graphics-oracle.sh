@@ -70,6 +70,12 @@ perl -pi -e "s/^pub\\(crate\\) mod fonts;/pub mod fonts;/; s/^mod fonts;/pub mod
 perl -pi -e "s/^pub\\(crate\\) fn parse_encoding_dictionary/pub fn parse_encoding_dictionary/; s/^pub\\(crate\\) struct EncodingResult/pub struct EncodingResult/; s/^struct EncodingResult/pub struct EncodingResult/" \
     "$crate/src/extractor/fonts.rs"
 
+# `markdown::heading` — the numbering parser.
+perl -pi -e "s/^pub\\(crate\\) mod heading;/pub mod heading;/; s/^mod heading;/pub mod heading;/" \
+    "$crate/src/markdown/mod.rs"
+perl -pi -e "s/^fn (roman_value|parse_numbering|has_additional_decimal_numbering|numbering_forms_hierarchy)/pub fn \$1/; s/^enum NumberingKind/pub enum NumberingKind/" \
+    "$crate/src/markdown/heading.rs"
+
 # `markdown::postprocess` — the cleanup helpers, audited in wave 75.
 perl -pi -e "s/^pub\\(crate\\) mod postprocess;/pub mod postprocess;/; s/^mod postprocess;/pub mod postprocess;/" \
     "$crate/src/markdown/mod.rs"
@@ -2160,6 +2166,62 @@ pub fn probe_postprocess(input: &str) -> String {
 }
 RUSTEOF
 
+cat >> "$crate/src/markdown/heading.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): the section-numbering parser.
+pub fn probe_numbering(input: &str) -> String {
+    let mut out = String::new();
+    for line in input.lines() {
+        let (tag, rest) = match line.split_once(' ') {
+            Some(pair) => pair,
+            None => (line, ""),
+        };
+        let text = rest.replace('~', " ");
+        match tag {
+            "R" => match roman_value(&text) {
+                None => out.push_str("r -\n"),
+                Some(value) => out.push_str(&format!("r {value}\n")),
+            },
+            "N" => match parse_numbering(&text) {
+                None => out.push_str("n -\n"),
+                Some((kind, depth, parts)) => {
+                    out.push_str(&format!(
+                        "n {} {}",
+                        match kind {
+                            NumberingKind::Decimal => "d",
+                            NumberingKind::Roman => "m",
+                        },
+                        depth
+                    ));
+                    for part in &parts {
+                        out.push_str(&format!(" {part}"));
+                    }
+                    out.push('\n');
+                }
+            },
+            "A" => out.push_str(&format!(
+                "a {}\n",
+                has_additional_decimal_numbering(&text) as u8
+            )),
+            "H" => {
+                let sides: Vec<&str> = text.split('|').collect();
+                let parse = |s: &str| -> Vec<u32> {
+                    s.split(',').filter_map(|p| p.trim().parse().ok()).collect()
+                };
+                let left = parse(sides.first().copied().unwrap_or(""));
+                let right = parse(sides.get(1).copied().unwrap_or(""));
+                out.push_str(&format!(
+                    "h {}\n",
+                    numbering_forms_hierarchy(&left, &right) as u8
+                ));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+RUSTEOF
+
 cat >> "$crate/src/glyph_names.rs" <<'RUSTEOF'
 
 /// Probe (added for swift-anydoc): glyph-name resolution. One name per line.
@@ -3447,6 +3509,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::markdown::postprocess::probe_postprocess(&input));
+        return;
+    }
+    if path == "--numbering" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::markdown::heading::probe_numbering(&input));
         return;
     }
     if path == "--cffname" {

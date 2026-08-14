@@ -2606,6 +2606,60 @@ def difference_cases(random_count):
 
 
 
+def numbering_cases(random_count):
+    """Cases for the section-numbering parser."""
+    rng = random.Random(76_2026)
+    lines = []
+
+    def emit(tag, text):
+        lines.append("{} {}".format(tag, text.replace(" ", "~")))
+
+    # --- roman_value ---
+    for token in ("I", "II", "III", "IV", "V", "VI", "IX", "X", "XI", "XIV",
+                  "XL", "L", "XC", "C", "CC", "CXLV", "MMXX", "D", "M", "DIX",
+                  "", "IIII", "IIIIIIII", "IIIIIIIII", "IIX", "VX", "IC",
+                  "i", "iv", "x", "A", "IA", "1", "I1", "IVX", "XXXXXXXX",
+                  "XXXXXXXXX", "CCCCCCCC"):
+        emit("R", token)
+
+    # --- parse_numbering ---
+    for text in ("1. Introduction", "2.1 Method", "2.1. Method", "1) First",
+                 "1: First", "1 Introduction", "Introduction", "",
+                 "1.. Weird", "1... Weird", "1.2.3. Deep", "1.2.3.4. Deeper",
+                 "999. Big", "1000. Too big", "0. Zero", "01. Padded",
+                 "I. Roman", "IV. Roman", "iv. lower", "X) Roman",
+                 "IX: Roman", "M. Roman", "1.a. Mixed", "a.1. Mixed",
+                 ".", "..", ".1.", "1.", ")", ":", "1.2", "  3.  spaced",
+                 "12.34.56. deep", "1.2.  gap", "\t4. tabbed"):
+        emit("N", text)
+
+    # --- has_additional_decimal_numbering ---
+    for text in ("1. Introduction", "1. See section 2.3 for details",
+                 "1. Version 1.2.3 released", "2.1 Method", "1. In 2024 we",
+                 "1. Figure 2 shows", "1. (2.3)", "1. 2.3,", "1. a.b",
+                 "1. 2.", "1. .2", "1. 2..3", "single", "", "1. x2.3y",
+                 "1. 2.3.4.5", "1. price 1.50 each"):
+        emit("A", text)
+
+    # --- numbering_forms_hierarchy ---
+    for pair in ("1|1,1", "1,1|1", "1|2", "1|1", "1,1|1,2", "1,1|1,1,1",
+                 "|1", "1|", "|", "1,2,3|1,2", "1,2|1,3", "2|1,1"):
+        emit("H", pair)
+
+    # Random tokens and lines.
+    letters = "IVXLCDM"
+    for _ in range(random_count // 2):
+        token = "".join(rng.choice(letters) for _ in range(rng.randrange(0, 10)))
+        emit("R", token)
+    parts = ["1", "2", "12", "999", "1000", "I", "IV", "x", "a", ".", ")", ":", ""]
+    for _ in range(random_count):
+        token = "".join(rng.choice(parts) for _ in range(rng.randrange(1, 5)))
+        emit("N", token + " " + rng.choice(["Heading", "text here", "2.3", ""]))
+        emit("A", token + " " + rng.choice(["Heading", "see 2.3", "1.2.3", "x"]))
+
+    return lines
+
+
 def postprocess_cases(random_count):
     """Cases auditing the markdown cleanup helpers."""
     rng = random.Random(75_2026)
@@ -4740,6 +4794,18 @@ def main():
         text=True, check=True
     )
     with open(os.path.join(arguments.directory, "singlebyte-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write(r.stdout)
+
+    nb_lines = numbering_cases(max(arguments.cases // 4, 100))
+    with open(os.path.join(arguments.directory, "numbering-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n".join(nb_lines))
+    r = subprocess.run(
+        [probe, "--numbering"], input="\n".join(nb_lines) + "\n", capture_output=True,
+        text=True, check=True
+    )
+    with open(os.path.join(arguments.directory, "numbering-rust.txt"), "w",
               encoding="utf-8") as f:
         f.write(r.stdout)
 

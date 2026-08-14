@@ -3065,3 +3065,33 @@ readings**.
   a second one cost some duplicated effort. Both are kept: the corpora differ
   and the overlap is cheap, but `PLAN.md` should be checked for existing
   probe coverage before a new audit is designed.
+
+- **Wave 76 — section numbering.**
+  `PdfNumbering.swift` ports `roman_value`, `parse_numbering`,
+  `has_additional_decimal_numbering` and `numbering_forms_hierarchy` from
+  `markdown/heading.rs` — the first of the three signals `PdfMarkdown.swift`
+  records as missing. The sequence logic that consumes them is still not
+  ported.
+
+  A numbered line is evidence of a heading independent of its typography:
+  `2.1 Method` is a heading whatever size it is set at.
+  - Roman numerals use **only `I V X L C`** — not `D` or `M`. Section
+    numbering does not reach five hundred, and admitting those letters would
+    read `DOC` and `MIX` as numbers. Eight characters is the ceiling for the
+    same reason.
+  - The subtraction rule is loose: a character is subtracted whenever the
+    *next* is larger, so `IIX` yields 1 − 1 + 10 = **10** rather than being
+    rejected. Reproduced and pinned.
+  - A number must carry a `.`, `)` or `:` — a bare `2` is a page number or a
+    quantity far more often than a section — and every trailing delimiter is
+    stripped, so `1...` and `1.` parse alike.
+  - Each decimal part is at most **three** digits, and a longer one fails the
+    whole token rather than truncating it, which keeps a year out of the
+    numbering.
+  - Decimal is tried before roman, so `1.1` is decimal and `I.` is roman.
+  - `has_additional_decimal_numbering` skips the first word, so a heading's
+    own number never counts as a reference to another section.
+
+  352 probe cases agree on the first run. 18 unit tests; one expectation was
+  wrong — I worked `IIX` out as 8 by hand where the rule gives 10, which the
+  probe had already covered.
