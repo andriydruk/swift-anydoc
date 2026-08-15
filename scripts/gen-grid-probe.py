@@ -2682,6 +2682,151 @@ def wrapped_cases(random_count):
     return lines
 
 
+def isolated_cases(random_count):
+    """Cases for the isolation cluster: struct roles and isolated lines."""
+    rng = random.Random(85_2026)
+    lines = []
+
+    def spec(page, y, x, size, mcid, text, append=False):
+        return "{}{},{},{},{},{},{}".format(
+            "+" if append else "", page, y, x, size, mcid,
+            text.replace(" ", "~") or "x")
+
+    # --- resolve_line_struct_role ---
+    containers = ("Document", "Part", "Art", "Sect", "Div", "NonStruct", "Span",
+                  "Private")
+    for name in containers + ("P", "H1", "H", "TD", "Figure", "Unknown"):
+        lines.append("S 1:5:{} ; ".format(name) + spec(1, 700, 20, 10, 5, "text"))
+    # A container on the first item does not stop the search.
+    lines.append("S 1:5:Div,1:6:H2 ; " + spec(1, 700, 20, 10, 5, "one") + " "
+                 + spec(1, 700, 60, 10, 6, "two", append=True))
+    # ...and an untagged item is skipped without ending it either.
+    lines.append("S 1:6:H3 ; " + spec(1, 700, 20, 10, "-", "one") + " "
+                 + spec(1, 700, 60, 10, 6, "two", append=True))
+    # Every item a container.
+    lines.append("S 1:5:Div,1:6:Span ; " + spec(1, 700, 20, 10, 5, "one") + " "
+                 + spec(1, 700, 60, 10, 6, "two", append=True))
+    # The page has no entry at all; the mcid is not on the page it is on.
+    lines.append("S 2:5:H1 ; " + spec(1, 700, 20, 10, 5, "text"))
+    lines.append("S 1:9:H1 ; " + spec(1, 700, 20, 10, 5, "text"))
+    lines.append("S . ; " + spec(1, 700, 20, 10, 5, "text"))
+    # Order is item order, not mcid order.
+    lines.append("S 1:5:H1,1:6:H2 ; " + spec(1, 700, 60, 10, 6, "two") + " "
+                 + spec(1, 700, 20, 10, 5, "one", append=True))
+
+    # --- detect_overused_struct_heading_levels ---
+    def tagged(count, role, start=0, page=1):
+        return " ".join(spec(page, 700 - index * 30, 20, 10, start + index, "word")
+                        for index in range(count))
+
+    def role_map(count, role, start=0, page=1):
+        return ",".join("{}:{}:{}".format(page, start + index, role)
+                        for index in range(count))
+
+    # No map at all is not the same as an empty one.
+    lines.append("O ! ; " + tagged(30, "H2"))
+    lines.append("O . ; " + tagged(30, "H2"))
+    # The twenty-line floor.
+    for count in (5, 19, 20, 21):
+        lines.append("O " + role_map(count, "H2") + " ; " + tagged(count, "H2"))
+    # Ratio either side of 0.15, with the remainder tagged P so they count
+    # toward the total but not toward any level.
+    for headings in (2, 3, 4, 5, 6, 7):
+        total = 40
+        spec_roles = (role_map(headings, "H2")
+                      + "," + role_map(total - headings, "P", start=headings))
+        lines.append("O " + spec_roles + " ; " + tagged(total, "x"))
+    # Two levels, both over.
+    lines.append("O " + role_map(10, "H1") + "," + role_map(10, "H2", start=10)
+                 + "," + role_map(20, "P", start=20) + " ; " + tagged(40, "x"))
+    # Untagged lines do not count toward the total.
+    lines.append("O " + role_map(19, "H2") + " ; " + tagged(19, "x") + " "
+                 + " ".join(spec(1, 100 - i * 10, 20, 10, "-", "word") for i in range(30)))
+    # A generic H folds into level 1 alongside H1.
+    lines.append("O " + role_map(4, "H") + "," + role_map(4, "H1", start=4)
+                 + "," + role_map(32, "P", start=8) + " ; " + tagged(40, "x"))
+
+    # --- find_isolated_lines ---
+    def page_of(specs):
+        return "I 10 20 ; " + " ".join(specs)
+
+    def line(y, text, size=10, page=1, x=20):
+        return spec(page, y, x, size, "-", text)
+
+    # Word count and byte length at their boundaries. A lone line is isolated
+    # on both sides, so only the content gates can reject it.
+    for text in ("one", "one two", "one two three four five six",
+                 "one two three four five six seven", "abc", "abcd", "ab c",
+                 "ééé", "éé", "a b"):
+        lines.append(page_of([line(700, text)]))
+    # Font size against 95% of the base.
+    for size in (9, 9.4, 9.5, 9.6, 10, 20):
+        lines.append(page_of([line(700, "Acknowledgements", size=size)]))
+    # List items and captions are never isolated headings.
+    for text in ("Acknowledgements", "1. Introduction", "- bullet point",
+                 "Figure 1: A caption", "Table 2. Results", "B.3 Prompt Engineering"):
+        lines.append(page_of([line(700, text)]))
+    # Trailing characters that mark wrapped prose.
+    for tail in ("-", ",", ";", ".", ":", "?", ")", ""):
+        lines.append(page_of([line(700, "Some heading" + tail)]))
+    # Continuation words, and the case-folding of them.
+    for last in ("the", "The", "THE", "not", "Not", "and", "heading", "thes",
+                 "is", "their"):
+        lines.append(page_of([line(700, "A short " + last)]))
+
+    # Paragraph breaks either side, at the threshold.
+    for gap in (10, 19, 20, 21, 40):
+        lines.append(page_of([line(700, "First line here"),
+                              line(700 - gap, "Middle Heading"),
+                              line(700 - gap * 2, "Third line here")]))
+    # A page change stands in for a gap in both directions.
+    lines.append(page_of([line(700, "First line here"),
+                          line(695, "Middle Heading", page=2),
+                          line(690, "Third line here", page=3)]))
+    # Upward gaps are absolute, so a line above its predecessor still breaks.
+    lines.append(page_of([line(700, "First line here"),
+                          line(760, "Middle Heading"),
+                          line(600, "Third line here")]))
+
+    # The density guard. Nine isolated lines survive; ten do not.
+    def scattered(count, page=1, start=1000):
+        return [line(start - index * 100, "Heading Number %s" % index, page=page)
+                for index in range(count)]
+
+    def block(count, page=1, start=200):
+        return [line(start - index * 5, "block line %s of prose" % index, page=page)
+                for index in range(count)]
+
+    for count in (9, 10, 11):
+        lines.append(page_of(scattered(count)))
+    # Exactly a quarter of the page, and just over.
+    lines.append(page_of(scattered(3) + block(9)))
+    lines.append(page_of(scattered(4) + block(8)))
+    lines.append(page_of(scattered(5) + block(15)))
+    # The guard is per page: a dense page loses its isolated lines while a
+    # sparse one beside it keeps them.
+    lines.append(page_of(scattered(11, page=1)
+                         + scattered(2, page=2, start=900)
+                         + block(9, page=2, start=300)))
+    lines.append(page_of([]))
+
+    # Random pages, to shake the combinations the hand cases fix.
+    words = ["Acknowledgements", "Results", "one two three", "B.3 Prompt Engineering",
+             "a line of ordinary prose that runs on", "Figure 1: caption",
+             "1. list item", "short and", "Method-", "Discussion"]
+    for _ in range(random_count):
+        count = rng.randint(1, 14)
+        specs = []
+        y = 800
+        for _ in range(count):
+            y -= rng.choice([4, 12, 19, 20, 21, 60])
+            specs.append(line(y, rng.choice(words), size=rng.choice([9, 9.5, 10, 14]),
+                              page=rng.choice([1, 1, 1, 2])))
+        lines.append(page_of(specs))
+
+    return lines
+
+
 def chart_text_cases(random_count):
     """Cases for the small chart-prose predicates."""
     rng = random.Random(82_2026)
@@ -5353,6 +5498,18 @@ def main():
         text=True, check=True
     )
     with open(os.path.join(arguments.directory, "wrapped-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write(r.stdout)
+
+    is_lines = isolated_cases(max(arguments.cases // 4, 100))
+    with open(os.path.join(arguments.directory, "isolated-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n".join(is_lines))
+    r = subprocess.run(
+        [probe, "--isolated"], input="\n".join(is_lines) + "\n", capture_output=True,
+        text=True, check=True
+    )
+    with open(os.path.join(arguments.directory, "isolated-rust.txt"), "w",
               encoding="utf-8") as f:
         f.write(r.stdout)
 

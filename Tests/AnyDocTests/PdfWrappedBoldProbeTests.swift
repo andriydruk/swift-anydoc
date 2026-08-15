@@ -47,7 +47,9 @@ import Testing
                 let x = Float(f[2]), let size = Float(f[3])
             else { continue }
             var item = PdfLayoutItem(
-                text: f[5].replacingOccurrences(of: "~", with: " "), x: x, y: y, width: 40,
+                // Rejoined so a comma in the text survives this split.
+                text: f[5...].joined(separator: ",").replacingOccurrences(of: "~", with: " "),
+                x: x, y: y, width: 40,
                 fontSize: size, fontName: "F1")
             item.isBold = f[4] == "1"
             if append, !out.isEmpty {

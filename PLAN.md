@@ -3322,3 +3322,45 @@ readings**.
 
   78 probe cases agree on the first run. 16 unit tests, all passing first
   try — third wave running.
+
+- **Wave 85 — what the tags claim, and what the white space says.**
+  `PdfIsolatedLines.swift` ports `resolve_line_struct_role`,
+  `detect_overused_struct_heading_levels` and `find_isolated_lines`.
+
+  Two pre-scans that answer the same question from opposite ends. A tagged
+  PDF declares its headings, and where the tags are honest they beat every
+  geometric guess — but a tagger that marks every numbered paragraph as H2
+  is worse than no tags at all, so any level above **15%** of the document's
+  tagged lines is suppressed wholesale. An untagged PDF declares nothing, and
+  a section title set at body size is invisible to the size heuristics; what
+  gives it away is the white space around it — one to six words, a paragraph
+  break above and below.
+
+  Boundaries pinned: the twenty-line floor under the overuse ratio (below it
+  a single heading is already a large share); the ratio itself, exclusive, so
+  6 of 40 survives and 7 does not; the 95%-of-body size floor; the strictly-
+  greater paragraph gap; and the density guard, which drops a page's isolated
+  lines when more than a quarter of a **ten-line-or-longer** page qualifies —
+  the signature of a two-column page read as one. The guard is per page, so a
+  dense page loses its lines while a sparse one beside it keeps them.
+
+  Three findings. The reference's doc comment says the overuse bar is 25%
+  while its code says 15%. Its `len() <= 3` floor is **bytes**, so `éé`
+  clears a bar that `a b` does not — a port measuring `String.count` would
+  disagree. And `B.3 Prompt Engineering`, named in the reference's own doc
+  comment as an example of what isolation exists to find, is rejected by its
+  `is_list_item` gate, which reads any letter followed by a dot as a lettered
+  list marker; every appendix heading goes the same way. All three
+  reproduced, the last with a test asserting it.
+
+  **A harness bug that the probe could not have caught.** The case format
+  spells a line as `page,y,x,size,mcid,text` and split on every comma, so a
+  case ending its text on one silently tested a line ending on `g` instead.
+  Both sides parsed identically, so the comparison agreed — and agreed about
+  the wrong input. Found by reading the answer *shape*: `-` and `;` were
+  rejected while `,` between them was not. Fixed by rejoining the tail, in
+  wave 84's probe as well, which had the same latent split and no comma in
+  its cases to trip it.
+
+  191 probe cases agree on the first run once the harness was fixed. 22 unit
+  tests, all passing first try — fourth wave running.

@@ -77,6 +77,9 @@ perl -pi -e "s/^pub\\(crate\\) mod convert;/pub mod convert;/; s/^mod convert;/p
     "$crate/src/markdown/mod.rs"
 perl -pi -e "s/^fn (starts_with_section_number|is_body_size_all_bold_line|is_wrapped_same_style_line|find_wrapped_bold_paragraph_lines|struct_role_heading_level)/pub fn \$1/" \
     "$crate/src/markdown/convert.rs"
+# `markdown::convert` — the isolation cluster (wave 85).
+perl -pi -e "s/^fn (resolve_line_struct_role|detect_overused_struct_heading_levels|find_isolated_lines)/pub fn \$1/" \
+    "$crate/src/markdown/convert.rs"
 
 # `markdown` mod itself — the chart-region trio.
 perl -pi -e "s/^fn (is_chart_adjacent_label|item_is_in_chart_region|items_outside_chart_regions|chart_page_prose_column_split|chart_spans_prose_split|is_cross_row_prose_continuation|looks_like_numbered_section_heading|merged_retry_skips_body_font)/pub fn \$1/; s/^pub\\(crate\\) fn split_side_by_side/pub fn split_side_by_side/" \
@@ -2669,8 +2672,9 @@ pub fn probe_wrapped(input: &str) -> String {
             if f.len() < 6 {
                 continue;
             }
+            // Rejoined so a comma in the text is not eaten by this split.
             let item = TextItem {
-                text: f[5].replace('~', " "),
+                text: f[5..].join(",").replace('~', " "),
                 x: f[2].parse().unwrap_or(0.0),
                 y: f[1].parse().unwrap_or(0.0),
                 width: 40.0,
@@ -2773,6 +2777,144 @@ pub fn probe_wrapped(input: &str) -> String {
                         .map(|l| l.to_string())
                         .unwrap_or_else(|| "-".to_string())
                 ));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Probe (added for swift-anydoc): the isolation cluster.
+pub fn probe_isolated(input: &str) -> String {
+    use crate::structure_tree::StructRole;
+    use crate::types::{ItemType, TextItem, TextLine};
+    use std::collections::HashMap;
+
+    // `page,y,x,size,mcid,text` — `+` prefixes an item appended to the
+    // previous line rather than starting a new one, and `-` is a missing
+    // mcid.
+    fn parse_lines(fields: &[&str]) -> Vec<TextLine> {
+        let mut out: Vec<TextLine> = Vec::new();
+        for spec in fields {
+            let append = spec.starts_with('+');
+            let body = spec.trim_start_matches('+');
+            let f: Vec<&str> = body.split(',').collect();
+            if f.len() < 6 {
+                continue;
+            }
+            // The text is the *rest* of the spec, rejoined: a comma inside it
+            // would otherwise be eaten by this split, and a case that means to
+            // end a line on one would silently test something else.
+            let item = TextItem {
+                text: f[5..].join(",").replace('~', " "),
+                x: f[2].parse().unwrap_or(0.0),
+                y: f[1].parse().unwrap_or(0.0),
+                width: 40.0,
+                height: 12.0,
+                font: "F1".to_string(),
+                font_size: f[3].parse().unwrap_or(12.0),
+                page: f[0].parse().unwrap_or(1),
+                is_bold: false,
+                is_italic: false,
+                is_underline: false,
+                is_strikeout: false,
+                item_type: ItemType::Text,
+                mcid: if f[4] == "-" { None } else { f[4].parse().ok() },
+            };
+            if append && !out.is_empty() {
+                let last = out.len() - 1;
+                out[last].items.push(item);
+            } else {
+                out.push(TextLine {
+                    y: item.y,
+                    page: item.page,
+                    adaptive_threshold: 0.10,
+                    items: vec![item],
+                });
+            }
+        }
+        out
+    }
+
+    // `page:mcid:Name` triples, comma-separated; the literal `!` is a `None`
+    // map rather than an empty one, which the overuse scan distinguishes.
+    fn parse_roles(spec: &str) -> Option<HashMap<u32, HashMap<i64, StructRole>>> {
+        if spec == "!" {
+            return None;
+        }
+        let mut map: HashMap<u32, HashMap<i64, StructRole>> = HashMap::new();
+        if spec == "." {
+            return Some(map);
+        }
+        for triple in spec.split(',') {
+            let f: Vec<&str> = triple.split(':').collect();
+            if f.len() < 3 {
+                continue;
+            }
+            let page: u32 = f[0].parse().unwrap_or(1);
+            let mcid: i64 = f[1].parse().unwrap_or(0);
+            map.entry(page)
+                .or_default()
+                .insert(mcid, StructRole::from_name(f[2]));
+        }
+        Some(map)
+    }
+
+    let mut out = String::new();
+    for line in input.lines() {
+        let (tag, rest) = match line.split_once(' ') {
+            Some(pair) => pair,
+            None => (line, ""),
+        };
+        let fields: Vec<&str> = rest.split(' ').filter(|p| !p.is_empty()).collect();
+        let semi = fields.iter().position(|p| *p == ";");
+        match tag {
+            // I base threshold ; lines...
+            "I" => {
+                let Some(semi) = semi else { continue };
+                let base: f32 = fields[0].parse().unwrap_or(10.0);
+                let threshold: f32 = fields[1].parse().unwrap_or(20.0);
+                let lines_in = parse_lines(&fields[semi + 1..]);
+                let found = find_isolated_lines(&lines_in, base, threshold);
+                let mut keys: Vec<usize> = found.into_iter().collect();
+                keys.sort();
+                out.push_str(&format!("il {}", keys.len()));
+                for key in keys {
+                    out.push_str(&format!(" {key}"));
+                }
+                out.push('\n');
+            }
+            // S roles ; lines...  — one resolved role per line
+            "S" => {
+                let Some(semi) = semi else { continue };
+                let roles = parse_roles(fields[0]);
+                let lines_in = parse_lines(&fields[semi + 1..]);
+                out.push_str("sr");
+                for line in &lines_in {
+                    let resolved = roles
+                        .as_ref()
+                        .and_then(|r| resolve_line_struct_role(line, r));
+                    out.push_str(&match resolved {
+                        Some(role) => format!(" {role:?}"),
+                        None => " -".to_string(),
+                    });
+                }
+                out.push('\n');
+            }
+            // O roles ; lines...
+            "O" => {
+                let Some(semi) = semi else { continue };
+                let roles = parse_roles(fields[0]);
+                let lines_in = parse_lines(&fields[semi + 1..]);
+                let found =
+                    detect_overused_struct_heading_levels(&lines_in, roles.as_ref());
+                let mut keys: Vec<usize> = found.into_iter().collect();
+                keys.sort();
+                out.push_str(&format!("ov {}", keys.len()));
+                for key in keys {
+                    out.push_str(&format!(" {key}"));
+                }
+                out.push('\n');
             }
             _ => {}
         }
@@ -4089,6 +4231,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::markdown::convert::probe_wrapped(&input));
+        return;
+    }
+    if path == "--isolated" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::markdown::convert::probe_isolated(&input));
         return;
     }
     if path == "--chart" {
