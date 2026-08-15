@@ -70,6 +70,10 @@ perl -pi -e "s/^pub\\(crate\\) mod fonts;/pub mod fonts;/; s/^mod fonts;/pub mod
 perl -pi -e "s/^pub\\(crate\\) fn parse_encoding_dictionary/pub fn parse_encoding_dictionary/; s/^pub\\(crate\\) struct EncodingResult/pub struct EncodingResult/; s/^struct EncodingResult/pub struct EncodingResult/" \
     "$crate/src/extractor/fonts.rs"
 
+# `markdown` mod itself — the chart-region trio.
+perl -pi -e "s/^fn (is_chart_adjacent_label|item_is_in_chart_region|items_outside_chart_regions)/pub fn \$1/" \
+    "$crate/src/markdown/mod.rs"
+
 # `markdown::heading` — the numbering parser.
 perl -pi -e "s/^pub\\(crate\\) mod heading;/pub mod heading;/; s/^mod heading;/pub mod heading;/" \
     "$crate/src/markdown/mod.rs"
@@ -2482,6 +2486,92 @@ pub fn probe_numbering(input: &str) -> String {
 }
 RUSTEOF
 
+cat >> "$crate/src/markdown/mod.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): the chart-region trio.
+pub fn probe_chart(input: &str) -> String {
+    use crate::types::{ItemType, TextItem};
+    let mut out = String::new();
+    for line in input.lines() {
+        let (tag, rest) = match line.split_once(' ') {
+            Some(pair) => pair,
+            None => (line, ""),
+        };
+        let fields: Vec<&str> = rest.split(' ').filter(|p| !p.is_empty()).collect();
+        let semi = match fields.iter().position(|p| *p == ";") {
+            Some(index) => index,
+            None => continue,
+        };
+        let regions: Vec<(f32, f32, f32, f32)> = fields[..semi]
+            .iter()
+            .filter_map(|p| {
+                let f: Vec<&str> = p.split(',').collect();
+                if f.len() < 4 {
+                    return None;
+                }
+                Some((
+                    f[0].parse().ok()?,
+                    f[1].parse().ok()?,
+                    f[2].parse().ok()?,
+                    f[3].parse().ok()?,
+                ))
+            })
+            .collect();
+        let items: Vec<TextItem> = fields[semi + 1..]
+            .iter()
+            .filter_map(|p| {
+                let f: Vec<&str> = p.split(',').collect();
+                if f.len() < 6 {
+                    return None;
+                }
+                Some(TextItem {
+                    text: f[5].replace('~', " "),
+                    x: f[0].parse().ok()?,
+                    y: f[1].parse().ok()?,
+                    width: f[2].parse().ok()?,
+                    height: f[3].parse().ok()?,
+                    font: "F1".to_string(),
+                    font_size: f[4].parse().ok()?,
+                    page: 1,
+                    is_bold: false,
+                    is_italic: false,
+                    is_underline: false,
+                    is_strikeout: false,
+                    item_type: ItemType::Text,
+                    mcid: None,
+                })
+            })
+            .collect();
+        match tag {
+            // L: the label test against the first region, per item.
+            "L" => {
+                let region = regions.first().copied().unwrap_or((0.0, 0.0, 0.0, 0.0));
+                out.push_str("cl ");
+                for item in &items {
+                    out.push(if is_chart_adjacent_label(item, region) { '1' } else { '0' });
+                }
+                out.push('\n');
+            }
+            // I: membership across every region, per item.
+            "I" => {
+                out.push_str("ci ");
+                for item in &items {
+                    out.push(if item_is_in_chart_region(item, &regions) { '1' } else { '0' });
+                }
+                out.push('\n');
+            }
+            // O: how many survive the filter.
+            "O" => {
+                let kept = items_outside_chart_regions(&items, &regions);
+                out.push_str(&format!("co {}\n", kept.len()));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+RUSTEOF
+
 cat >> "$crate/src/glyph_names.rs" <<'RUSTEOF'
 
 /// Probe (added for swift-anydoc): glyph-name resolution. One name per line.
@@ -3776,6 +3866,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::markdown::heading::probe_numbering(&input));
+        return;
+    }
+    if path == "--chart" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::markdown::probe_chart(&input));
         return;
     }
     if path == "--cffname" {

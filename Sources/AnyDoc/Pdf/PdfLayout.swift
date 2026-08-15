@@ -30,6 +30,11 @@ struct PdfLayoutItem {
     var isUnderline = false
     /// Detected the same way, and — as in the reference — never rendered.
     var isStrikeout = false
+    /// The run's rendered height. The extractor does not record it yet, so
+    /// it stands at zero and every reader takes the font size instead —
+    /// which is what the reference's own `max(height, font_size)` does
+    /// whenever the height is the smaller of the two.
+    var height: Float = 0
     /// An image placeholder rather than text. Column detection excludes
     /// these, since an image's left edge would otherwise count toward the
     /// projection profile. Nothing sets this yet — image placeholders are

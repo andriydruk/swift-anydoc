@@ -3217,3 +3217,29 @@ readings**.
 
   **`markdown/heading.rs` is now ported** apart from the wiring that calls
   `classify_heading_sequences` from `markdown/mod.rs`.
+
+- **Wave 81 — which text belongs to a chart.**
+  `PdfChartRegions.swift` ports `is_chart_adjacent_label`,
+  `item_is_in_chart_region` and `items_outside_chart_regions` from
+  `markdown/mod.rs`. A chart's axis labels and caption are text like any
+  other, and left in the flow they read as fragments scattered through the
+  prose.
+  - A run qualifies as a label **three ways, any one sufficing**: it is
+    compact in its own right (18.5 ems wide), it is a caption, or it sits
+    mostly within the chart's width, close to its edge, and is narrow
+    relative to the chart. Bare bullets and list items never qualify however
+    close they fall.
+  - Membership is decided by the run's **centre** horizontally, and
+    vertically has two routes: inside the box outright, which needs no
+    further argument, or within the 20pt pad *and* passing the label test.
+  - `PdfLayoutItem` gained a `height`, which nothing sets yet — the readers
+    take `max(height, fontSize)`, which is the font size until the extractor
+    records one.
+
+  160 probe cases agree on the first run. 13 unit tests, and **five
+  expectations were wrong for one reason**: the three qualifying routes are
+  alternatives, so a test aiming at one was carried by another. Isolating the
+  compact bar needs a gap outside the category band; isolating the overlap
+  needs a run too wide to be compact. This is the fourth wave running where
+  testing one condition required defeating its siblings — it is now the
+  default assumption when writing these.

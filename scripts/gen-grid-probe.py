@@ -2606,6 +2606,81 @@ def difference_cases(random_count):
 
 
 
+def chart_cases(random_count):
+    """Cases for the chart-region trio."""
+    rng = random.Random(81_2026)
+    lines = []
+
+    def emit(tag, regions, items):
+        lines.append("{} {} ; {}".format(
+            tag,
+            " ".join("{},{},{},{}".format(*r) for r in regions) or "-",
+            " ".join("{},{},{},{},{},{}".format(x, y, w, h, sz, t.replace(" ", "~"))
+                     for x, y, w, h, sz, t in items)))
+
+    chart = (100.0, 400.0, 400.0, 600.0)
+
+    # A spread of runs around one chart: inside, just outside, far outside.
+    around = []
+    for y in (620, 610, 601, 600, 500, 400, 399, 390, 380, 379):
+        around.append((150, y, 60, 10, 10, "Label"))
+    for tag in ("L", "I", "O"):
+        emit(tag, [chart], around)
+
+    # The three ways to qualify, isolated.
+    #   compact: narrow run, far from the edge but inside the 20pt pad
+    for width in (100, 185, 186, 190, 250):
+        emit("L", [chart], [(150, 615, width, 10, 10, "A~label~here")])
+    #   caption: recognised however wide
+    for text in ("Figure~1:~A~caption", "Table~2.~Results", "Plain~words"):
+        emit("L", [chart], [(150, 615, 400, 10, 10, text)])
+    #   category: mostly inside the width, close to the edge, narrow
+    for gap in (0, 5, 18, 19, 20, 21, 30):
+        emit("L", [chart], [(150, 600 + gap, 250, 10, 10, "a~much~longer~run~of~label~text")])
+    # Overlap fraction, walked across the chart's left edge.
+    for x in (0, 40, 60, 80, 100, 150):
+        emit("L", [chart], [(x, 605, 100, 10, 10, "a~much~longer~run~of~label~text")])
+    # Bullets and list items never qualify.
+    for text in ("\u2022", "\u25cf", "-", "*", "1.~item", "\u2022~item", "text"):
+        emit("L", [chart], [(150, 605, 60, 10, 10, text)])
+    # Type size drives both the compact bar and the category band.
+    for size in (4, 6, 8, 10, 14, 20, 40):
+        emit("L", [chart], [(150, 608, 120, 0, size, "a~label")])
+    # An explicit height above the font size wins.
+    for height in (0, 5, 10, 20, 40):
+        emit("L", [chart], [(150, 608, 120, height, 10, "a~label")])
+    # Negative widths and reversed regions.
+    emit("L", [chart], [(300, 605, -100, 10, 10, "backwards")])
+    emit("L", [(400.0, 600.0, 100.0, 400.0)], [(150, 605, 60, 10, 10, "reversed~region")])
+    emit("I", [(400.0, 600.0, 100.0, 400.0)], [(150, 500, 60, 10, 10, "reversed~region")])
+
+    # Membership: the centre decides horizontally.
+    for x in (60, 79, 80, 100, 390, 400, 419, 420, 440):
+        emit("I", [chart], [(x, 500, 20, 10, 10, "mid")])
+    # Several regions, and none.
+    two = [chart, (450.0, 100.0, 700.0, 300.0)]
+    spread = [(150, 500, 40, 10, 10, "a"), (500, 200, 40, 10, 10, "b"),
+              (800, 700, 40, 10, 10, "c")]
+    for tag in ("I", "O"):
+        emit(tag, two, spread)
+        emit(tag, [], spread)
+    emit("O", [chart], [])
+
+    for _ in range(random_count):
+        regions = [(rng.randrange(0, 400) * 1.0, rng.randrange(0, 400) * 1.0,
+                    rng.randrange(0, 700) * 1.0, rng.randrange(0, 700) * 1.0)
+                   for _ in range(rng.randrange(0, 3))]
+        items = [(rng.randrange(0, 700) * 1.0, rng.randrange(0, 700) * 1.0,
+                  rng.choice([-50, 0, 20, 60, 200, 400]) * 1.0,
+                  rng.choice([0, 10, 20]) * 1.0, rng.choice([6, 10, 14]) * 1.0,
+                  rng.choice(["label", "Figure~1:~x", "\u2022", "a~much~longer~run~here",
+                              "1.~item", ""]))
+                 for _ in range(rng.randrange(0, 5))]
+        emit(rng.choice(["L", "I", "O"]), regions, items)
+
+    return lines
+
+
 def numbering_cases(random_count):
     """Cases for the section-numbering parser."""
     rng = random.Random(76_2026)
@@ -5038,6 +5113,18 @@ def main():
         text=True, check=True
     )
     with open(os.path.join(arguments.directory, "singlebyte-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write(r.stdout)
+
+    ct_lines = chart_cases(max(arguments.cases // 4, 100))
+    with open(os.path.join(arguments.directory, "chart-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n".join(ct_lines))
+    r = subprocess.run(
+        [probe, "--chart"], input="\n".join(ct_lines) + "\n", capture_output=True,
+        text=True, check=True
+    )
+    with open(os.path.join(arguments.directory, "chart-rust.txt"), "w",
               encoding="utf-8") as f:
         f.write(r.stdout)
 
