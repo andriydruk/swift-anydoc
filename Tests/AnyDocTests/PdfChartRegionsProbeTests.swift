@@ -53,7 +53,10 @@ import Testing
                 let width = Float(f[2]), let height = Float(f[3]), let size = Float(f[4])
             else { return nil }
             var item = PdfLayoutItem(
-                text: f[5].replacingOccurrences(of: "~", with: " "), x: x, y: y, width: width,
+                // Rejoined: a chart label's thousands separator is a comma,
+                // and splitting on it would test a different string.
+                text: f[5...].joined(separator: ",").replacingOccurrences(of: "~", with: " "),
+                x: x, y: y, width: width,
                 fontSize: size, fontName: "F1")
             item.height = height
             return item

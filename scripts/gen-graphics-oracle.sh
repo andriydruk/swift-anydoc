@@ -80,6 +80,9 @@ perl -pi -e "s/^fn (starts_with_section_number|is_body_size_all_bold_line|is_wra
 # `markdown::convert` — the isolation cluster (wave 85).
 perl -pi -e "s/^fn (resolve_line_struct_role|detect_overused_struct_heading_levels|find_isolated_lines)/pub fn \$1/" \
     "$crate/src/markdown/convert.rs"
+# `markdown::convert` — the merge pair (wave 86).
+perl -pi -e "s/^fn (merge_wrapped_bold_heading_groups|count_table_columns)/pub fn \$1/" \
+    "$crate/src/markdown/convert.rs"
 
 # `markdown` mod itself — the chart-region trio.
 perl -pi -e "s/^fn (is_chart_adjacent_label|item_is_in_chart_region|items_outside_chart_regions|chart_page_prose_column_split|chart_spans_prose_split|is_cross_row_prose_continuation|looks_like_numbered_section_heading|merged_retry_skips_body_font)/pub fn \$1/; s/^pub\\(crate\\) fn split_side_by_side/pub fn split_side_by_side/" \
@@ -2536,7 +2539,9 @@ pub fn probe_chart(input: &str) -> String {
                     return None;
                 }
                 Some(TextItem {
-                    text: f[5].replace('~', " "),
+                    // Rejoined: chart labels are formatted numbers, and a
+                    // thousands separator is a comma.
+                    text: f[5..].join(",").replace('~', " "),
                     x: f[0].parse().ok()?,
                     y: f[1].parse().ok()?,
                     width: f[2].parse().ok()?,
@@ -2768,6 +2773,28 @@ pub fn probe_wrapped(input: &str) -> String {
                 }
                 out.push('\n');
             }
+            // M base threshold ; ...   (the merge, then the shape it left)
+            "M" => {
+                let fields: Vec<&str> = rest.split(' ').filter(|p| !p.is_empty()).collect();
+                let semi = match fields.iter().position(|p| *p == ";") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let base: f32 = fields[0].parse().unwrap_or(10.0);
+                let threshold: f32 = fields[1].parse().unwrap_or(20.0);
+                let lines_in = parse_lines(&fields[semi + 1..]);
+                let merged = merge_wrapped_bold_heading_groups(lines_in, base, threshold);
+                out.push_str(&format!("wm {}", merged.len()));
+                for line in &merged {
+                    out.push_str(&format!(" {:.0}:{}", line.y, line.items.len()));
+                }
+                out.push('\n');
+            }
+            // C markdown, with ^ for a newline
+            "C" => out.push_str(&format!(
+                "wc {}\n",
+                count_table_columns(&rest.replace('~', " ").replace('^', "\n"))
+            )),
             // R name
             "R" => {
                 let role = crate::structure_tree::StructRole::from_name(rest);

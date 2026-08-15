@@ -2679,6 +2679,57 @@ def wrapped_cases(random_count):
                  "Table", "Figure", "Unknown", ""):
         lines.append("R " + role)
 
+    # --- merge_wrapped_bold_heading_groups ---
+    short = "A Short Bold Heading"
+    def brun(count, words=short, size=10, bold=1, gap=14, x=20, y0=700, page=1):
+        return " ".join(spec(page, y0 - index * gap, x, size, bold, words)
+                        for index in range(count))
+    # Run length: only two or three lines merge.
+    for count in (1, 2, 3, 4):
+        lines.append("M 10 20 ; " + brun(count))
+    # Word count either side of fifteen, over two lines.
+    for words in ("one two three four five six seven",
+                  "one two three four five six seven eight",
+                  "one two three four five six seven eight nine"):
+        lines.append("M 10 20 ; " + brun(2, words=words))
+    # A neighbour inside the threshold breaks the isolation, above or below.
+    for y in (760, 721, 720, 714, 713, 672, 671, 666, 665, 600):
+        lines.append("M 10 20 ; " + brun(2) + " " + spec(1, y, 20, 10, 0, "plain neighbour"))
+    # ...but only when it overlaps in x. The group spans 20..60.
+    for x in (0, 19, 20, 55, 60, 61, 200):
+        lines.append("M 10 20 ; " + brun(2) + " " + spec(1, 714, x, 10, 0, "plain"))
+    # A neighbour on another page never blocks.
+    lines.append("M 10 20 ; " + brun(2) + " " + spec(2, 714, 20, 10, 0, "plain"))
+    # A section number merges even when the isolation fails.
+    lines.append("M 10 20 ; " + brun(2, words="9.5. Numbered Heading") + " "
+                 + spec(1, 714, 20, 10, 0, "plain neighbour"))
+    lines.append("M 10 20 ; " + brun(2, words="1. Numbered Heading") + " "
+                 + spec(1, 714, 20, 10, 0, "plain neighbour"))
+    # A long numbered run is still too long to merge.
+    lines.append("M 10 20 ; " + brun(4, words="9.5. Numbered Heading"))
+    # Non-bold and off-size lines pass straight through.
+    lines.append("M 10 20 ; " + brun(2, bold=0))
+    lines.append("M 10 20 ; " + brun(2, size=14))
+    # Two groups on one page, and a group between ordinary lines.
+    lines.append("M 10 20 ; " + spec(1, 800, 20, 10, 0, "plain top") + " "
+                 + brun(2, y0=700) + " " + spec(1, 500, 20, 10, 0, "plain middle") + " "
+                 + brun(2, y0=400))
+    lines.append("M 10 20 ; ")
+
+    # --- count_table_columns ---
+    for table in ("|~a~|~b~|^|~---~|~---~|^|~1~|~2~|",
+                  "|~a~|^|~---~|",
+                  "|~a~|~b~|~c~|^|~---~|~---~|~---~|",
+                  "|~a~|~b~|^|~x~|~y~|",
+                  "|~a~|~b~|",
+                  "",
+                  "^|~---~|~---~|",
+                  "|~a~|~b~|^---",
+                  "|~a~|~b~|^|~---~|~---~|~---~|",
+                  "|~a~|~b~|^~---~",
+                  "|~a~|~b~|^|---|"):
+        lines.append("C " + table)
+
     return lines
 
 

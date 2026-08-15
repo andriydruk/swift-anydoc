@@ -71,6 +71,18 @@ import Testing
         case "N":
             let text = rest.replacingOccurrences(of: "~", with: " ")
             return "wn \(pdfStartsWithSectionNumberAndTitle(text) ? 1 : 0)"
+        case "M":
+            guard let semi = fields.firstIndex(of: ";"), fields.count > 1 else { return nil }
+            let merged = pdfMergeWrappedBoldHeadingGroups(
+                parseLines(fields[(semi + 1)...]), baseSize: Float(fields[0]) ?? 10,
+                paraThreshold: Float(fields[1]) ?? 20)
+            return "wm \(merged.count)"
+                + merged.map { " \(Int($0.y.rounded(.toNearestOrEven))):\($0.items.count)" }
+                .joined()
+        case "C":
+            let markdown = rest.replacingOccurrences(of: "~", with: " ")
+                .replacingOccurrences(of: "^", with: "\n")
+            return "wc \(pdfCountTableColumns(markdown))"
         case "A":
             guard let semi = fields.firstIndex(of: ";"), !fields.isEmpty else { return nil }
             let base = Float(fields[0]) ?? 10

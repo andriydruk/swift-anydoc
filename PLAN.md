@@ -3364,3 +3364,45 @@ readings**.
 
   191 probe cases agree on the first run once the harness was fixed. 22 unit
   tests, all passing first try — fourth wave running.
+
+- **Wave 86 — the same run, the opposite verdict.**
+  `PdfMergeBoldHeadings.swift` ports `merge_wrapped_bold_heading_groups` and
+  `count_table_columns`.
+
+  Wave 84 found the bold runs *too long* to be headings and suppressed them;
+  this is the identical run scan reaching the opposite conclusion. Two or
+  three bold lines totalling fifteen words or fewer are one heading that
+  wrapped, and merging them is what stops the writer emitting a stack of
+  `##`. Between the two functions every body-size bold run is accounted for:
+  merge at two or three short lines, suppress at three or more long ones,
+  leave alone in between. A single bold line is neither.
+
+  The isolation test here is **column-local**, and deliberately ignores array
+  order: on an interleaved multi-column page the neighbouring entries belong
+  to the other column, so instead of looking at index ±1 it asks whether any
+  line anywhere on the page falls within the paragraph gap *and* overlaps the
+  group's x-range. Overlap is strict at both edges, so a neighbour starting
+  exactly where the group ends is clear of it; the gap is inclusive, so one
+  exactly a threshold away blocks. A section number overrides isolation
+  entirely — but not the length gates, and not with a single component, since
+  this is the `convert.rs` spelling where `1.` is an ordered list item.
+
+  `count_table_columns` reads the **separator row alone**, so a table whose
+  header and separator disagree reports the separator's width, and a second
+  line carrying `---` but no pipes counts zero.
+
+  Note that merging renumbers the lines, which invalidates every index set
+  computed against the input — wave 85's isolation set and wave 84's
+  suppression set both. Recorded at the call site for the assembly wave.
+
+  **The delimiter audit.** Wave 85's harness bug prompted a sweep of all
+  eleven case files with variable-width comma tokens, checking for the same
+  shape: a fixed-field spec whose last field is free text. One more turned
+  up — the chart probe, whose cases carry `1,234.56` as a label, exactly the
+  formatted number that probe exists to classify. The text field was reading
+  `1`. Fixed; the reference answers did not change, because the side-by-side
+  banding those cases drive reads geometry and never looks at the text. A
+  real format flaw with no consequence for what it was carrying.
+
+  121 probe cases agree on the first run. 12 unit tests, all passing first
+  try — fifth wave running.
