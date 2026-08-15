@@ -3183,3 +3183,37 @@ readings**.
 
   **Remaining in `markdown/heading.rs`:** `classify_heading_sequences`, the
   ~176-line assembly that consumes all of the above.
+
+- **Wave 80 — the heading assembly.**
+  `PdfHeadingClassify.swift` ports `classify_heading_sequences`, the heading
+  half's assembly and the counterpart to wave 71's layout one. Waves 76–79
+  built the signals and the tests; this composes them into the question that
+  matters: which lines does a *repetition* prove are headings?
+
+  Repetition alone is weak evidence — captions, author lists and table rows
+  repeat too. A group sharing a visual style is promoted only on one of two
+  much stronger findings:
+  - a **numbered hierarchy** running through it, where the numbering is
+    itself set apart (1.05× the body size, or a bold face the body does not
+    use) and the members are far enough apart to be sections rather than list
+    items; or
+  - a **displaced sidebar**, which must clear six guards at once: a distinct
+    bold face, a document not already dense with candidates, either varied
+    sizes or several complete distinct labels, one page, four lines between
+    entries, an indent four buckets from the body's, and type under 0.95× the
+    body.
+
+  A hierarchy promotes only the lines that took part in it; a sidebar
+  promotes its whole group.
+
+  **The reference's `isolated_lines` parameter is used only in a trace log**
+  and never consulted. It is omitted here rather than carried unused.
+
+  860 probe cases agree on the first run, 64 of them for the assembly — 35
+  promoting and 29 declining. 13 unit tests. One expectation was wrong for
+  the same reason as wave 77's: the two ways numbering can be "set apart"
+  are alternatives, so isolating the *size* bar means setting the headings in
+  the body's own font, or the distinct face carries them at any size.
+
+  **`markdown/heading.rs` is now ported** apart from the wiring that calls
+  `classify_heading_sequences` from `markdown/mod.rs`.

@@ -51,6 +51,39 @@ import Testing
             var out = "n \(numbering.kind == .decimal ? "d" : "m") \(numbering.depth)"
             for part in numbering.parts { out += " \(part)" }
             return out
+        case "CH":
+            let raw = split.count > 1 ? String(split[1]) : ""
+            let fields = raw.split(separator: " ").filter { !$0.isEmpty }.map(String.init)
+            guard let bar = fields.firstIndex(of: "|"), let semi = fields.firstIndex(of: ";"),
+                fields.count > 1
+            else { return nil }
+            let excluded: Set<Int> =
+                fields[1] == "-"
+                ? [] : Set(fields[1].split(separator: ",").compactMap { Int($0) })
+            let tiers = fields[(bar + 1)..<semi].compactMap { Float($0) }
+            var built: [PdfTextLine] = []
+            for spec in fields[(semi + 1)...] {
+                let append = spec.hasPrefix("+")
+                let f = (append ? String(spec.dropFirst()) : spec)
+                    .split(separator: ",", omittingEmptySubsequences: false)
+                guard f.count >= 7, let page = Int(f[0]), let y = Float(f[1]),
+                    let x = Float(f[2]), let size = Float(f[3])
+                else { continue }
+                var item = PdfLayoutItem(
+                    text: f[6].replacingOccurrences(of: "~", with: " "), x: x, y: y,
+                    width: 40, fontSize: size, fontName: String(f[5]))
+                item.isBold = f[4] == "1"
+                if append, !built.isEmpty {
+                    built[built.count - 1].items.append(item)
+                } else {
+                    built.append(PdfTextLine(items: [item], y: y, page: page))
+                }
+            }
+            let decisions = pdfClassifyHeadingSequences(
+                built, bodySize: Float(fields[0]) ?? 10, tiers: tiers, excludedLines: excluded)
+            var out = "ch \(decisions.count)"
+            for key in decisions.keys.sorted() { out += " \(key):\(decisions[key] ?? 0)" }
+            return out
         case "D":
             let raw = split.count > 1 ? String(split[1]) : ""
             let fields = raw.split(separator: " ").filter { !$0.isEmpty }.map(String.init)

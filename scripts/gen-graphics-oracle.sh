@@ -73,7 +73,7 @@ perl -pi -e "s/^pub\\(crate\\) fn parse_encoding_dictionary/pub fn parse_encodin
 # `markdown::heading` — the numbering parser.
 perl -pi -e "s/^pub\\(crate\\) mod heading;/pub mod heading;/; s/^mod heading;/pub mod heading;/" \
     "$crate/src/markdown/mod.rs"
-perl -pi -e "s/^fn (roman_value|parse_numbering|has_additional_decimal_numbering|numbering_forms_hierarchy|title_like|complete_sidebar_label|dominant_font|dominant_font_size|document_body_font|document_body_x_bucket|visual_style|has_displaced_baseline_peer|numbering_has_section_separation|sequence_level)/pub fn \$1/; s/^struct Candidate/pub struct Candidate/; s/^    line_idx: usize,/    pub line_idx: usize,/; s/^    font_size: f32,/    pub font_size: f32,/; s/^    style: VisualStyle,/    pub style: VisualStyle,/; s/^    numbering: Option<\\(NumberingKind, usize, Vec<u32>\\)>,/    pub numbering: Option<(NumberingKind, usize, Vec<u32>)>,/; s/^struct VisualStyle/pub struct VisualStyle/; s/^    font: String,/    pub font: String,/; s/^    x_bucket: i32,/    pub x_bucket: i32,/; s/^    bold: bool,/    pub bold: bool,/; s/^enum NumberingKind/pub enum NumberingKind/" \
+perl -pi -e "s/^fn (roman_value|parse_numbering|has_additional_decimal_numbering|numbering_forms_hierarchy|title_like|complete_sidebar_label|dominant_font|dominant_font_size|document_body_font|document_body_x_bucket|visual_style|has_displaced_baseline_peer|numbering_has_section_separation|sequence_level)/pub fn \$1/; s/^pub\\(super\\) fn classify_heading_sequences/pub fn classify_heading_sequences/; s/^struct Candidate/pub struct Candidate/; s/^    line_idx: usize,/    pub line_idx: usize,/; s/^    font_size: f32,/    pub font_size: f32,/; s/^    style: VisualStyle,/    pub style: VisualStyle,/; s/^    numbering: Option<\\(NumberingKind, usize, Vec<u32>\\)>,/    pub numbering: Option<(NumberingKind, usize, Vec<u32>)>,/; s/^struct VisualStyle/pub struct VisualStyle/; s/^    font: String,/    pub font: String,/; s/^    x_bucket: i32,/    pub x_bucket: i32,/; s/^    bold: bool,/    pub bold: bool,/; s/^enum NumberingKind/pub enum NumberingKind/" \
     "$crate/src/markdown/heading.rs"
 
 # `markdown::postprocess` — the cleanup helpers, audited in wave 75.
@@ -2199,6 +2199,74 @@ pub fn probe_numbering(input: &str) -> String {
                     out.push('\n');
                 }
             },
+            // CH base excluded | tier ... ; page,y,x,size,bold,font,text ...
+            //   One line per field group; `+` appends to the previous line.
+            "CH" => {
+                use crate::types::{ItemType, TextItem, TextLine};
+                use std::collections::HashSet;
+                let fields: Vec<&str> = rest.split(' ').filter(|p| !p.is_empty()).collect();
+                let (bar, semi) = match (
+                    fields.iter().position(|p| *p == "|"),
+                    fields.iter().position(|p| *p == ";"),
+                ) {
+                    (Some(a), Some(b)) => (a, b),
+                    _ => continue,
+                };
+                let base: f32 = fields[0].parse().unwrap_or(10.0);
+                let excluded: HashSet<usize> = if fields[1] == "-" {
+                    HashSet::new()
+                } else {
+                    fields[1].split(',').filter_map(|p| p.parse().ok()).collect()
+                };
+                let tiers: Vec<f32> =
+                    fields[bar + 1..semi].iter().filter_map(|p| p.parse().ok()).collect();
+                let mut lines_in: Vec<TextLine> = Vec::new();
+                for spec in &fields[semi + 1..] {
+                    let append = spec.starts_with('+');
+                    let body = spec.trim_start_matches('+');
+                    let f: Vec<&str> = body.split(',').collect();
+                    if f.len() < 7 {
+                        continue;
+                    }
+                    let item = TextItem {
+                        text: f[6].replace('~', " "),
+                        x: f[2].parse().unwrap_or(0.0),
+                        y: f[1].parse().unwrap_or(0.0),
+                        width: 40.0,
+                        height: 12.0,
+                        font: f[5].to_string(),
+                        font_size: f[3].parse().unwrap_or(12.0),
+                        page: f[0].parse().unwrap_or(1),
+                        is_bold: f[4] == "1",
+                        is_italic: false,
+                        is_underline: false,
+                        is_strikeout: false,
+                        item_type: ItemType::Text,
+                        mcid: None,
+                    };
+                    if append && !lines_in.is_empty() {
+                        let last = lines_in.len() - 1;
+                        lines_in[last].items.push(item);
+                    } else {
+                        lines_in.push(TextLine {
+                            y: item.y,
+                            page: item.page,
+                            adaptive_threshold: 0.10,
+                            items: vec![item],
+                        });
+                    }
+                }
+                let decisions = classify_heading_sequences(
+                    &lines_in, base, &tiers, &HashSet::new(), &excluded,
+                );
+                let mut keys: Vec<usize> = decisions.keys().copied().collect();
+                keys.sort();
+                out.push_str(&format!("ch {}", keys.len()));
+                for key in keys {
+                    out.push_str(&format!(" {}:{}", key, decisions[&key]));
+                }
+                out.push('\n');
+            }
             // D index ; page,y,x,width,text ...   (displaced baseline peer)
             "D" => {
                 use crate::types::{ItemType, TextItem, TextLine};

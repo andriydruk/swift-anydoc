@@ -2646,6 +2646,95 @@ def numbering_cases(random_count):
                  "|1", "1|", "|", "1,2,3|1,2", "1,2|1,3", "2|1,1"):
         emit("H", pair)
 
+    # --- classify_heading_sequences ---
+    def CH(specs, base=10, excluded=None, tiers=()):
+        lines.append("CH {} {} | {} ; {}".format(
+            base, ",".join(str(e) for e in excluded) if excluded else "-",
+            " ".join(str(t) for t in tiers), " ".join(specs)))
+
+    def body_line(y, x=20, size=10, font="Body"):
+        return "1,{},{},{},0,{},a~long~line~of~body~text~here".format(y, x, size, font)
+
+    def head_line(y, text, x=20, size=12, bold=1, font="Head", page=1):
+        return "{},{},{},{},{},{},{}".format(page, y, x, size, bold, font, text)
+
+    # A numbered hierarchy, and the ways it fails.
+    def hierarchy(gap=4, second="1.1.~Method", size=12, bold=1, font="Head", x=20):
+        out = [head_line(760, "1.~Introduction", x=x, size=size, bold=bold, font=font)]
+        y = 740
+        for _ in range(max(gap - 1, 0)):
+            out.append(body_line(y))
+            y -= 14
+        out.append(head_line(y, second, x=x, size=size, bold=bold, font=font))
+        return out
+    for gap in (1, 2, 3, 4, 6):
+        CH(hierarchy(gap=gap))
+    for second in ("1.1.~Method", "2.~Method", "1.1.1.~Deep", "I.~Roman", "Method"):
+        CH(hierarchy(second=second))
+    # The numbering must be set apart by size or by a distinct bold face.
+    for size in (10, 10.4, 10.5, 11, 12):
+        CH(hierarchy(size=size))
+    for bold, font in ((0, "Head"), (1, "Body"), (0, "Body"), (1, "Head")):
+        CH(hierarchy(bold=bold, font=font))
+    # A page boundary settles separation whatever the gap.
+    CH([head_line(760, "1.~Introduction"),
+        head_line(700, "1.1.~Method", page=2)])
+
+    # A displaced sidebar, and each guard walked.
+    def sidebar(labels=("Alpha", "Beta", "Gamma"), x=200, size=8, bold=1,
+                font="Side", blocks=4, page=1):
+        out = []
+        y = 700
+        label_index = 0
+        for _ in range(3):
+            for _ in range(blocks):
+                out.append(body_line(y))
+                y -= 14
+            if label_index < len(labels):
+                out.append("{},{},{},{},{},{},{}".format(
+                    page if label_index else 1, y + 7, x, size, bold, font,
+                    labels[label_index]))
+                label_index += 1
+        return out
+    CH(sidebar())
+    for x in (20, 60, 100, 116, 140, 200, 400):
+        CH(sidebar(x=x))
+    for size in (7, 8, 9, 9.4, 9.5, 10, 12):
+        CH(sidebar(size=size))
+    for labels in (("Alpha", "Beta", "Gamma"), ("Alpha", "Alpha", "Alpha"),
+                   ("Alpha", "Alpha", "Beta"), ("Alpha", "Beta"),
+                   ("Alpha~with-", "Beta", "Gamma"), ("A~1", "Beta", "Gamma"),
+                   ("ends~with~the", "Beta", "Gamma")):
+        CH(sidebar(labels=labels))
+    for blocks in (1, 2, 3, 4, 6):
+        CH(sidebar(blocks=blocks))
+    for bold, font in ((0, "Side"), (1, "Body"), (1, "Side")):
+        CH(sidebar(bold=bold, font=font))
+    # Spread across two pages, which the same-page guard refuses.
+    CH(sidebar(page=2))
+    # Varying sizes give the span evidence instead of the fixed-size one.
+    out = sidebar()
+    out[4] = out[4].replace(",8,1,Side,", ",8.6,1,Side,")
+    CH(out)
+
+    # Degenerate documents.
+    CH([])
+    CH([body_line(700)])
+    CH([body_line(700 - i * 14) for i in range(20)])
+    # Excluded lines cannot support a sequence.
+    CH(hierarchy(), excluded=[0])
+    CH(hierarchy(), excluded=[4])
+    CH(hierarchy(), excluded=[0, 4])
+    CH(sidebar(), excluded=[4, 9])
+    # Tiers change the level a non-numbered promotion receives.
+    for tiers in ((), (24,), (24, 16), (24, 16, 13, 11)):
+        CH(sidebar(), tiers=tiers)
+    # A dense document, where the candidates exceed the density ceiling.
+    dense = []
+    for index in range(12):
+        dense.append(head_line(700 - index * 14, "Alpha~{}".format(index), x=200, size=8))
+    CH(dense)
+
     # --- has_displaced_baseline_peer ---
     def D(target, specs):
         lines.append("D {} ; {}".format(target, " ".join(specs)))
