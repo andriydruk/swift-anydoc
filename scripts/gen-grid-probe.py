@@ -2606,6 +2606,82 @@ def difference_cases(random_count):
 
 
 
+def wrapped_cases(random_count):
+    """Cases for the wrapped-bold cluster."""
+    rng = random.Random(84_2026)
+    lines = []
+
+    # --- starts_with_section_number (the convert.rs one) ---
+    for text in ("9.5. Title Here", "9.5 Title Here", "1. Title Here", "1.2.3. Deep Title",
+                 "1.2.3.4.5.6. Very Deep", "1.2", "1.2 ", "1.2  Title", "1.2\tTitle",
+                 "  9.5. Indented Title", "1.2. 42 numbers", "1.2. (bracket)",
+                 "1000.2. Big Group", "999.2. Fine Group", "1.2.a. Mixed",
+                 "a.b. Letters", "", "   ", "12.34.56.78. Four Groups",
+                 "1..2. Double Dot", ".1.2. Leading Dot"):
+        lines.append("N " + text.replace(" ", "~"))
+
+    def spec(page, y, x, size, bold, text, append=False):
+        return "{}{},{},{},{},{},{}".format(
+            "+" if append else "", page, y, x, size, bold, text.replace(" ", "~"))
+
+    # --- is_body_size_all_bold_line ---
+    for size in (9, 9.4, 9.5, 10, 11, 11.9, 12, 14):
+        lines.append("A 10 ; " + spec(1, 700, 20, size, 1, "bold line"))
+    # Every run must be bold and the same size.
+    lines.append("A 10 ; " + spec(1, 700, 20, 10, 1, "bold") + " "
+                 + spec(1, 700, 80, 10, 0, "plain", append=True))
+    lines.append("A 10 ; " + spec(1, 700, 20, 10, 1, "bold") + " "
+                 + spec(1, 700, 80, 10.4, 1, "bigger", append=True))
+    lines.append("A 10 ; " + spec(1, 700, 20, 10, 1, "bold") + " "
+                 + spec(1, 700, 80, 10.6, 1, "bigger", append=True))
+    lines.append("A 10 ; ")
+
+    # --- is_wrapped_same_style_line ---
+    for gap in (0, 1, 14, 19, 20, 21, 40):
+        lines.append("W 20 ; " + spec(1, 700, 20, 10, 1, "one") + " "
+                     + spec(1, 700 - gap, 20, 10, 1, "two"))
+    for dx in (0, 20, 39, 40, 41, 100):
+        lines.append("W 20 ; " + spec(1, 700, 20, 10, 1, "one") + " "
+                     + spec(1, 690, 20 + dx, 10, 1, "two"))
+    # Across a page boundary.
+    lines.append("W 20 ; " + spec(1, 700, 20, 10, 1, "one") + " "
+                 + spec(2, 690, 20, 10, 1, "two"))
+    # Upward gaps are not wraps.
+    lines.append("W 20 ; " + spec(1, 690, 20, 10, 1, "one") + " "
+                 + spec(1, 700, 20, 10, 1, "two"))
+
+    # --- find_wrapped_bold_paragraph_lines ---
+    long_words = "a bold paragraph line carrying quite a few words indeed"
+    def run(count, words=long_words, size=10, bold=1, gap=14):
+        return " ".join(spec(1, 700 - index * gap, 20, size, bold, words)
+                        for index in range(count))
+    for count in (1, 2, 3, 4, 8):
+        lines.append("F 10 20 ; " + run(count))
+    # Word count either side of twenty.
+    for words in ("one two three four five six seven",
+                  "one two three four five six seven eight",
+                  "one two"):
+        lines.append("F 10 20 ; " + run(3, words=words))
+    # A gap too large breaks the run.
+    for gap in (14, 20, 21, 30):
+        lines.append("F 10 20 ; " + run(4, gap=gap))
+    # Not bold, or not body size.
+    lines.append("F 10 20 ; " + run(4, bold=0))
+    lines.append("F 10 20 ; " + run(4, size=14))
+    # Two separate runs on one page.
+    lines.append("F 10 20 ; " + run(3) + " "
+                 + spec(1, 500, 20, 10, 0, "plain break") + " "
+                 + " ".join(spec(1, 400 - i * 14, 20, 10, 1, long_words) for i in range(3)))
+    lines.append("F 10 20 ; ")
+
+    # --- struct_role_heading_level ---
+    for role in ("H", "H1", "H2", "H3", "H4", "H5", "H6", "H7", "P", "Div",
+                 "Table", "Figure", "Unknown", ""):
+        lines.append("R " + role)
+
+    return lines
+
+
 def chart_text_cases(random_count):
     """Cases for the small chart-prose predicates."""
     rng = random.Random(82_2026)
@@ -5265,6 +5341,18 @@ def main():
         text=True, check=True
     )
     with open(os.path.join(arguments.directory, "singlebyte-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write(r.stdout)
+
+    wr_lines = wrapped_cases(max(arguments.cases // 4, 100))
+    with open(os.path.join(arguments.directory, "wrapped-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n".join(wr_lines))
+    r = subprocess.run(
+        [probe, "--wrapped"], input="\n".join(wr_lines) + "\n", capture_output=True,
+        text=True, check=True
+    )
+    with open(os.path.join(arguments.directory, "wrapped-rust.txt"), "w",
               encoding="utf-8") as f:
         f.write(r.stdout)
 

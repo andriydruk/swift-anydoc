@@ -70,6 +70,14 @@ perl -pi -e "s/^pub\\(crate\\) mod fonts;/pub mod fonts;/; s/^mod fonts;/pub mod
 perl -pi -e "s/^pub\\(crate\\) fn parse_encoding_dictionary/pub fn parse_encoding_dictionary/; s/^pub\\(crate\\) struct EncodingResult/pub struct EncodingResult/; s/^struct EncodingResult/pub struct EncodingResult/" \
     "$crate/src/extractor/fonts.rs"
 
+# `markdown::convert` — the wrapped-bold cluster.
+perl -pi -e "s/^    fn from_name\\(name: &str\\)/    pub fn from_name(name: \&str)/" \
+    "$crate/src/structure_tree.rs"
+perl -pi -e "s/^pub\\(crate\\) mod convert;/pub mod convert;/; s/^mod convert;/pub mod convert;/" \
+    "$crate/src/markdown/mod.rs"
+perl -pi -e "s/^fn (starts_with_section_number|is_body_size_all_bold_line|is_wrapped_same_style_line|find_wrapped_bold_paragraph_lines|struct_role_heading_level)/pub fn \$1/" \
+    "$crate/src/markdown/convert.rs"
+
 # `markdown` mod itself — the chart-region trio.
 perl -pi -e "s/^fn (is_chart_adjacent_label|item_is_in_chart_region|items_outside_chart_regions|chart_page_prose_column_split|chart_spans_prose_split|is_cross_row_prose_continuation|looks_like_numbered_section_heading|merged_retry_skips_body_font)/pub fn \$1/; s/^pub\\(crate\\) fn split_side_by_side/pub fn split_side_by_side/" \
     "$crate/src/markdown/mod.rs"
@@ -2647,6 +2655,132 @@ pub fn probe_chart_text(input: &str) -> String {
 }
 RUSTEOF
 
+cat >> "$crate/src/markdown/convert.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): the wrapped-bold cluster.
+pub fn probe_wrapped(input: &str) -> String {
+    use crate::types::{ItemType, TextItem, TextLine};
+    fn parse_lines(fields: &[&str]) -> Vec<TextLine> {
+        let mut out: Vec<TextLine> = Vec::new();
+        for spec in fields {
+            let append = spec.starts_with('+');
+            let body = spec.trim_start_matches('+');
+            let f: Vec<&str> = body.split(',').collect();
+            if f.len() < 6 {
+                continue;
+            }
+            let item = TextItem {
+                text: f[5].replace('~', " "),
+                x: f[2].parse().unwrap_or(0.0),
+                y: f[1].parse().unwrap_or(0.0),
+                width: 40.0,
+                height: 12.0,
+                font: "F1".to_string(),
+                font_size: f[3].parse().unwrap_or(12.0),
+                page: f[0].parse().unwrap_or(1),
+                is_bold: f[4] == "1",
+                is_italic: false,
+                is_underline: false,
+                is_strikeout: false,
+                item_type: ItemType::Text,
+                mcid: None,
+            };
+            if append && !out.is_empty() {
+                let last = out.len() - 1;
+                out[last].items.push(item);
+            } else {
+                out.push(TextLine {
+                    y: item.y,
+                    page: item.page,
+                    adaptive_threshold: 0.10,
+                    items: vec![item],
+                });
+            }
+        }
+        out
+    }
+
+    let mut out = String::new();
+    for line in input.lines() {
+        let (tag, rest) = match line.split_once(' ') {
+            Some(pair) => pair,
+            None => (line, ""),
+        };
+        match tag {
+            "N" => out.push_str(&format!(
+                "wn {}\n",
+                starts_with_section_number(&rest.replace('~', " ")) as u8
+            )),
+            // A base ; page,y,x,size,bold,text ...
+            "A" => {
+                let fields: Vec<&str> = rest.split(' ').filter(|p| !p.is_empty()).collect();
+                let semi = match fields.iter().position(|p| *p == ";") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let base: f32 = fields[0].parse().unwrap_or(10.0);
+                let lines_in = parse_lines(&fields[semi + 1..]);
+                out.push_str("wa ");
+                for line in &lines_in {
+                    out.push(if is_body_size_all_bold_line(line, base) { '1' } else { '0' });
+                }
+                out.push('\n');
+            }
+            // W threshold ; ...   (pairwise on consecutive lines)
+            "W" => {
+                let fields: Vec<&str> = rest.split(' ').filter(|p| !p.is_empty()).collect();
+                let semi = match fields.iter().position(|p| *p == ";") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let threshold: f32 = fields[0].parse().unwrap_or(20.0);
+                let lines_in = parse_lines(&fields[semi + 1..]);
+                out.push_str("ww ");
+                for pair in lines_in.windows(2) {
+                    out.push(if is_wrapped_same_style_line(&pair[0], &pair[1], threshold) {
+                        '1'
+                    } else {
+                        '0'
+                    });
+                }
+                out.push('\n');
+            }
+            // F base threshold ; ...
+            "F" => {
+                let fields: Vec<&str> = rest.split(' ').filter(|p| !p.is_empty()).collect();
+                let semi = match fields.iter().position(|p| *p == ";") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let base: f32 = fields[0].parse().unwrap_or(10.0);
+                let threshold: f32 = fields[1].parse().unwrap_or(20.0);
+                let lines_in = parse_lines(&fields[semi + 1..]);
+                let found = find_wrapped_bold_paragraph_lines(&lines_in, base, threshold);
+                let mut keys: Vec<usize> = found.into_iter().collect();
+                keys.sort();
+                out.push_str(&format!("wf {}", keys.len()));
+                for key in keys {
+                    out.push_str(&format!(" {key}"));
+                }
+                out.push('\n');
+            }
+            // R name
+            "R" => {
+                let role = crate::structure_tree::StructRole::from_name(rest);
+                out.push_str(&format!(
+                    "wr {}\n",
+                    struct_role_heading_level(&role)
+                        .map(|l| l.to_string())
+                        .unwrap_or_else(|| "-".to_string())
+                ));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+RUSTEOF
+
 cat >> "$crate/src/glyph_names.rs" <<'RUSTEOF'
 
 /// Probe (added for swift-anydoc): glyph-name resolution. One name per line.
@@ -3948,6 +4082,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::markdown::probe_chart_text(&input));
+        return;
+    }
+    if path == "--wrapped" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::markdown::convert::probe_wrapped(&input));
         return;
     }
     if path == "--chart" {

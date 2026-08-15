@@ -3296,3 +3296,29 @@ readings**.
   really measuring *crossings* — bringing the tables together makes the left
   table's own runs cross the midpoint long before the gap itself becomes too
   narrow. The test now says so.
+
+- **Wave 84 — bold paragraphs that are not headings.**
+  `PdfWrappedBold.swift` ports `starts_with_section_number` (the
+  `convert.rs` one), `is_body_size_all_bold_line`,
+  `is_wrapped_same_style_line`, `find_wrapped_bold_paragraph_lines` and
+  `struct_role_heading_level`.
+
+  Wave 72 made a bold line at body size eligible to be a heading — right for
+  a section title, wrong for a bold *paragraph*: a pull quote, a warning, an
+  abstract. The difference is length, and the bar is **three lines and more
+  than twenty words**: a bold heading may wrap once, and may be long, but not
+  both. What this finds becomes the excluded set for wave 80's
+  `classify_heading_sequences`, so those lines cannot support another line's
+  candidacy either.
+
+  **The reference has two different functions called
+  `starts_with_section_number`**, in `tables/detect_heuristic.rs` and
+  `markdown/convert.rs`. The first was already ported in an earlier wave and
+  asks only whether the leading token is a dotted number, so `1.2` satisfies
+  it; the second additionally requires whitespace and an alphabetic title,
+  so `1.2` does not. Ported as `pdfStartsWithSectionNumberAndTitle`, with a
+  test asserting the two disagree — the collision surfaced only because Swift
+  refused the redeclaration.
+
+  78 probe cases agree on the first run. 16 unit tests, all passing first
+  try — third wave running.
