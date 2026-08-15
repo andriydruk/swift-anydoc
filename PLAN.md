@@ -3243,3 +3243,30 @@ readings**.
   needs a run too wide to be compact. This is the fourth wave running where
   testing one condition required defeating its siblings — it is now the
   default assumption when writing these.
+
+- **Wave 82 — prose columns on a chart page.**
+  `PdfChartProse.swift` ports `chart_page_prose_column_split`,
+  `chart_spans_prose_split`, `is_cross_row_prose_continuation`,
+  `looks_like_numbered_section_heading` and `merged_retry_skips_body_font`.
+
+  A page carrying both charts and two columns of prose defeats the
+  projection histogram of wave 65: the charts fill the gutter, so the page
+  reads as one column. These infer the gutter from the **prose alone** — only
+  runs of four words, 80pt wide and more than half alphabetic vote, so axis
+  labels cannot form a column — and then ask whether each chart genuinely
+  crosses it. A chart confined to one column must stay in that column's local
+  order rather than reordering the page.
+  - Exactly two left-edge clusters must emerge, at least 120pt apart, each
+    running 60pt tall, and **overlapping vertically by two fifths of the
+    shorter**. That last is what separates side-by-side columns from a column
+    and the caption beneath it.
+  - Cluster anchors are running means, so a column whose left edge drifts
+    still holds together.
+  - `is_cross_row_prose_continuation` strips closing quotes and brackets
+    before judging whether the previous row ended open, since `…said."` is
+    closed by its full stop. A row of nothing but closers is not open.
+
+  458 probe cases agree on the first run across both new modes. 17 unit
+  tests, **all passing first try** — the first wave in five where none of my
+  expectations were wrong, because every boundary was read off the reference
+  before the assertion was written rather than after it failed.

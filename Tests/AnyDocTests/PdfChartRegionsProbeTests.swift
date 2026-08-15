@@ -69,8 +69,20 @@ import Testing
                 + items.map { pdfItemIsInChartRegion($0, regions) ? "1" : "0" }.joined()
         case "O":
             return "co \(pdfItemsOutsideChartRegions(items, regions).count)"
+        case "S":
+            guard let split = pdfChartPageProseColumnSplit(items) else { return "cs -" }
+            return "cs \(twoPlaces(split))"
         default:
             return nil
         }
+    }
+
+    private func twoPlaces(_ value: Float) -> String {
+        if value.isNaN { return "NaN" }
+        let scaled = (Double(value) * 100).rounded(.toNearestOrAwayFromZero)
+        let whole = Int(scaled / 100)
+        let fraction = abs(Int(scaled) % 100)
+        let sign = (scaled < 0 && whole == 0) ? "-" : ""
+        return "\(sign)\(whole).\(fraction < 10 ? "0" : "")\(fraction)"
     }
 }

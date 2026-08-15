@@ -2606,6 +2606,55 @@ def difference_cases(random_count):
 
 
 
+def chart_text_cases(random_count):
+    """Cases for the small chart-prose predicates."""
+    rng = random.Random(82_2026)
+    lines = []
+
+    # --- is_cross_row_prose_continuation ---
+    previous_texts = ["an open clause", "a sentence.", "a question?", "shout!",
+                      "a colon:", "a semicolon;", 'he said."', "quoted'", "bracket)",
+                      "square]", '".)]', "", "   ", "trailing~closers.)]",
+                      "open~clause)", "MiXeD"]
+    current_texts = ["continues here", "Continues Here", "42 then words", "(then words",
+                     "", "   ", "\u00e9clair", "\u00c9clair", "1. item"]
+    for previous in previous_texts:
+        for current in current_texts:
+            lines.append("P {}|{}".format(previous.replace(" ", "~"),
+                                          current.replace(" ", "~")))
+
+    # --- looks_like_numbered_section_heading ---
+    for text in ("1. Introduction To The Topic", "1 Introduction To The Topic",
+                 "1.2. Method And Materials", "1.2.3.4. Deep Section Heading Here",
+                 "1.2.3.4.5. Too Deep Here Now", "1. Two Words", "1. one two three",
+                 "1. Three Words Here", "1000. Big Number Section Here",
+                 "999. Fine Number Section Here", "a. Not A Number Section",
+                 "1.a. Mixed Prefix Section Here", "1.. Double Dot Section Here",
+                 ".1. Leading Dot Section", "1", "", "   ", "1.\tTabbed Section Here",
+                 "12.34. Section Heading Here", "1. 42 numbers first here"):
+        lines.append("H " + text.replace(" ", "~"))
+
+    # --- chart_spans_prose_split ---
+    for region in ("100,0,400,200", "400,0,100,200", "100,0,150,200", "300,0,400,200"):
+        for split in (60, 100, 139, 140, 200, 260, 360, 361, 400, 440):
+            lines.append("R {} {}".format(region, split))
+
+    # --- merged_retry_skips_body_font ---
+    for a in (0, 1):
+        for b in (0, 1):
+            lines.append("M {} {}".format(a, b))
+
+    for _ in range(random_count // 2):
+        previous = "".join(rng.choice(["a", " ", ".", ")", '"', "!", ";", "x"])
+                           for _ in range(rng.randrange(0, 8)))
+        current = "".join(rng.choice(["a", "A", " ", "1", "(", "z"])
+                          for _ in range(rng.randrange(0, 6)))
+        lines.append("P {}|{}".format(previous.replace(" ", "~"),
+                                      current.replace(" ", "~")))
+
+    return lines
+
+
 def chart_cases(random_count):
     """Cases for the chart-region trio."""
     rng = random.Random(81_2026)
@@ -2665,6 +2714,58 @@ def chart_cases(random_count):
         emit(tag, two, spread)
         emit(tag, [], spread)
     emit("O", [chart], [])
+
+    # --- chart_page_prose_column_split ---
+    def two_columns(rows=8, left_x=60, right_x=320, width=200, top=700, step=14,
+                    text="a line of running prose text here"):
+        out = []
+        for row in range(rows):
+            y = top - row * step
+            out.append((left_x, y, width, 10, 10, text))
+            out.append((right_x, y, width, 10, 10, text))
+        return out
+    emit("S", [], two_columns())
+    # Row counts either side of the six-per-column floor.
+    for rows in (4, 5, 6, 7, 12):
+        emit("S", [], two_columns(rows=rows))
+    # Anchor separation, walked around 120pt.
+    for right_x in (140, 179, 180, 181, 220, 400):
+        emit("S", [], two_columns(right_x=right_x))
+    # Vertical span, walked around 60pt.
+    for step in (4, 8, 8.5, 9, 14):
+        emit("S", [], two_columns(step=step))
+    # Vertical overlap: the right column slid down the page.
+    for offset in (0, 40, 60, 70, 80, 120):
+        out = two_columns()
+        out = [r if index % 2 == 0 else (r[0], r[1] - offset, r[2], r[3], r[4], r[5])
+               for index, r in enumerate(out)]
+        emit("S", [], out)
+    # Runs that are not substantial prose cannot form a column.
+    for text in ("a line of running prose text here", "one two three", "12 34 56 78",
+                 "a b c d"):
+        emit("S", [], two_columns(text=text))
+    for width in (40, 79, 80, 120, 200):
+        emit("S", [], two_columns(width=width))
+    # Three columns, and one.
+    three = []
+    for row in range(8):
+        y = 700 - row * 14
+        for x in (60, 260, 460):
+            three.append((x, y, 150, 10, 10, "a line of running prose text here"))
+    emit("S", [], three)
+    emit("S", [], [(60, 700 - r * 14, 200, 10, 10, "a line of running prose text here")
+                   for r in range(12)])
+    emit("S", [], [])
+    # Drifting left edges within the 12pt tolerance.
+    for drift in (0, 3, 6, 12, 20):
+        out = []
+        for row in range(8):
+            y = 700 - row * 14
+            out.append((60 + row * drift, y, 200, 10, 10,
+                        "a line of running prose text here"))
+            out.append((320 + row * drift, y, 200, 10, 10,
+                        "a line of running prose text here"))
+        emit("S", [], out)
 
     for _ in range(random_count):
         regions = [(rng.randrange(0, 400) * 1.0, rng.randrange(0, 400) * 1.0,
@@ -5113,6 +5214,18 @@ def main():
         text=True, check=True
     )
     with open(os.path.join(arguments.directory, "singlebyte-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write(r.stdout)
+
+    cx_lines = chart_text_cases(max(arguments.cases // 4, 100))
+    with open(os.path.join(arguments.directory, "charttext-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n".join(cx_lines))
+    r = subprocess.run(
+        [probe, "--charttext"], input="\n".join(cx_lines) + "\n", capture_output=True,
+        text=True, check=True
+    )
+    with open(os.path.join(arguments.directory, "charttext-rust.txt"), "w",
               encoding="utf-8") as f:
         f.write(r.stdout)
 

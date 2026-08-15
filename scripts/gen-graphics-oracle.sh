@@ -71,7 +71,7 @@ perl -pi -e "s/^pub\\(crate\\) fn parse_encoding_dictionary/pub fn parse_encodin
     "$crate/src/extractor/fonts.rs"
 
 # `markdown` mod itself — the chart-region trio.
-perl -pi -e "s/^fn (is_chart_adjacent_label|item_is_in_chart_region|items_outside_chart_regions)/pub fn \$1/" \
+perl -pi -e "s/^fn (is_chart_adjacent_label|item_is_in_chart_region|items_outside_chart_regions|chart_page_prose_column_split|chart_spans_prose_split|is_cross_row_prose_continuation|looks_like_numbered_section_heading|merged_retry_skips_body_font)/pub fn \$1/" \
     "$crate/src/markdown/mod.rs"
 
 # `markdown::heading` — the numbering parser.
@@ -2560,10 +2560,76 @@ pub fn probe_chart(input: &str) -> String {
                 }
                 out.push('\n');
             }
+            // S: the prose column split.
+            "S" => {
+                match chart_page_prose_column_split(&items) {
+                    None => out.push_str("cs -\n"),
+                    Some(split) => out.push_str(&format!("cs {split:.2}\n")),
+                }
+            }
             // O: how many survive the filter.
             "O" => {
                 let kept = items_outside_chart_regions(&items, &regions);
                 out.push_str(&format!("co {}\n", kept.len()));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Probe (added for swift-anydoc): the small chart-prose predicates.
+pub fn probe_chart_text(input: &str) -> String {
+    let mut out = String::new();
+    for line in input.lines() {
+        let (tag, rest) = match line.split_once(' ') {
+            Some(pair) => pair,
+            None => (line, ""),
+        };
+        match tag {
+            // P prev|curr
+            "P" => {
+                let mut halves = rest.splitn(2, '|');
+                let previous = halves.next().unwrap_or("").replace('~', " ");
+                let current = halves.next().unwrap_or("").replace('~', " ");
+                out.push_str(&format!(
+                    "cp {}\n",
+                    is_cross_row_prose_continuation(&previous, &current) as u8
+                ));
+            }
+            // H text
+            "H" => out.push_str(&format!(
+                "chd {}\n",
+                looks_like_numbered_section_heading(&rest.replace('~', " ")) as u8
+            )),
+            // R x0,y0,x1,y1 split
+            "R" => {
+                let fields: Vec<&str> = rest.split(' ').filter(|p| !p.is_empty()).collect();
+                let corners: Vec<f32> = fields
+                    .first()
+                    .map(|p| p.split(',').filter_map(|v| v.parse().ok()).collect())
+                    .unwrap_or_default();
+                let split: f32 = fields.get(1).and_then(|p| p.parse().ok()).unwrap_or(0.0);
+                let answer = if corners.len() >= 4 {
+                    chart_spans_prose_split(
+                        (corners[0], corners[1], corners[2], corners[3]),
+                        split,
+                    ) as u8
+                } else {
+                    0
+                };
+                out.push_str(&format!("cx {answer}\n"));
+            }
+            // M a b
+            "M" => {
+                let fields: Vec<&str> = rest.split(' ').filter(|p| !p.is_empty()).collect();
+                out.push_str(&format!(
+                    "cmr {}\n",
+                    merged_retry_skips_body_font(
+                        fields.first().copied() == Some("1"),
+                        fields.get(1).copied() == Some("1")
+                    ) as u8
+                ));
             }
             _ => {}
         }
@@ -3866,6 +3932,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::markdown::heading::probe_numbering(&input));
+        return;
+    }
+    if path == "--charttext" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::markdown::probe_chart_text(&input));
         return;
     }
     if path == "--chart" {
