@@ -3117,3 +3117,41 @@ readings**.
   *lowercase* line is caught by wave 73's fragment rule long before the
   length bounds are reached, so isolating a bound needs capitalised text.
   The predicates compose more tightly than they read.
+
+- **Wave 78 — a line's visual identity.**
+  `PdfVisualStyle.swift` ports `dominant_font`, `dominant_font_size`,
+  `document_body_font`, `document_body_x_bucket` and `visual_style` from
+  `markdown/heading.rs`. This is the **third and last** of the signals
+  `PdfMarkdown.swift` has recorded as missing since wave 5.
+
+  Size says how big a line is and numbering says where it sits; this says
+  what it *looks like*, so a run of lines sharing a font, an indent and a
+  weight can be recognised as one heading level even when none of them is
+  larger than the body.
+
+  **Every one is a weighted vote, and the tie-breaks are not uniform.** Two
+  prefer the smaller key and one the larger:
+  - `dominant_font` and `document_body_font` break ties toward the
+    lexicographically **smaller** name;
+  - `document_body_x_bucket` toward the **smaller** bucket, the leftmost
+    indent;
+  - `dominant_font_size` toward the **larger** size — between two equally
+    weighted sizes the heading is the bigger one.
+
+  Three more asymmetries, all deliberate:
+  - `dominant_font` gives every run a weight of at least one, so a line of
+    empty runs still has a font; `document_body_font` does not, so an empty
+    run contributes nothing to the document-level vote.
+  - Sizes are **rounded** to a tenth here, where wave 74's font statistics
+    **truncate**. Different function, different rule.
+  - `visual_style` takes its indent from the **first** run rather than the
+    dominant one: where a line starts is what the eye reads as its indent.
+
+  699 probe cases agree on the first run, 190 of them for these five. 14 unit
+  tests, all passing first try.
+
+  **All three deferred signals are now ported** — numbering (76),
+  title-likeness (77) and visual style (78). What remains of
+  `markdown/heading.rs` is the sequence logic that consumes them:
+  `sequence_level`, `has_displaced_baseline_peer`,
+  `numbering_has_section_separation` and the assembly around them.

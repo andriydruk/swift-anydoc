@@ -73,7 +73,7 @@ perl -pi -e "s/^pub\\(crate\\) fn parse_encoding_dictionary/pub fn parse_encodin
 # `markdown::heading` — the numbering parser.
 perl -pi -e "s/^pub\\(crate\\) mod heading;/pub mod heading;/; s/^mod heading;/pub mod heading;/" \
     "$crate/src/markdown/mod.rs"
-perl -pi -e "s/^fn (roman_value|parse_numbering|has_additional_decimal_numbering|numbering_forms_hierarchy|title_like|complete_sidebar_label)/pub fn \$1/; s/^enum NumberingKind/pub enum NumberingKind/" \
+perl -pi -e "s/^fn (roman_value|parse_numbering|has_additional_decimal_numbering|numbering_forms_hierarchy|title_like|complete_sidebar_label|dominant_font|dominant_font_size|document_body_font|document_body_x_bucket|visual_style)/pub fn \$1/; s/^struct VisualStyle/pub struct VisualStyle/; s/^    font: String,/    pub font: String,/; s/^    x_bucket: i32,/    pub x_bucket: i32,/; s/^    bold: bool,/    pub bold: bool,/; s/^enum NumberingKind/pub enum NumberingKind/" \
     "$crate/src/markdown/heading.rs"
 
 # `markdown::postprocess` — the cleanup helpers, audited in wave 75.
@@ -2199,6 +2199,76 @@ pub fn probe_numbering(input: &str) -> String {
                     out.push('\n');
                 }
             },
+            // V mode ; font,size,bold,x,text ...   (raw `rest`, `~` intact)
+            "V" => {
+                use crate::types::{ItemType, TextItem, TextLine};
+                let fields: Vec<&str> = rest.split(' ').filter(|p| !p.is_empty()).collect();
+                let semi = match fields.iter().position(|p| *p == ";") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let mode = fields.first().copied().unwrap_or("0");
+                let items: Vec<TextItem> = fields[semi + 1..]
+                    .iter()
+                    .filter_map(|p| {
+                        let f: Vec<&str> = p.split(',').collect();
+                        if f.len() < 5 {
+                            return None;
+                        }
+                        Some(TextItem {
+                            text: f[4].replace('~', " "),
+                            x: f[3].parse().ok()?,
+                            y: 0.0,
+                            width: 10.0,
+                            height: 12.0,
+                            font: f[0].to_string(),
+                            font_size: f[1].parse().ok()?,
+                            page: 1,
+                            is_bold: f[2] == "1",
+                            is_italic: false,
+                            is_underline: false,
+                            is_strikeout: false,
+                            item_type: ItemType::Text,
+                            mcid: None,
+                        })
+                    })
+                    .collect();
+                // Modes 0, 1 and 4 put every run on one line; modes 2 and 3
+                // put each run on its own, since they are document-level.
+                let one = TextLine {
+                    y: 0.0,
+                    page: 1,
+                    adaptive_threshold: 0.10,
+                    items: items.clone(),
+                };
+                let many: Vec<TextLine> = items
+                    .iter()
+                    .map(|it| TextLine {
+                        y: 0.0,
+                        page: 1,
+                        adaptive_threshold: 0.10,
+                        items: vec![it.clone()],
+                    })
+                    .collect();
+                let answer = match mode {
+                    "0" => dominant_font(&one).unwrap_or_else(|| "-".to_string()),
+                    "1" => dominant_font_size(&one)
+                        .map(|s| format!("{s:.2}"))
+                        .unwrap_or_else(|| "-".to_string()),
+                    "2" => document_body_font(&many).unwrap_or_else(|| "-".to_string()),
+                    "3" => document_body_x_bucket(&many)
+                        .map(|b| b.to_string())
+                        .unwrap_or_else(|| "-".to_string()),
+                    _ => match visual_style(&one) {
+                        None => "-".to_string(),
+                        Some(style) => format!(
+                            "{}/{}/{}",
+                            style.font, style.x_bucket, style.bold as u8
+                        ),
+                    },
+                };
+                out.push_str(&format!("v {answer}\n"));
+            }
             "T" => {
                 // T numbered bold text
                 let mut fields = text.splitn(3, ' ');

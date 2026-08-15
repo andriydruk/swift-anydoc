@@ -51,6 +51,33 @@ import Testing
             var out = "n \(numbering.kind == .decimal ? "d" : "m") \(numbering.depth)"
             for part in numbering.parts { out += " \(part)" }
             return out
+        case "V":
+            // The raw rest, since `~` is meaningful inside the fields.
+            let raw = split.count > 1 ? String(split[1]) : ""
+            let fields = raw.split(separator: " ").filter { !$0.isEmpty }.map(String.init)
+            guard let semi = fields.firstIndex(of: ";"), let mode = fields.first
+            else { return nil }
+            let items: [PdfLayoutItem] = fields[(semi + 1)...].compactMap { field in
+                let f = field.split(separator: ",", omittingEmptySubsequences: false)
+                guard f.count >= 5, let size = Float(f[1]), let x = Float(f[3]) else { return nil }
+                var item = PdfLayoutItem(
+                    text: f[4].replacingOccurrences(of: "~", with: " "), x: x, y: 0, width: 10,
+                    fontSize: size, fontName: String(f[0]))
+                item.isBold = f[2] == "1"
+                return item
+            }
+            let one = PdfTextLine(items: items, y: 0)
+            let many = items.map { PdfTextLine(items: [$0], y: 0) }
+            switch mode {
+            case "0": return "v " + (pdfDominantFont(one) ?? "-")
+            case "1":
+                return "v " + (pdfDominantFontSize(one).map { twoPlaces($0) } ?? "-")
+            case "2": return "v " + (pdfDocumentBodyFont(many) ?? "-")
+            case "3": return "v " + (pdfDocumentBodyXBucket(many).map(String.init) ?? "-")
+            default:
+                guard let style = pdfVisualStyle(one) else { return "v -" }
+                return "v \(style.font)/\(style.xBucket)/\(style.bold ? 1 : 0)"
+            }
         case "T":
             let fields = text.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: false)
             guard fields.count >= 3 else { return "t 0" }
@@ -70,5 +97,13 @@ import Testing
         default:
             return nil
         }
+    }
+
+    private func twoPlaces(_ value: Float) -> String {
+        let scaled = (Double(value) * 100).rounded(.toNearestOrAwayFromZero)
+        let whole = Int(scaled / 100)
+        let fraction = abs(Int(scaled) % 100)
+        let sign = (scaled < 0 && whole == 0) ? "-" : ""
+        return "\(sign)\(whole).\(fraction < 10 ? "0" : "")\(fraction)"
     }
 }

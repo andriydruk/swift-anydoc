@@ -2646,6 +2646,70 @@ def numbering_cases(random_count):
                  "|1", "1|", "|", "1,2,3|1,2", "1,2|1,3", "2|1,1"):
         emit("H", pair)
 
+    # --- visual style: dominant font, size, body font, body indent ---
+    def V(mode, runs):
+        lines.append("V {} ; {}".format(
+            mode, " ".join("{},{},{},{},{}".format(f, sz, b, x, t.replace(" ", "~"))
+                           for f, sz, b, x, t in runs)))
+
+    shapes = [
+        [],
+        [("Body", 10, 0, 20, "a line of text")],
+        [("Body", 10, 0, 20, "short"), ("Bold", 10, 1, 60, "a much longer run here")],
+        [("Bold", 10, 1, 20, "a much longer run here"), ("Body", 10, 0, 60, "short")],
+        # Equal weights, so the tie-breaks decide — and they differ per
+        # function: font prefers the smaller name, size the larger bucket.
+        [("Aaa", 10, 0, 20, "abcd"), ("Bbb", 10, 0, 60, "efgh")],
+        [("Bbb", 10, 0, 20, "abcd"), ("Aaa", 10, 0, 60, "efgh")],
+        [("Body", 10, 0, 20, "abcd"), ("Body", 14, 0, 60, "efgh")],
+        [("Body", 14, 0, 20, "abcd"), ("Body", 10, 0, 60, "efgh")],
+        # A small section number beside a larger title.
+        [("Body", 8, 0, 20, "1."), ("Body", 16, 0, 40, "A Heading Title Here")],
+        [("Body", 16, 0, 20, "A Heading Title Here"), ("Body", 8, 0, 200, "1.")],
+        # Empty runs, which still weigh one for the per-line votes and
+        # nothing for the document-level one.
+        [("Body", 10, 0, 20, ""), ("Other", 10, 0, 60, "")],
+        [("Body", 10, 0, 20, ""), ("Other", 10, 0, 60, "abc")],
+        [("Body", 10, 0, 20, "   "), ("Other", 10, 0, 60, "ab")],
+        # All bold, which the body-font vote skips entirely.
+        [("Bold", 10, 1, 20, "all bold here")],
+        [("Bold", 10, 1, 20, "bold"), ("Body", 10, 0, 60, "plain")],
+        # Indent buckets, rounded at 24pt.
+        [("Body", 10, 0, 0, "at zero")],
+        [("Body", 10, 0, 11, "just under half")],
+        [("Body", 10, 0, 12, "exactly half")],
+        [("Body", 10, 0, 13, "just over half")],
+        [("Body", 10, 0, 36, "one and a half")],
+        [("Body", 10, 0, 240, "ten buckets")],
+        [("Body", 10, 0, -20, "negative")],
+        # Size buckets rounded to a tenth.
+        [("Body", 10.04, 0, 20, "a")],
+        [("Body", 10.05, 0, 20, "a")],
+        [("Body", 10.06, 0, 20, "a")],
+        # A mixed document: mostly one font, some bold headings.
+        [("Body", 10, 0, 20, "a long line of body text here"),
+         ("Body", 10, 0, 20, "another long line of body"),
+         ("Head", 16, 1, 20, "A Heading")],
+        [("Head", 16, 1, 20, "A Heading"),
+         ("Head", 16, 1, 20, "Another Heading"),
+         ("Body", 10, 0, 20, "short")],
+        # Two indents competing, one bold.
+        [("Body", 10, 0, 20, "a long line of body text here"),
+         ("Body", 10, 1, 100, "an even longer bold line of text here now")],
+    ]
+    for runs in shapes:
+        for mode in range(5):
+            V(mode, runs)
+
+    fonts = ["Body", "Bold", "Aaa", "Zzz"]
+    for _ in range(random_count // 2):
+        runs = []
+        for _ in range(rng.randrange(0, 5)):
+            runs.append((rng.choice(fonts), rng.choice([8, 10, 10.5, 12, 16]),
+                         rng.choice([0, 1]), rng.choice([0, 20, 36, 100]),
+                         rng.choice(["a", "abc", "a longer run", "", "  "])))
+        V(rng.randrange(0, 5), runs)
+
     # --- title_like and complete_sidebar_label ---
     titles = [
         "Introduction", "The Quick Brown Fox", "a lowercase heading",
