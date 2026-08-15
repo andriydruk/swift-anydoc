@@ -83,6 +83,11 @@ perl -pi -e "s/^fn (resolve_line_struct_role|detect_overused_struct_heading_leve
 # `markdown::convert` — the merge pair (wave 86).
 perl -pi -e "s/^fn (merge_wrapped_bold_heading_groups|count_table_columns)/pub fn \$1/" \
     "$crate/src/markdown/convert.rs"
+# `markdown::convert` — the positioned-block cluster (wave 87).
+perl -pi -e "s/^fn (chart_stream_position|positioned_block_precedes_line|compare_positioned_blocks|positioned_blocks_for_page)/pub fn \$1/; s/^enum PositionedBlockKind/pub enum PositionedBlockKind/; s/^type PositionedBlockRef/pub type PositionedBlockRef/; s/^pub\\(super\\) struct ChartProseOrder/pub struct ChartProseOrder/; s/^pub\\(super\\) struct PositionedMarkdown/pub struct PositionedMarkdown/; s/^    pub\\(super\\) fn new/    pub fn new/" \
+    "$crate/src/markdown/convert.rs"
+perl -pi -e "s/^const CHART_SEPARATOR_PAD/pub const CHART_SEPARATOR_PAD/" \
+    "$crate/src/markdown/mod.rs"
 
 # `markdown` mod itself — the chart-region trio.
 perl -pi -e "s/^fn (is_chart_adjacent_label|item_is_in_chart_region|items_outside_chart_regions|chart_page_prose_column_split|chart_spans_prose_split|is_cross_row_prose_continuation|looks_like_numbered_section_heading|merged_retry_skips_body_font)/pub fn \$1/; s/^pub\\(crate\\) fn split_side_by_side/pub fn split_side_by_side/" \
@@ -2811,6 +2816,144 @@ pub fn probe_wrapped(input: &str) -> String {
     out
 }
 
+/// Probe (added for swift-anydoc): the positioned-block cluster.
+pub fn probe_positioned(input: &str) -> String {
+    use crate::types::{ItemType, TextItem, TextLine};
+
+    // `split:cx0:cy0:cx1:cy1`, or `-` for a page with no chart stream.
+    fn parse_order(spec: &str) -> Option<ChartProseOrder> {
+        if spec == "-" {
+            return None;
+        }
+        let f: Vec<&str> = spec.split(':').collect();
+        if f.len() < 5 {
+            return None;
+        }
+        Some(ChartProseOrder::new(
+            f[0].parse().unwrap_or(0.0),
+            (
+                f[1].parse().unwrap_or(0.0),
+                f[2].parse().unwrap_or(0.0),
+                f[3].parse().unwrap_or(0.0),
+                f[4].parse().unwrap_or(0.0),
+            ),
+        ))
+    }
+
+    fn item(x: f32, y: f32) -> TextItem {
+        TextItem {
+            text: "t".to_string(),
+            x,
+            y,
+            width: 10.0,
+            height: 12.0,
+            font: "F1".to_string(),
+            font_size: 10.0,
+            page: 1,
+            is_bold: false,
+            is_italic: false,
+            is_underline: false,
+            is_strikeout: false,
+            item_type: ItemType::Text,
+            mcid: None,
+        }
+    }
+
+    let mut out = String::new();
+    for line in input.lines() {
+        let (tag, rest) = match line.split_once(' ') {
+            Some(pair) => pair,
+            None => (line, ""),
+        };
+        let fields: Vec<&str> = rest.split(' ').filter(|p| !p.is_empty()).collect();
+        match tag {
+            // Z y x claimed order
+            "Z" => {
+                if fields.len() < 4 {
+                    continue;
+                }
+                let Some(order) = parse_order(fields[3]) else { continue };
+                let (zone, column) = chart_stream_position(
+                    fields[0].parse().unwrap_or(0.0),
+                    fields[1].parse().unwrap_or(0.0),
+                    fields[2] == "1",
+                    order,
+                );
+                out.push_str(&format!("pz {zone} {column}\n"));
+            }
+            // P blocky blockx order ; lineY x,x,x
+            "P" => {
+                if fields.len() < 5 {
+                    continue;
+                }
+                let block = PositionedMarkdown::new(
+                    fields[0].parse().unwrap_or(0.0),
+                    fields[1].parse().unwrap_or(0.0),
+                    "md".to_string(),
+                    parse_order(fields[2]),
+                );
+                let line_y: f32 = fields[4].parse().unwrap_or(0.0);
+                let items: Vec<TextItem> = fields[5..]
+                    .iter()
+                    .filter_map(|p| p.parse::<f32>().ok())
+                    .map(|x| item(x, line_y))
+                    .collect();
+                let line = TextLine {
+                    y: line_y,
+                    page: 1,
+                    adaptive_threshold: 0.10,
+                    items,
+                };
+                out.push_str(&format!(
+                    "pp {}\n",
+                    positioned_block_precedes_line(&block, &line) as u8
+                ));
+            }
+            // S ; T:y:x:order I:y:x:order ...
+            "S" => {
+                let semi = match fields.iter().position(|p| *p == ";") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let mut tables: Vec<PositionedMarkdown> = Vec::new();
+                let mut images: Vec<PositionedMarkdown> = Vec::new();
+                for spec in &fields[semi + 1..] {
+                    let f: Vec<&str> = spec.split(':').collect();
+                    if f.len() < 3 {
+                        continue;
+                    }
+                    let block = PositionedMarkdown::new(
+                        f[1].parse().unwrap_or(0.0),
+                        f[2].parse().unwrap_or(0.0),
+                        "md".to_string(),
+                        parse_order(&f[3..].join(":")),
+                    );
+                    if f[0] == "T" { tables.push(block) } else { images.push(block) }
+                }
+                let mut page_tables = std::collections::HashMap::new();
+                let mut page_images = std::collections::HashMap::new();
+                page_tables.insert(1u32, tables);
+                page_images.insert(1u32, images);
+                let blocks = positioned_blocks_for_page(1, &page_tables, &page_images);
+                out.push_str("ps");
+                for (kind, idx, _) in &blocks {
+                    out.push_str(&format!(
+                        " {}{}",
+                        match kind {
+                            PositionedBlockKind::Table => "T",
+                            PositionedBlockKind::Image => "I",
+                        },
+                        idx
+                    ));
+                }
+                out.push('\n');
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 /// Probe (added for swift-anydoc): the isolation cluster.
 pub fn probe_isolated(input: &str) -> String {
     use crate::structure_tree::StructRole;
@@ -4258,6 +4401,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::markdown::convert::probe_wrapped(&input));
+        return;
+    }
+    if path == "--positioned" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::markdown::convert::probe_positioned(&input));
         return;
     }
     if path == "--isolated" {

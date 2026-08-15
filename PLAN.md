@@ -3406,3 +3406,33 @@ readings**.
 
   121 probe cases agree on the first run. 12 unit tests, all passing first
   try — fifth wave running.
+
+- **Wave 87 — where a table goes on a chart page.**
+  `PdfPositionedBlocks.swift` ports `ChartProseOrder`, `PositionedMarkdown`,
+  `chart_stream_position`, `positioned_block_precedes_line`,
+  `compare_positioned_blocks` and `positioned_blocks_for_page`.
+
+  Tables and images are lifted out before the text is grouped into lines and
+  have to be put back afterwards. On an ordinary page that is baseline order.
+  On a page where a full-width chart cuts between two prose columns it is
+  not — physical and reading order diverge, and a right-column table would be
+  emitted ahead of the left-column prose it follows. The fix is to give every
+  block the same logical stream coordinate the text uses: a `(zone, column)`
+  pair compared lexicographically, where zone is above-chart, chart, then
+  below-chart, and the band itself has no columns at all because a full-width
+  chart spans both.
+
+  Boundaries pinned: the band is padded by 8 points on each side and the test
+  is inclusive, so 408 is still the band and 409 is above it; the column
+  split is strict, so x 299 is left and 300 is right; being claimed by the
+  chart overrides the geometry wherever the run sits; and a line with no
+  items reads as x zero, which puts it in the left column.
+
+  One inconsistency reproduced rather than repaired: the block comparator
+  applies the stream ordering only when **both** blocks carry a chart order,
+  and drops to the legacy tables-then-images ordering otherwise. On a mixed
+  page that is not a consistent comparator — but a page either has a chart
+  stream or it does not, so the mixed case does not arise.
+
+  130 probe cases agree on the first run. 13 unit tests, all passing first
+  try — sixth wave running.

@@ -2733,6 +2733,69 @@ def wrapped_cases(random_count):
     return lines
 
 
+def positioned_cases(random_count):
+    """Cases for the positioned-block cluster."""
+    rng = random.Random(87_2026)
+    lines = []
+    # A chart band spanning y 300..400, prose split at x 300. The pad is 8,
+    # so the zone runs 292..408.
+    order = "300:0:300:600:400"
+
+    # --- chart_stream_position ---
+    for y in (500, 409, 408, 400, 350, 300, 292, 291, 200):
+        for x in (0, 299, 300, 301, 600):
+            lines.append("Z {} {} 0 {}".format(y, x, order))
+    # Claimed by the chart overrides the geometry entirely.
+    for y in (500, 200):
+        for x in (0, 600):
+            lines.append("Z {} {} 1 {}".format(y, x, order))
+    # A band given upside down: the min/max normalise it.
+    lines.append("Z 350 0 0 300:0:400:600:300")
+
+    # --- positioned_block_precedes_line ---
+    # Without a chart order the comparison is bare y.
+    for by, ly in ((700, 600), (600, 700), (700, 700)):
+        lines.append("P {} 20 - ; {} 20".format(by, ly))
+    # With one, the stream position leads and y only breaks ties.
+    for by, bx, ly, lx in ((500, 20, 200, 20), (200, 20, 500, 20),
+                           (500, 400, 500, 20), (500, 20, 500, 400),
+                           (350, 20, 500, 20), (500, 20, 350, 20),
+                           (700, 20, 700, 20), (700, 20, 701, 20)):
+        lines.append("P {} {} {} ; {} {}".format(by, bx, order, ly, lx))
+    # A line with an item inside the chart region is claimed by it, which
+    # moves the whole line into the chart zone whatever its own y says.
+    lines.append("P 500 20 {} ; 200 20 350".format(order))
+    lines.append("P 500 20 {} ; 200 20 700".format(order))
+    # A line with no items at all reads x as zero.
+    lines.append("P 500 400 {} ; 500".format(order))
+
+    # --- positioned_blocks_for_page ---
+    # Ordinary pages keep the legacy order: tables first, then images, each
+    # in input order, whatever the geometry says.
+    lines.append("S ; T:100:20:- T:700:20:- I:400:20:- I:900:20:-")
+    lines.append("S ; I:900:20:- T:100:20:-")
+    # A chart page orders by stream position, then descending y, then x.
+    lines.append("S ; T:200:20:{o} T:500:20:{o} I:350:20:{o}".format(o=order))
+    lines.append("S ; T:500:400:{o} T:500:20:{o}".format(o=order))
+    # One block without a chart order drops the whole comparison back to the
+    # legacy branch.
+    lines.append("S ; T:200:20:{o} I:500:20:-".format(o=order))
+    lines.append("S ; ")
+
+    # Random blocks, to shake the tie-breaks.
+    for _ in range(random_count):
+        count = rng.randint(1, 6)
+        specs = []
+        for _ in range(count):
+            kind = rng.choice(["T", "I"])
+            y = rng.choice([150, 200, 350, 400, 500, 700])
+            x = rng.choice([20, 299, 300, 400])
+            specs.append("{}:{}:{}:{}".format(kind, y, x, order))
+        lines.append("S ; " + " ".join(specs))
+
+    return lines
+
+
 def isolated_cases(random_count):
     """Cases for the isolation cluster: struct roles and isolated lines."""
     rng = random.Random(85_2026)
@@ -5549,6 +5612,18 @@ def main():
         text=True, check=True
     )
     with open(os.path.join(arguments.directory, "wrapped-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write(r.stdout)
+
+    po_lines = positioned_cases(max(arguments.cases // 8, 60))
+    with open(os.path.join(arguments.directory, "positioned-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n".join(po_lines))
+    r = subprocess.run(
+        [probe, "--positioned"], input="\n".join(po_lines) + "\n", capture_output=True,
+        text=True, check=True
+    )
+    with open(os.path.join(arguments.directory, "positioned-rust.txt"), "w",
               encoding="utf-8") as f:
         f.write(r.stdout)
 
