@@ -51,6 +51,64 @@ import Testing
             var out = "n \(numbering.kind == .decimal ? "d" : "m") \(numbering.depth)"
             for part in numbering.parts { out += " \(part)" }
             return out
+        case "D":
+            let raw = split.count > 1 ? String(split[1]) : ""
+            let fields = raw.split(separator: " ").filter { !$0.isEmpty }.map(String.init)
+            guard let semi = fields.firstIndex(of: ";"), let target = Int(fields[0])
+            else { return nil }
+            var built: [PdfTextLine] = []
+            for spec in fields[(semi + 1)...] {
+                let append = spec.hasPrefix("+")
+                let f = (append ? String(spec.dropFirst()) : spec)
+                    .split(separator: ",", omittingEmptySubsequences: false)
+                guard f.count >= 5, let page = Int(f[0]), let y = Float(f[1]),
+                    let x = Float(f[2]), let width = Float(f[3])
+                else { continue }
+                let item = PdfLayoutItem(
+                    text: f[4].replacingOccurrences(of: "~", with: " "), x: x, y: y,
+                    width: width, fontSize: 12, fontName: "F1")
+                if append, !built.isEmpty {
+                    built[built.count - 1].items.append(item)
+                } else {
+                    built.append(PdfTextLine(items: [item], y: y, page: page))
+                }
+            }
+            let peer = target < built.count && pdfHasDisplacedBaselinePeer(built, target)
+            return "d \(peer ? 1 : 0)"
+        case "SL":
+            let raw = split.count > 1 ? String(split[1]) : ""
+            let fields = raw.split(separator: " ").filter { !$0.isEmpty }.map(String.init)
+            let bar = fields.firstIndex(of: "|") ?? fields.count
+            guard fields.count >= 4 else { return nil }
+            let depth = Int(fields[3]) ?? 0
+            let tiers = fields[min(bar, fields.count)...].compactMap { Float($0) }
+            let candidate = PdfHeadingCandidate(
+                lineIndex: 0, fontSize: Float(fields[0]) ?? 12,
+                style: PdfVisualStyle(font: "F1", xBucket: 0, bold: fields[2] == "1"),
+                numbering: depth > 0
+                    ? PdfNumbering(
+                        kind: .decimal, depth: depth,
+                        parts: [UInt32](repeating: 1, count: depth))
+                    : nil)
+            return "sl \(pdfSequenceLevel(candidate, bodySize: Float(fields[1]) ?? 10, tiers: tiers))"
+        case "SS":
+            let raw = split.count > 1 ? String(split[1]) : ""
+            let fields = raw.split(separator: " ").filter { !$0.isEmpty }.map(String.init)
+            guard let semi = fields.firstIndex(of: ";"), fields.count > 1,
+                let leftIndex = Int(fields[0]), let rightIndex = Int(fields[1])
+            else { return nil }
+            let pages = fields[(semi + 1)...].compactMap { Int($0) }
+            let built = pages.map { PdfTextLine(items: [], y: 0, page: $0) }
+            func candidate(_ index: Int) -> PdfHeadingCandidate {
+                PdfHeadingCandidate(
+                    lineIndex: index, fontSize: 12,
+                    style: PdfVisualStyle(font: "F1", xBucket: 0, bold: false), numbering: nil)
+            }
+            let separated =
+                leftIndex < built.count && rightIndex < built.count
+                && pdfNumberingHasSectionSeparation(
+                    candidate(leftIndex), candidate(rightIndex), built)
+            return "ss \(separated ? 1 : 0)"
         case "V":
             // The raw rest, since `~` is meaningful inside the fields.
             let raw = split.count > 1 ? String(split[1]) : ""

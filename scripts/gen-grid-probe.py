@@ -2646,6 +2646,70 @@ def numbering_cases(random_count):
                  "|1", "1|", "|", "1,2,3|1,2", "1,2|1,3", "2|1,1"):
         emit("H", pair)
 
+    # --- has_displaced_baseline_peer ---
+    def D(target, specs):
+        lines.append("D {} ; {}".format(target, " ".join(specs)))
+
+    # One line, one run: nothing to be displaced from.
+    D(0, ["1,700,20,100,alone"])
+    D(0, [])
+    D(5, ["1,700,20,100,alone"])
+    # A void inside the line, walked around the 24pt bucket.
+    for gap in (10, 20, 23, 24, 25, 40, 100):
+        D(0, ["1,700,20,100,left", "+1,700,{},100,right".format(120 + gap)])
+    # Runs given out of order, so the sort matters.
+    D(0, ["1,700,200,100,right", "+1,700,20,100,left"])
+    D(0, ["1,700,200,100,right", "+1,700,20,60,left"])
+    # A negative width, floored at zero before the gap is measured.
+    D(0, ["1,700,20,-50,left", "+1,700,60,100,right"])
+    # A peer line at the same baseline and a displaced indent.
+    for x in (20, 30, 43, 44, 45, 60, 200):
+        D(0, ["1,700,20,100,first", "1,700,{},100,peer".format(x)])
+    # The baseline tolerance, walked.
+    for y in (700, 701, 702, 703, 705):
+        D(0, ["1,700,20,100,first", "1,{},200,100,peer".format(y)])
+    # A peer on another page does not count.
+    D(0, ["1,700,20,100,first", "2,700,200,100,peer"])
+    # Several lines, only one of which is a peer.
+    D(1, ["1,720,20,100,above", "1,700,20,100,target", "1,700,200,100,peer",
+          "1,680,20,100,below"])
+    D(3, ["1,720,20,100,above", "1,700,20,100,target", "1,700,200,100,peer",
+          "1,680,20,100,below"])
+    # An empty line among them.
+    D(0, ["1,700,20,100,first", "1,700,200,0,"])
+
+    # --- sequence_level ---
+    def SL(size, base, bold, depth, tiers):
+        lines.append("SL {} {} {} {} | {}".format(
+            size, base, bold, depth, " ".join(str(t) for t in tiers)))
+
+    # Numbering wins outright, clamped to one through six.
+    for depth in (0, 1, 2, 3, 6, 7, 12):
+        SL(12, 10, 0, depth, [24, 16])
+        SL(24, 10, 0, depth, [24, 16])
+    # Without numbering, size decides — and the bold fallback catches what
+    # size rejects, so this never refuses.
+    for size in (10, 11, 12, 13, 16, 24, 40):
+        for bold in (0, 1):
+            SL(size, 10, bold, 0, [24, 16])
+            SL(size, 10, bold, 0, [])
+            SL(size, 10, bold, 0, [11])
+
+    # --- numbering_has_section_separation ---
+    def SS(left, right, pages):
+        lines.append("SS {} {} ; {}".format(left, right, " ".join(str(p) for p in pages)))
+
+    same = [1, 1, 1, 1, 1, 1]
+    for left, right in ((0, 0), (0, 1), (0, 2), (0, 3), (0, 5), (3, 0), (5, 2)):
+        SS(left, right, same)
+    # A page boundary settles it outright, however close the lines.
+    SS(0, 1, [1, 2, 2, 2, 2, 2])
+    SS(1, 2, [1, 2, 2, 2, 2, 2])
+    SS(0, 1, [1, 1, 2, 2, 2, 2])
+    # Out-of-range indices.
+    SS(0, 9, same)
+    SS(9, 0, same)
+
     # --- visual style: dominant font, size, body font, body indent ---
     def V(mode, runs):
         lines.append("V {} ; {}".format(

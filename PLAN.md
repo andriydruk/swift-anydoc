@@ -3155,3 +3155,31 @@ readings**.
   `markdown/heading.rs` is the sequence logic that consumes them:
   `sequence_level`, `has_displaced_baseline_peer`,
   `numbering_has_section_separation` and the assembly around them.
+
+- **Wave 79 — the sequence leaves.**
+  `PdfHeadingSequence.swift` ports `has_displaced_baseline_peer`,
+  `numbering_has_section_separation` and `sequence_level`. Waves 76–78 built
+  the three signals; these decide when a *run* of lines sharing one is really
+  a heading level, and what level to give it.
+  - `has_displaced_baseline_peer` looks for the peer **twice**: as a wide
+    void inside the line's own runs, since the grouper may already have
+    merged the columns, and as a separate line at the same baseline with a
+    displaced indent. 24pt is the bar for both, and the run widths are
+    floored at zero so a bad width cannot reach backwards and manufacture a
+    gap.
+  - `numbering_has_section_separation` needs **two intervening lines** or a
+    page boundary. A compact `1.` / `1.1.` run is an ordered list far more
+    often than a document hierarchy, because genuine section headings have
+    body content between them.
+  - `sequence_level` lets numbering win outright — its depth *is* the level,
+    clamped to the six Markdown offers — and otherwise falls back to size.
+    Note the fallback never refuses: a line that size rejects still becomes a
+    heading via `pdfBoldHeadingLevel`, which is what admits a bold section
+    heading set at exactly body size.
+
+  796 probe cases agree on the first run. 13 unit tests; one expectation was
+  wrong — I built a "negative width" case whose gap cleared the bar anyway,
+  so it demonstrated nothing until narrowed to where the flooring decides.
+
+  **Remaining in `markdown/heading.rs`:** `classify_heading_sequences`, the
+  ~176-line assembly that consumes all of the above.

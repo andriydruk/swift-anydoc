@@ -73,7 +73,7 @@ perl -pi -e "s/^pub\\(crate\\) fn parse_encoding_dictionary/pub fn parse_encodin
 # `markdown::heading` — the numbering parser.
 perl -pi -e "s/^pub\\(crate\\) mod heading;/pub mod heading;/; s/^mod heading;/pub mod heading;/" \
     "$crate/src/markdown/mod.rs"
-perl -pi -e "s/^fn (roman_value|parse_numbering|has_additional_decimal_numbering|numbering_forms_hierarchy|title_like|complete_sidebar_label|dominant_font|dominant_font_size|document_body_font|document_body_x_bucket|visual_style)/pub fn \$1/; s/^struct VisualStyle/pub struct VisualStyle/; s/^    font: String,/    pub font: String,/; s/^    x_bucket: i32,/    pub x_bucket: i32,/; s/^    bold: bool,/    pub bold: bool,/; s/^enum NumberingKind/pub enum NumberingKind/" \
+perl -pi -e "s/^fn (roman_value|parse_numbering|has_additional_decimal_numbering|numbering_forms_hierarchy|title_like|complete_sidebar_label|dominant_font|dominant_font_size|document_body_font|document_body_x_bucket|visual_style|has_displaced_baseline_peer|numbering_has_section_separation|sequence_level)/pub fn \$1/; s/^struct Candidate/pub struct Candidate/; s/^    line_idx: usize,/    pub line_idx: usize,/; s/^    font_size: f32,/    pub font_size: f32,/; s/^    style: VisualStyle,/    pub style: VisualStyle,/; s/^    numbering: Option<\\(NumberingKind, usize, Vec<u32>\\)>,/    pub numbering: Option<(NumberingKind, usize, Vec<u32>)>,/; s/^struct VisualStyle/pub struct VisualStyle/; s/^    font: String,/    pub font: String,/; s/^    x_bucket: i32,/    pub x_bucket: i32,/; s/^    bold: bool,/    pub bold: bool,/; s/^enum NumberingKind/pub enum NumberingKind/" \
     "$crate/src/markdown/heading.rs"
 
 # `markdown::postprocess` — the cleanup helpers, audited in wave 75.
@@ -2199,6 +2199,119 @@ pub fn probe_numbering(input: &str) -> String {
                     out.push('\n');
                 }
             },
+            // D index ; page,y,x,width,text ...   (displaced baseline peer)
+            "D" => {
+                use crate::types::{ItemType, TextItem, TextLine};
+                let fields: Vec<&str> = rest.split(' ').filter(|p| !p.is_empty()).collect();
+                let semi = match fields.iter().position(|p| *p == ";") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let target: usize = fields[0].parse().unwrap_or(0);
+                // One line per field group; a `+` prefix appends the run to
+                // the previous line instead of starting a new one.
+                let mut lines_in: Vec<TextLine> = Vec::new();
+                for spec in &fields[semi + 1..] {
+                    let append = spec.starts_with('+');
+                    let body = spec.trim_start_matches('+');
+                    let f: Vec<&str> = body.split(',').collect();
+                    if f.len() < 5 {
+                        continue;
+                    }
+                    let item = TextItem {
+                        text: f[4].replace('~', " "),
+                        x: f[2].parse().unwrap_or(0.0),
+                        y: f[1].parse().unwrap_or(0.0),
+                        width: f[3].parse().unwrap_or(0.0),
+                        height: 12.0,
+                        font: "F1".to_string(),
+                        font_size: 12.0,
+                        page: f[0].parse().unwrap_or(1),
+                        is_bold: false,
+                        is_italic: false,
+                        is_underline: false,
+                        is_strikeout: false,
+                        item_type: ItemType::Text,
+                        mcid: None,
+                    };
+                    if append && !lines_in.is_empty() {
+                        let last = lines_in.len() - 1;
+                        lines_in[last].items.push(item);
+                    } else {
+                        lines_in.push(TextLine {
+                            y: item.y,
+                            page: item.page,
+                            adaptive_threshold: 0.10,
+                            items: vec![item],
+                        });
+                    }
+                }
+                let answer = if target < lines_in.len() {
+                    has_displaced_baseline_peer(&lines_in, target) as u8
+                } else {
+                    0
+                };
+                out.push_str(&format!("d {answer}\n"));
+            }
+            // SL size base bold depth | tier ...   (depth 0 = no numbering)
+            "SL" => {
+                let fields: Vec<&str> = rest.split(' ').filter(|p| !p.is_empty()).collect();
+                let bar = fields.iter().position(|p| *p == "|").unwrap_or(fields.len());
+                let size: f32 = fields.first().and_then(|f| f.parse().ok()).unwrap_or(12.0);
+                let base: f32 = fields.get(1).and_then(|f| f.parse().ok()).unwrap_or(10.0);
+                let bold = fields.get(2).copied() == Some("1");
+                let depth: usize = fields.get(3).and_then(|f| f.parse().ok()).unwrap_or(0);
+                let tiers: Vec<f32> = fields[bar.min(fields.len())..]
+                    .iter()
+                    .filter_map(|p| p.parse().ok())
+                    .collect();
+                let candidate = Candidate {
+                    line_idx: 0,
+                    font_size: size,
+                    style: VisualStyle { font: "F1".into(), x_bucket: 0, bold },
+                    numbering: (depth > 0)
+                        .then(|| (NumberingKind::Decimal, depth, vec![1u32; depth])),
+                };
+                out.push_str(&format!(
+                    "sl {}\n",
+                    sequence_level(&candidate, base, &tiers)
+                ));
+            }
+            // SS leftIdx rightIdx ; page,page,...   (section separation)
+            "SS" => {
+                use crate::types::TextLine;
+                let fields: Vec<&str> = rest.split(' ').filter(|p| !p.is_empty()).collect();
+                let semi = match fields.iter().position(|p| *p == ";") {
+                    Some(index) => index,
+                    None => continue,
+                };
+                let left_idx: usize = fields[0].parse().unwrap_or(0);
+                let right_idx: usize = fields[1].parse().unwrap_or(0);
+                let lines_in: Vec<TextLine> = fields[semi + 1..]
+                    .iter()
+                    .filter_map(|p| {
+                        Some(TextLine {
+                            y: 0.0,
+                            page: p.parse().ok()?,
+                            adaptive_threshold: 0.10,
+                            items: vec![],
+                        })
+                    })
+                    .collect();
+                let make = |idx: usize| Candidate {
+                    line_idx: idx,
+                    font_size: 12.0,
+                    style: VisualStyle { font: "F1".into(), x_bucket: 0, bold: false },
+                    numbering: None,
+                };
+                let answer = if left_idx < lines_in.len() && right_idx < lines_in.len() {
+                    numbering_has_section_separation(&make(left_idx), &make(right_idx), &lines_in)
+                        as u8
+                } else {
+                    0
+                };
+                out.push_str(&format!("ss {answer}\n"));
+            }
             // V mode ; font,size,bold,x,text ...   (raw `rest`, `~` intact)
             "V" => {
                 use crate::types::{ItemType, TextItem, TextLine};
