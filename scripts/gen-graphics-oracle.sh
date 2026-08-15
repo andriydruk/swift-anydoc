@@ -71,7 +71,7 @@ perl -pi -e "s/^pub\\(crate\\) fn parse_encoding_dictionary/pub fn parse_encodin
     "$crate/src/extractor/fonts.rs"
 
 # `markdown` mod itself — the chart-region trio.
-perl -pi -e "s/^fn (is_chart_adjacent_label|item_is_in_chart_region|items_outside_chart_regions|chart_page_prose_column_split|chart_spans_prose_split|is_cross_row_prose_continuation|looks_like_numbered_section_heading|merged_retry_skips_body_font)/pub fn \$1/" \
+perl -pi -e "s/^fn (is_chart_adjacent_label|item_is_in_chart_region|items_outside_chart_regions|chart_page_prose_column_split|chart_spans_prose_split|is_cross_row_prose_continuation|looks_like_numbered_section_heading|merged_retry_skips_body_font)/pub fn \$1/; s/^pub\\(crate\\) fn split_side_by_side/pub fn split_side_by_side/" \
     "$crate/src/markdown/mod.rs"
 
 # `markdown::heading` — the numbering parser.
@@ -2557,6 +2557,15 @@ pub fn probe_chart(input: &str) -> String {
                 out.push_str("ci ");
                 for item in &items {
                     out.push(if item_is_in_chart_region(item, &regions) { '1' } else { '0' });
+                }
+                out.push('\n');
+            }
+            // B: the side-by-side band split.
+            "B" => {
+                let bands = split_side_by_side(&items);
+                out.push_str(&format!("cb {}", bands.len()));
+                for (low, high) in &bands {
+                    out.push_str(&format!(" {low:.2}:{high:.2}"));
                 }
                 out.push('\n');
             }

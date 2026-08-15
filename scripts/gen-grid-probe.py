@@ -2715,6 +2715,57 @@ def chart_cases(random_count):
         emit(tag, [], spread)
     emit("O", [chart], [])
 
+    # --- split_side_by_side ---
+    def two_tables(rows=12, left_x=40, left_w=120, right_x=340, right_w=120,
+                   left_text="Label~text", right_text="Other~text", gap_rows=0):
+        out = []
+        for row in range(rows):
+            y = 700 - row * 14
+            for column in range(2):
+                out.append((left_x + column * 60, y, left_w // 2, 10, 10, left_text))
+                out.append((right_x + column * 60, y, right_w // 2, 10, 10, right_text))
+        return out
+    emit("B", [], two_tables())
+    # The forty-item floor.
+    for rows in (8, 9, 10, 11, 20):
+        emit("B", [], two_tables(rows=rows))
+    # The gap between the tables, walked around 30pt.
+    for right_x in (180, 189, 190, 200, 260, 340):
+        emit("B", [], two_tables(right_x=right_x))
+    # A run crossing the split: allowed up to a twentieth of the page.
+    for spanning in (0, 1, 2, 3, 5, 10):
+        out = two_tables()
+        for index in range(spanning):
+            out.append((100, 720 + index * 14, 400, 10, 10, "a~spanning~header~here"))
+        emit("B", [], out)
+    # Labels on the left and figures on the right at matching baselines:
+    # one table, not two.
+    emit("B", [], two_tables(right_text="1,234.56"))
+    emit("B", [], two_tables(right_text="1,234.56", left_text="99.5"))
+    # ... and the same figures at *different* baselines, which is two.
+    out = []
+    for row in range(12):
+        y = 700 - row * 14
+        for column in range(2):
+            out.append((40 + column * 60, y, 60, 10, 10, "Label~text"))
+            out.append((340 + column * 60, y - 7, 60, 10, 10, "1,234.56"))
+    emit("B", [], out)
+    # Three columns of equal spacing: one wide table, not two regions.
+    out = []
+    for row in range(14):
+        y = 700 - row * 14
+        for x in (40, 240, 440):
+            out.append((x, y, 60, 10, 10, "Label~text"))
+    emit("B", [], out)
+    # Everything on one side, so no balanced candidate exists.
+    out = []
+    for row in range(24):
+        y = 700 - row * 14
+        out.append((40, y, 60, 10, 10, "Label~text"))
+        out.append((100, y, 60, 10, 10, "Label~text"))
+    emit("B", [], out)
+    emit("B", [], [])
+
     # --- chart_page_prose_column_split ---
     def two_columns(rows=8, left_x=60, right_x=320, width=200, top=700, step=14,
                     text="a line of running prose text here"):

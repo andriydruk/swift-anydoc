@@ -72,6 +72,11 @@ import Testing
         case "S":
             guard let split = pdfChartPageProseColumnSplit(items) else { return "cs -" }
             return "cs \(twoPlaces(split))"
+        case "B":
+            let bands = pdfSplitSideBySide(items)
+            var out = "cb \(bands.count)"
+            for band in bands { out += " \(twoPlaces(band.low)):\(twoPlaces(band.high))" }
+            return out
         default:
             return nil
         }

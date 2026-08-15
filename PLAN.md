@@ -3270,3 +3270,29 @@ readings**.
   tests, **all passing first try** — the first wave in five where none of my
   expectations were wrong, because every boundary was read off the reference
   before the assertion was written rather than after it failed.
+
+- **Wave 83 — two tables or one?**
+  `PdfSideBySide.swift` ports `split_side_by_side`. Two independent tables
+  set beside each other look, to a column detector, exactly like one wide
+  table with a big inner gap — and getting it wrong either way is bad:
+  reading two as one interleaves their rows, reading one as two splits every
+  row in half.
+
+  So the test is deliberately hard to satisfy. A candidate gap must be wide,
+  central and balanced; crossed by almost nothing; the **only** such gap on
+  the page; and the two sides must not read as a label column beside a figure
+  column.
+  - Balance is counted by the runs' **centres**, not their left edges.
+  - The crossing budget is a twentieth of the page, floored at two — which is
+    what admits a spanning header or two without admitting a wide table's
+    own rows.
+  - The label-and-figures refusal needs **all three** signs: under 30%
+    numeric on the left, at least 70% on the right, and half the right's runs
+    sharing a baseline with a left one. Offsetting the figures by five points
+    breaks the third and the page splits again.
+
+  224 probe cases agree on the first run. 8 unit tests, all passing first
+  try. One case-design correction along the way: my "gap width" sweep was
+  really measuring *crossings* — bringing the tables together makes the left
+  table's own runs cross the midpoint long before the gap itself becomes too
+  narrow. The test now says so.
