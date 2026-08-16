@@ -3735,3 +3735,35 @@ readings**.
 
   179 probe cases agree on the first run. 10 unit tests, all passing first
   try.
+
+- **Wave 96 — closing wave 95's gap.**
+  `parsePdfToUnicode` now applies `pdfNormalizeToUnicodeDestination`, and a
+  new `PdfCMapScannerTests` pins the scanner against the reference's own
+  `ToUnicodeCMap::parse` answers.
+
+  Wave 5 ported `ToUnicodeCMap::parse` by reimplementing it as a byte
+  scanner rather than transliterating its helpers. That passed its own probe
+  — but the probe only checked what the scanner *did*, never what the
+  reference's helpers did on the same path, so a behaviour could be silently
+  **absent** rather than wrong. Wave 95 exposed one; this wave measured and
+  closed it.
+
+  The reference's `ToUnicodeCMap::parse` is public and takes bytes, so it can
+  be queried directly. Asked about a destination of `<00200009>` it answers
+  `U+0009`; the port answered `U+0020 U+0009`. Four such cases failed before
+  the fix and pass after. The neighbouring behaviours were already correct:
+  surrogate pairs join, an unpaired half maps to nothing, and ordinary runs
+  — two spaces, a `ffi` ligature — are left alone.
+
+  The comparison is by **what the map answers**, not how it stores it: the
+  reference keeps ranges lazily and this port flattens them, so `lookup` is
+  the only fair basis.
+
+  **Not done, and recorded as such.** The oracle now carries a `--cmapparse`
+  mode, but the case generator is not wired to it, so this wave's evidence is
+  a set of reference answers pinned as unit tests rather than a generated
+  differential suite. Wiring it is the first thing to do next — and the
+  broader question wave 95 raised stands: **wherever an early wave
+  reimplemented rather than transliterated, the probe validates the port's
+  structure, not the reference's behaviour.** Those sites are worth
+  enumerating.

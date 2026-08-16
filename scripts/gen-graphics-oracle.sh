@@ -83,6 +83,7 @@ perl -pi -e "s/^fn (resolve_line_struct_role|detect_overused_struct_heading_leve
 # `markdown::convert` — the merge pair (wave 86).
 perl -pi -e "s/^fn (merge_wrapped_bold_heading_groups|count_table_columns)/pub fn \$1/" \
     "$crate/src/markdown/convert.rs"
+
 # `tounicode` — the pure string helpers (wave 95).
 perl -pi -e "s/^pub\\(crate\\) mod tounicode;/pub mod tounicode;/; s/^mod tounicode;/pub mod tounicode;/" \
     "$crate/src/lib.rs"
@@ -5027,6 +5028,13 @@ fn main() {
         print!("{}", pdf_inspector::markdown::preprocess::probe_preprocess(&input));
         return;
     }
+    if path == "--cmapparse" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::tounicode::probe_cmapparse(&input));
+        return;
+    }
     if path == "--tounicodetext" {
         use std::io::Read;
         let mut input = String::new();
@@ -5464,6 +5472,42 @@ pub fn probe_tounicodetext(input: &str) -> String {
             )),
             _ => {}
         }
+    }
+    out
+}
+RUSTEOF
+
+cat >> "$crate/src/tounicode.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): the ToUnicode stream parser, compared by
+/// what it *answers* rather than how it stores it — the reference keeps
+/// ranges lazily where the port flattens them.
+pub fn probe_cmapparse(input: &str) -> String {
+    let mut out = String::new();
+    for case in input.lines() {
+        let Some((stream, codes)) = case.split_once(" ? ") else { continue };
+        let data = stream.replace('~', " ").replace('^', "\n");
+        let Some(cmap) = ToUnicodeCMap::parse(data.as_bytes()) else {
+            out.push_str("cm -\n");
+            continue;
+        };
+        let mut line = format!("cm b{}", cmap.code_byte_length);
+        for code_hex in codes.split(',') {
+            let code = u16::from_str_radix(code_hex.trim(), 16).unwrap_or(0);
+            match cmap.lookup(code) {
+                Some(text) => line.push_str(&format!(
+                    " {}={}",
+                    code_hex.trim(),
+                    text.chars()
+                        .map(|c| format!("{:04X}", c as u32))
+                        .collect::<Vec<_>>()
+                        .join(".")
+                )),
+                None => line.push_str(&format!(" {}=-", code_hex.trim())),
+            }
+        }
+        out.push_str(&line);
+        out.push('\n');
     }
     out
 }

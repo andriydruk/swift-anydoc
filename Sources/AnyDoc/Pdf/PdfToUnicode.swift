@@ -81,7 +81,9 @@ func parsePdfToUnicode(_ content: [UInt8]) -> PdfToUnicodeCMap {
                         last = UInt16(truncatingIfNeeded: Int(last) + offset)
                         units[units.count - 1] = last
                     }
-                    cmap.setMapping(lo + UInt32(offset), unitsToString(units))
+                    cmap.setMapping(
+                        lo + UInt32(offset),
+                        pdfNormalizeToUnicodeDestination(unitsToString(units)))
                 }
             case .array(let entries):
                 for (offset, digits) in entries.enumerated() where offset < count {
@@ -235,8 +237,14 @@ private func hexDigitsToUnits(_ digits: [UInt8]) -> [UInt16] {
     return units
 }
 
+/// A destination's hex digits as the text they denote.
+///
+/// Normalised, because a malformed producer may write a *list* of
+/// alternative whitespace or hyphen codepoints into one destination and the
+/// reference collapses those to a single character. See
+/// `pdfNormalizeToUnicodeDestination`.
 private func hexDigitsToString(_ digits: [UInt8]) -> String {
-    unitsToString(hexDigitsToUnits(digits))
+    pdfNormalizeToUnicodeDestination(unitsToString(hexDigitsToUnits(digits)))
 }
 
 /// UTF-16 units to a string, pairing surrogates. Unpaired ones are dropped
