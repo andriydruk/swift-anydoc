@@ -3960,3 +3960,29 @@ readings**.
 
   Remaining: `two-column.pdf` (table detection) and `annotations.pdf`
   (form-field text).
+
+- **Wave 102 — form fields are text, hyperlinks are not.**
+  Annotations wired into `PdfPipeline.swift`, and the end-to-end tally moves
+  to **26 of 27**.
+
+  Neither a link nor a field value is drawn by any content stream — a link is
+  a rectangle plus an action, and a field value lives off the trailer — so
+  both need their own extraction. Both were ported in an earlier wave and,
+  for the fourth wave running, neither was connected to anything.
+
+  Wiring them naively made it *worse*: appending both to the page's items
+  emitted a bare URL the reference never prints. The reference sorts items by
+  type before the markdown path and **links go to a separate stream**, used
+  to decorate matching text as `[text](url)`; they never contribute text of
+  their own. Form fields go in with the text. That decoration pass is
+  unported, so a hyperlink currently survives as plain text — noted at the
+  call site.
+
+  Annotations join *after* the merge and letter-spacing passes, which is the
+  reference's order: they are not text the page drew, and merging must not
+  see them. They carry font size zero and no font name, so they cannot vote
+  in the body-size statistics that every heading ratio is measured against.
+
+  **The remaining divergence is `two-column.pdf`**, which needs per-page
+  table detection — the largest of the five gaps wave 99 measured, and now
+  the only one.

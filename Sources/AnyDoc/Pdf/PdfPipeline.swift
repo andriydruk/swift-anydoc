@@ -29,6 +29,13 @@ func pdfMarkdown(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOpti
     var document = try PdfDocument(bytes: bytes)
     var lines: [PdfTextLine] = []
 
+    // A link is a rectangle plus an action and a field value lives off the
+    // trailer, so neither is drawn by any content stream — they need their
+    // own extraction and are folded in as items positioned at their
+    // rectangles, exactly as the reference does.
+    let pageNumbers = pdfPageNumbers(&document)
+    let formFields = pdfFormFields(&document, pageNumbers: pageNumbers)
+
     for (index, page) in pdfDocumentPages(&document).enumerated() {
         let number = index + 1
         let styles = pdfPageFontStyles(&document, page)
@@ -64,6 +71,18 @@ func pdfMarkdown(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOpti
         // the item.
         pdfSuppressTableUnderlines(
             &items, rects: graphics.rectangles, lines: graphics.lines)
+
+        // Form-field values join *after* the passes above, which is the
+        // reference's order — they are not text the page drew, so merging
+        // and letter-spacing must not see them.
+        //
+        // **Links do not join at all.** The reference sorts them into a
+        // separate stream and uses them to decorate matching text as
+        // `[text](url)`; they never contribute text of their own, so
+        // appending them here emitted a bare URL the reference never
+        // prints. That decoration pass is unported, so a hyperlink
+        // currently survives as plain text.
+        items += formFields.filter { $0.page == number }.map(pdfAnnotationLayoutItem)
 
         // No chart regions and no table regions: both need detectors this
         // port has not wired to a document yet, so every page groups as
@@ -216,4 +235,17 @@ func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [P
         }
         return out
     }
+}
+
+/// An annotation as a layout item, positioned at its rectangle.
+///
+/// Font size zero and an empty font name, as the reference sets them: these
+/// are not glyphs anyone drew, and giving them a size would let them vote in
+/// the document's body-size statistics.
+func pdfAnnotationLayoutItem(_ annotation: PdfAnnotationItem) -> PdfLayoutItem {
+    var item = PdfLayoutItem(
+        text: annotation.text, x: annotation.x, y: annotation.y,
+        width: annotation.width, fontSize: 0, fontName: "")
+    item.height = annotation.height
+    return item
 }

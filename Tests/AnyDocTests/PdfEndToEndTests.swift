@@ -20,6 +20,7 @@ import Testing
     /// Files known to convert byte-identically. Adding to this list is the
     /// measure of progress; a file leaving it is a regression.
     private static let matching: Set<String> = [
+        "annotations.pdf",
         "bad-xref-offsets.pdf",
         "cid-font.pdf",
         "classic-xref.pdf",
