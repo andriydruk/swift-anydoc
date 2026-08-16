@@ -37,6 +37,7 @@ import Testing
         "lying-length.pdf",
         "object-stream.pdf",
         "underline-basic.pdf",
+        "underline-fraction.pdf",
         "underline-segmented.pdf",
         "underline-table.pdf",
         "xref-stream-narrow-w.pdf",

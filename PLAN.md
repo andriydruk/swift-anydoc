@@ -3895,3 +3895,35 @@ readings**.
   not distinguished from a text one; no table or image detection; no
   structure tree, so a tagged PDF is read as untagged. Each is noted at its
   call site rather than summarised, so adding one is a local edit.
+
+- **Wave 100 — underlines inside tables, and a wiring bug the ratchet caught.**
+  `PdfTableUnderlines.swift` ports `suppress_table_underlines`, and the
+  end-to-end tally moves to **23 of 27**.
+
+  A ruled table's cell borders are strokes like any other, so the geometric
+  underline detector reads the rule *under* a cell as an underline *on* its
+  text and every cell comes out `<u>`-wrapped. The fix runs after detection
+  and clears the flags on any item a table detector claims — but only if the
+  table is **plausible**, because erasing wherever a table is detected erases
+  legitimate underlines whenever the detector is wrong. The gate is cell
+  length: a grid where 30% or more of its non-empty cells exceed a hundred
+  characters has captured flowing prose, not data. The reference's own note
+  records the case that forced this — a 4×8 grid claiming 52 of 52 items on
+  a prose page, one cell holding 806 characters.
+
+  **The port was right and the wiring was wrong, and only the byte-diff said
+  so.** The first attempt applied the suppression per *line*, after grouping.
+  Every unit test passed and the tally did not move: a line holds one or two
+  items, so no detector ever found a grid and the function did nothing at
+  all. Emphasis and decoration are decided for the whole page, before
+  grouping — as the reference does, and as `merge-fragments` and
+  `merge-thresholds` will need too.
+
+  That is the first defect this project has found through end-to-end output
+  rather than through a unit probe, which is exactly the class wave 99 was
+  built to catch: a correct function connected at the wrong level has
+  nothing to disagree with in isolation.
+
+  7 unit tests. Remaining divergences: `two-column.pdf` (table detection),
+  `annotations.pdf` (form-field text), `merge-thresholds.pdf` (a word-join
+  threshold), `merge-fragments.pdf` (fragment merging).

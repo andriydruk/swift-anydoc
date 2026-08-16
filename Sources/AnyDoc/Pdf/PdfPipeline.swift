@@ -43,20 +43,27 @@ func pdfMarkdown(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOpti
         let measured = pdfFixLetterspacedItems(&items)
         let threshold = measured > 0.10 ? measured : 0.10
 
+        // Emphasis and decoration are decided for the **whole page**, before
+        // grouping. The table detectors need every item on the page to find
+        // a grid at all — run per line, each sees one or two items and finds
+        // nothing, which is how the first attempt at this silently did
+        // nothing.
+        pdfApplyFontStyles(&items, styles)
+        pdfMarkUnderlines(
+            &items, rectangles: pdfUnderlineInk(graphics), lines: graphics.lines)
+        // A ruled table's cell borders read as underlines on the text above
+        // them, so the flags are cleared wherever a plausible table claims
+        // the item.
+        pdfSuppressTableUnderlines(
+            &items, rects: graphics.rectangles, lines: graphics.lines)
+
         // No chart regions and no table regions: both need detectors this
         // port has not wired to a document yet, so every page groups as
         // plain prose. `pdfGroupPageIntoLines` accepts them the moment they
         // are available.
-        var pageLines = pdfGroupPageIntoLines(
-            items, page: number, adaptiveThreshold: threshold)
-
-        for lineIndex in pageLines.indices {
-            pdfApplyFontStyles(&pageLines[lineIndex].items, styles)
-            pdfMarkUnderlines(
-                &pageLines[lineIndex].items, rectangles: pdfUnderlineInk(graphics),
-                lines: graphics.lines)
-        }
-        lines.append(contentsOf: pageLines)
+        lines.append(
+            contentsOf: pdfGroupPageIntoLines(
+                items, page: number, adaptiveThreshold: threshold))
     }
 
     // Running headers and footers, which the reference strips before
