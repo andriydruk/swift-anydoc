@@ -2733,6 +2733,94 @@ def wrapped_cases(random_count):
     return lines
 
 
+def prologue_cases(random_count):
+    """Cases for the analysis prologue."""
+    rng = random.Random(90_2026)
+    lines = []
+
+    def spec(page, y, x, size, bold, mcid, text, append=False):
+        return "{}{},{},{},{},{},{},{}".format(
+            "+" if append else "", page, y, x, size, bold, mcid,
+            text.replace(" ", "~") or "x")
+
+    def case(items, base="-", roles="!", charts="-"):
+        return "P {} {} {} ; ".format(base, roles, charts) + " ".join(items)
+
+    body = [spec(1, 700 - r * 20, 20, 10, 0, "-",
+                 "body line %d of ordinary running prose here" % r)
+            for r in range(8)]
+
+    # A plain document, and one with the base size forced.
+    lines.append(case(body))
+    lines.append(case(body, base="14"))
+    lines.append(case(body, base="0"))
+    # A title above body text, at each of several sizes.
+    for size in (10, 12, 14, 20, 24):
+        lines.append(case([spec(1, 760, 20, size, 0, "-", "Document Title Here")] + body))
+    # A wrapped title, which the heading merge should join.
+    lines.append(case([spec(1, 780, 20, 20, 0, "-", "About Glenair the"),
+                       spec(1, 760, 20, 20, 0, "-", "Interconnect Company")] + body))
+    # A drop cap, which is merged before the tiers are computed — so it must
+    # not create a tier of its own.
+    lines.append(case([spec(1, 760, 20, 10, 0, "-", "Chapter One"),
+                       spec(1, 740, 20, 10, 0, "-", "nce upon a time there was"),
+                       spec(1, 730, 10, 30, 0, "-", "O")] + body))
+    # A short bold run that merges, and a long one that is suppressed.
+    short_bold = [spec(1, 760 - i * 14, 20, 10, 1, "-", "A Short Bold Heading")
+                  for i in range(2)]
+    long_bold = [spec(1, 760 - i * 14, 20, 10, 1, "-",
+                      "a bold paragraph line carrying quite a few words indeed")
+                 for i in range(3)]
+    lines.append(case(short_bold + body))
+    lines.append(case(long_bold + body))
+    # An isolated body-size line between paragraphs.
+    lines.append(case(body[:3]
+                      + [spec(1, 700 - 3 * 20 - 60, 20, 10, 0, "-", "Acknowledgements")]
+                      + [spec(1, 700 - 4 * 20 - 120, 20, 10, 0, "-",
+                              "body line %d of ordinary running prose here" % r)
+                         for r in range(4, 8)]))
+    # Struct roles: a tagged heading, and a tagged non-heading that is
+    # excluded from the sequence pass.
+    lines.append(case([spec(1, 760, 20, 10, 0, 5, "Tagged Heading Line")] + body,
+                      roles="1:5:H2"))
+    lines.append(case([spec(1, 760, 20, 10, 0, 5, "Tagged Caption Line")] + body,
+                      roles="1:5:Caption"))
+    # Enough tagged lines to trip the overuse audit.
+    many = [spec(1, 760 - i * 20, 20, 10, 0, i, "tagged line %d of the document" % i)
+            for i in range(30)]
+    lines.append(case(many, roles=",".join("1:%d:H2" % i for i in range(30))))
+    lines.append(case(many, roles=",".join("1:%d:P" % i for i in range(30))))
+    # A chart region, whose lines are excluded from the sequence pass.
+    lines.append(case([spec(1, 500, 300, 10, 0, "-", "Chart Label Text Here")] + body,
+                      charts="1:280:480:600:520"))
+    # Several pages.
+    multi = []
+    for page in range(1, 4):
+        multi.append(spec(page, 780, 20, 18, 0, "-", "Section %d Heading" % page))
+        for r in range(6):
+            multi.append(spec(page, 700 - r * 20, 20, 10, 0, "-",
+                              "body line %d on page %d of prose" % (r, page)))
+    lines.append(case(multi))
+    lines.append(case([]))
+
+    # Random documents, to shake the interactions between the stages.
+    texts = ["Acknowledgements", "Section Heading Here", "1.2 Numbered Section",
+             "a line of ordinary running prose that continues",
+             "Figure 1: a caption line", "short", "A Short Bold Heading"]
+    for _ in range(random_count):
+        count = rng.randint(1, 12)
+        items = []
+        y = 800
+        for _ in range(count):
+            y -= rng.choice([14, 20, 40, 80])
+            items.append(spec(rng.choice([1, 1, 2]), y, rng.choice([20, 40]),
+                              rng.choice([10, 12, 14, 20]), rng.choice([0, 1]), "-",
+                              rng.choice(texts)))
+        lines.append(case(items))
+
+    return lines
+
+
 def preprocess_cases(random_count):
     """Cases for the preprocess merge pair and comparison helpers."""
     rng = random.Random(88_2026)
@@ -5832,6 +5920,18 @@ def main():
         text=True, check=True
     )
     with open(os.path.join(arguments.directory, "wrapped-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write(r.stdout)
+
+    pl_lines = prologue_cases(max(arguments.cases // 8, 60))
+    with open(os.path.join(arguments.directory, "prologue-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n".join(pl_lines))
+    r = subprocess.run(
+        [probe, "--prologue"], input="\n".join(pl_lines) + "\n", capture_output=True,
+        text=True, check=True
+    )
+    with open(os.path.join(arguments.directory, "prologue-rust.txt"), "w",
               encoding="utf-8") as f:
         f.write(r.stdout)
 

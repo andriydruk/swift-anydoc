@@ -89,6 +89,12 @@ perl -pi -e "s/^pub\\(crate\\) mod preprocess;/pub mod preprocess;/; s/^mod prep
 perl -pi -e "s/^pub\\(crate\\) fn (merge_heading_lines|merge_drop_caps|strip_repeated_lines)/pub fn \$1/; s/^fn (effective_heading_level|normalize_whitespace|normalize_for_comparison|is_structural_line|is_decorative_separator)/pub fn \$1/" \
     "$crate/src/markdown/preprocess.rs"
 
+# `markdown::convert` — the analysis prologue (wave 90).
+perl -pi -e "s/^pub\\(super\\) fn to_markdown_from_lines_with_tables_and_images/pub fn to_markdown_from_lines_with_tables_and_images/" \
+    "$crate/src/markdown/convert.rs"
+perl -pi -e "s/^pub\\(crate\\) fn (calculate_font_stats|compute_heading_tiers|compute_paragraph_threshold)/pub fn \$1/" \
+    "$crate/src/markdown/analysis.rs"
+
 # `markdown::convert` — the positioned-block cluster (wave 87).
 perl -pi -e "s/^fn (chart_stream_position|positioned_block_precedes_line|compare_positioned_blocks|positioned_blocks_for_page)/pub fn \$1/; s/^enum PositionedBlockKind/pub enum PositionedBlockKind/; s/^type PositionedBlockRef/pub type PositionedBlockRef/; s/^pub\\(super\\) struct ChartProseOrder/pub struct ChartProseOrder/; s/^pub\\(super\\) struct PositionedMarkdown/pub struct PositionedMarkdown/; s/^    pub\\(super\\) fn new/    pub fn new/" \
     "$crate/src/markdown/convert.rs"
@@ -3023,6 +3029,215 @@ pub fn probe_wrapped(input: &str) -> String {
     out
 }
 
+/// Probe (added for swift-anydoc): the analysis prologue.
+///
+/// The prologue is the first third of
+/// `to_markdown_from_lines_with_tables_and_images`, which cannot be called
+/// on its own. The body below is **transcribed verbatim** from that
+/// function's opening — same calls, same order, same arguments — so what the
+/// comparison verifies is the port's ordering against the reference's, not
+/// against a paraphrase of it. It is a weaker guarantee than calling the
+/// reference directly, and is superseded once the main loop lands and whole
+/// documents can be compared end to end.
+pub fn probe_prologue(input: &str) -> String {
+    use super::analysis::{calculate_font_stats, compute_heading_tiers,
+        compute_paragraph_threshold};
+    use super::heading::classify_heading_sequences;
+    use super::preprocess::{merge_drop_caps, merge_heading_lines};
+    use crate::structure_tree::StructRole;
+    use crate::types::{ItemType, TextItem, TextLine};
+    use std::collections::{HashMap, HashSet};
+
+    fn parse_lines(fields: &[&str]) -> Vec<TextLine> {
+        let mut out: Vec<TextLine> = Vec::new();
+        for spec in fields {
+            let append = spec.starts_with('+');
+            let body = spec.trim_start_matches('+');
+            let f: Vec<&str> = body.split(',').collect();
+            if f.len() < 7 {
+                continue;
+            }
+            let item = TextItem {
+                text: f[6..].join(",").replace('~', " "),
+                x: f[2].parse().unwrap_or(0.0),
+                y: f[1].parse().unwrap_or(0.0),
+                width: 40.0,
+                height: 12.0,
+                font: "F1".to_string(),
+                font_size: f[3].parse().unwrap_or(12.0),
+                page: f[0].parse().unwrap_or(1),
+                is_bold: f[4] == "1",
+                is_italic: false,
+                is_underline: false,
+                is_strikeout: false,
+                item_type: ItemType::Text,
+                mcid: if f[5] == "-" { None } else { f[5].parse().ok() },
+            };
+            if append && !out.is_empty() {
+                let last = out.len() - 1;
+                out[last].items.push(item);
+            } else {
+                out.push(TextLine {
+                    y: item.y,
+                    page: item.page,
+                    adaptive_threshold: 0.10,
+                    items: vec![item],
+                });
+            }
+        }
+        out
+    }
+
+    fn parse_roles(spec: &str) -> Option<HashMap<u32, HashMap<i64, StructRole>>> {
+        if spec == "!" {
+            return None;
+        }
+        let mut map: HashMap<u32, HashMap<i64, StructRole>> = HashMap::new();
+        if spec == "." {
+            return Some(map);
+        }
+        for triple in spec.split(',') {
+            let f: Vec<&str> = triple.split(':').collect();
+            if f.len() < 3 {
+                continue;
+            }
+            map.entry(f[0].parse().unwrap_or(1))
+                .or_default()
+                .insert(f[1].parse().unwrap_or(0), StructRole::from_name(f[2]));
+        }
+        Some(map)
+    }
+
+    // `page:x0:y0:x1:y1`, semicolon-separated, or `-` for none.
+    fn parse_chart_regions(spec: &str) -> HashMap<u32, Vec<(f32, f32, f32, f32)>> {
+        let mut map: HashMap<u32, Vec<(f32, f32, f32, f32)>> = HashMap::new();
+        if spec == "-" {
+            return map;
+        }
+        for region in spec.split(';') {
+            let f: Vec<&str> = region.split(':').collect();
+            if f.len() < 5 {
+                continue;
+            }
+            map.entry(f[0].parse().unwrap_or(1)).or_default().push((
+                f[1].parse().unwrap_or(0.0),
+                f[2].parse().unwrap_or(0.0),
+                f[3].parse().unwrap_or(0.0),
+                f[4].parse().unwrap_or(0.0),
+            ));
+        }
+        map
+    }
+
+    let mut out = String::new();
+    for case in input.lines() {
+        let (tag, rest) = match case.split_once(' ') {
+            Some(pair) => pair,
+            None => (case, ""),
+        };
+        if tag != "P" {
+            continue;
+        }
+        let fields: Vec<&str> = rest.split(' ').filter(|p| !p.is_empty()).collect();
+        let Some(semi) = fields.iter().position(|p| *p == ";") else { continue };
+        if fields.len() < 3 {
+            continue;
+        }
+        // base ("-" for none) roles charts ; lines...
+        let base_option: Option<f32> = if fields[0] == "-" {
+            None
+        } else {
+            fields[0].parse().ok()
+        };
+        let struct_roles = parse_roles(fields[1]);
+        let page_chart_regions = parse_chart_regions(fields[2]);
+        let lines = parse_lines(&fields[semi + 1..]);
+
+        // --- transcribed from to_markdown_from_lines_with_tables_and_images ---
+        let font_stats = calculate_font_stats(&lines);
+        let base_size = base_option.unwrap_or(font_stats.most_common_size);
+        let lines = merge_drop_caps(lines, base_size);
+        let heading_tiers = compute_heading_tiers(&lines, base_size);
+        let lines = merge_heading_lines(lines, base_size, &heading_tiers, struct_roles.as_ref());
+        let para_threshold = compute_paragraph_threshold(&lines, base_size);
+        let lines = merge_wrapped_bold_heading_groups(lines, base_size, para_threshold);
+        let isolated_lines = find_isolated_lines(&lines, base_size, para_threshold);
+        let wrapped_bold_paragraph_lines =
+            find_wrapped_bold_paragraph_lines(&lines, base_size, para_threshold);
+        let mut sequence_excluded_lines = wrapped_bold_paragraph_lines.clone();
+        for (line_idx, line) in lines.iter().enumerate() {
+            if page_chart_regions.get(&line.page).is_some_and(|regions| {
+                line.items
+                    .iter()
+                    .any(|item| crate::markdown::item_is_in_chart_region(item, regions))
+            }) {
+                sequence_excluded_lines.insert(line_idx);
+            }
+        }
+        if let Some(roles) = struct_roles.as_ref() {
+            for (line_idx, line) in lines.iter().enumerate() {
+                if resolve_line_struct_role(line, roles)
+                    .is_some_and(|role| role.is_non_heading_content())
+                {
+                    sequence_excluded_lines.insert(line_idx);
+                }
+            }
+        }
+        let sequence_heading_levels = classify_heading_sequences(
+            &lines,
+            base_size,
+            &heading_tiers,
+            &isolated_lines,
+            &sequence_excluded_lines,
+        );
+        let overused_heading_levels =
+            detect_overused_struct_heading_levels(&lines, struct_roles.as_ref());
+        // --- end transcription ---
+
+        let sorted = |set: &HashSet<usize>| {
+            let mut keys: Vec<usize> = set.iter().copied().collect();
+            keys.sort();
+            keys.iter().map(|k| k.to_string()).collect::<Vec<_>>().join(",")
+        };
+        let mut levels: Vec<(usize, usize)> =
+            sequence_heading_levels.iter().map(|(&k, &v)| (k, v)).collect();
+        levels.sort();
+        let mut overused: Vec<usize> = overused_heading_levels.into_iter().collect();
+        overused.sort();
+
+        out.push_str(&format!(
+            "pg b={:.2} t={} p={:.3} n={} iso={} wb={} ex={} seq={} ov={} tx={}\n",
+            base_size,
+            heading_tiers
+                .iter()
+                .map(|t| format!("{t:.2}"))
+                .collect::<Vec<_>>()
+                .join("/"),
+            para_threshold,
+            lines.len(),
+            sorted(&isolated_lines),
+            sorted(&wrapped_bold_paragraph_lines),
+            sorted(&sequence_excluded_lines),
+            levels
+                .iter()
+                .map(|(k, v)| format!("{k}:{v}"))
+                .collect::<Vec<_>>()
+                .join(","),
+            overused
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<_>>()
+                .join(","),
+            lines
+                .iter()
+                .map(|l| l.text().replace(' ', "~"))
+                .collect::<Vec<_>>()
+                .join("|")
+        ));
+    }
+    out
+}
+
 /// Probe (added for swift-anydoc): the positioned-block cluster.
 pub fn probe_positioned(input: &str) -> String {
     use crate::types::{ItemType, TextItem, TextLine};
@@ -4615,6 +4830,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::markdown::preprocess::probe_preprocess(&input));
+        return;
+    }
+    if path == "--prologue" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::markdown::convert::probe_prologue(&input));
         return;
     }
     if path == "--positioned" {

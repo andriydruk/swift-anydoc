@@ -3523,3 +3523,43 @@ readings**.
   wrong expectations: `Report 2024` normalises to six bytes and falls under
   the length floor rather than being stripped, and the numbered-heading case
   above. Both corrected against the reference.
+
+- **Wave 90 — what the writer knows before it writes.**
+  `PdfAnalysis.swift` and `PdfMarkdownOptions.swift` port the opening third
+  of `to_markdown_from_lines_with_tables_and_images`, plus `MarkdownOptions`
+  and `MarkdownProfile`.
+
+  The reference computes this state inline at the top of a six-hundred-line
+  function before writing a character. Lifting it into a `PdfDocumentAnalysis`
+  value is the same structural move `PdfGroupLines.swift` made with the
+  per-page loop — same calls, same order, same results, state named rather
+  than held in locals.
+
+  **The ordering is the substance of the wave, and it is not obvious.** Font
+  statistics are measured on the lines as they arrive; drop caps merge; the
+  heading tiers are discovered from *those* lines; the heading merge uses the
+  tiers; the paragraph threshold is measured after that merge; the bold merge
+  uses the threshold; and every index-based set is computed last, against the
+  final array.
+
+  The drop-cap step earns its position. `compute_heading_tiers` has no
+  minimum occupancy — one line clearing the 1.2× ratio gate defines a tier —
+  so a 30pt cap over 10pt body would create a tier that exactly one glyph
+  reaches. Verified both ways and pinned: `pdfHeadingTiers` on the unmerged
+  lines returns `[30]`, and the prologue's tiers are empty.
+
+  Two divergences, both deliberate. The reference gates the bold merge on a
+  `PI_NO_MERGE` environment variable; reading the environment from inside a
+  library is not something this port does, so the escape hatch is a
+  parameter defaulting to the unset behaviour. And `classify_heading_sequences`
+  takes an `isolated_lines` argument that it uses **only in a trace log** —
+  wave 80 omitted it, which is confirmed correct here rather than assumed.
+
+  **A weaker probe than usual, and worth saying so.** The prologue cannot be
+  called on its own, so the oracle transcribes it verbatim from the reference
+  and the comparison checks the port against a copy of the reference's
+  ordering rather than against the reference itself. It is superseded once
+  the writer lands and whole documents can be compared end to end.
+
+  80 probe cases agree on the first run. 10 unit tests, all passing first
+  try.
