@@ -3701,3 +3701,37 @@ readings**.
   reference.
 
   191 probe cases agree on the first run. 15 unit tests.
+
+- **Wave 95 — the ToUnicode string helpers, and a gap they expose.**
+  `PdfToUnicodeText.swift` ports `parse_hex_u16`, `hex_to_unicode_string`,
+  `normalize_tounicode_destination`, `hex_to_unicode_scalar` and
+  `find_usecmap_name` from `tounicode.rs`.
+
+  Turning a CMap destination into text is less mechanical than it looks.
+  Destinations are UTF-16BE, so surrogate pairs must survive — treating each
+  four-digit chunk as a scalar loses every emoji. `String::from_utf16`
+  *rejects* an unpaired surrogate rather than substituting, so a destination
+  naming half a pair yields nothing at all. A one-byte destination is
+  accepted although no specification allows it, provided it is not a control
+  character — with tab and newline readmitted by name.
+
+  And some producers write a **list of alternatives** into a single
+  destination: every acceptable whitespace codepoint, or every acceptable
+  hyphen. `normalize_tounicode_destination` collapses those back to one
+  character, narrowly enough that an ordinary multi-character mapping — a
+  ligature expanding to `ffi` — survives untouched. The whitespace signature
+  requires a control character among the run; the hyphen signature requires
+  the soft hyphen specifically.
+
+  **A gap this exposes.** These helpers sit inside
+  `build_cmap_entry_from_stream`, which wave 5 ported as
+  `parsePdfToUnicode` — a byte scanner that reaches destinations by its own
+  path and **does not apply the normalisation**. So a malformed CMap that
+  maps one code to a list of whitespace alternatives currently yields the
+  whole run where the reference yields one character. The helpers are ported
+  and probed here; routing the scanner through them is a correctness fix
+  that needs its own wave, and is recorded rather than rushed at the end of
+  a session.
+
+  179 probe cases agree on the first run. 10 unit tests, all passing first
+  try.

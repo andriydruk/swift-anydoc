@@ -83,6 +83,12 @@ perl -pi -e "s/^fn (resolve_line_struct_role|detect_overused_struct_heading_leve
 # `markdown::convert` — the merge pair (wave 86).
 perl -pi -e "s/^fn (merge_wrapped_bold_heading_groups|count_table_columns)/pub fn \$1/" \
     "$crate/src/markdown/convert.rs"
+# `tounicode` — the pure string helpers (wave 95).
+perl -pi -e "s/^pub\\(crate\\) mod tounicode;/pub mod tounicode;/; s/^mod tounicode;/pub mod tounicode;/" \
+    "$crate/src/lib.rs"
+perl -pi -e "s/^fn (parse_hex_u16|hex_to_unicode_string|normalize_tounicode_destination|hex_to_unicode_scalar|find_usecmap_name)/pub fn \$1/" \
+    "$crate/src/tounicode.rs"
+
 # `detector` — the pure content-stream scanner (wave 94).
 perl -pi -e "s/^fn (scan_content_for_text_operators|extract_font_name_before_tf|collect_text_chars_before|hex_val)/pub fn \$1/" \
     "$crate/src/detector.rs"
@@ -5021,6 +5027,13 @@ fn main() {
         print!("{}", pdf_inspector::markdown::preprocess::probe_preprocess(&input));
         return;
     }
+    if path == "--tounicodetext" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::tounicode::probe_tounicodetext(&input));
+        return;
+    }
     if path == "--contentscan" {
         use std::io::Read;
         let mut input = String::new();
@@ -5394,6 +5407,61 @@ pub fn probe_contentscan(input: &str) -> String {
                     }
                 ));
             }
+            _ => {}
+        }
+    }
+    out
+}
+RUSTEOF
+
+cat >> "$crate/src/tounicode.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): the pure ToUnicode string helpers.
+/// `~` stands for a space and `^` for a newline in every case.
+pub fn probe_tounicodetext(input: &str) -> String {
+    fn show(text: &str) -> String {
+        text.chars()
+            .map(|c| format!("{:04X}", c as u32))
+            .collect::<Vec<_>>()
+            .join(".")
+    }
+    let mut out = String::new();
+    for case in input.lines() {
+        let (tag, rest) = match case.split_once(' ') {
+            Some(pair) => pair,
+            None => (case, ""),
+        };
+        let arg = rest.replace('~', " ").replace('^', "\n").replace('%', "\t");
+        match tag {
+            "P" => out.push_str(&format!(
+                "tp {}\n",
+                match parse_hex_u16(&arg) {
+                    Some(v) => v.to_string(),
+                    None => "-".to_string(),
+                }
+            )),
+            "S" => out.push_str(&format!(
+                "ts {}\n",
+                match hex_to_unicode_string(&arg) {
+                    Some(v) => show(&v),
+                    None => "-".to_string(),
+                }
+            )),
+            "N" => out.push_str(&format!(
+                "tn {}\n",
+                show(&normalize_tounicode_destination(arg))
+            )),
+            "C" => out.push_str(&format!(
+                "tc {}\n",
+                match hex_to_unicode_scalar(&arg) {
+                    Some(v) => format!("{v:04X}"),
+                    None => "-".to_string(),
+                }
+            )),
+            "U" => out.push_str(&format!(
+                "tu {}\n",
+                find_usecmap_name(&arg).unwrap_or_else(|| "-".to_string())
+            )),
             _ => {}
         }
     }

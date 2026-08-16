@@ -2733,6 +2733,55 @@ def wrapped_cases(random_count):
     return lines
 
 
+def tounicodetext_cases(random_count):
+    """Cases for the pure ToUnicode string helpers."""
+    rng = random.Random(95_2026)
+    lines = []
+
+    def enc(text):
+        return text.replace(" ", "~").replace("\n", "^").replace("\t", "%") or "@"
+
+    # --- parse_hex_u16 ---
+    for hexed in ("0041", "41", "FFFF", "10000", "  0041  ", "004G", "", "-1",
+                  "0x41", "0041 0042", "ffff", "0"):
+        lines.append("P " + enc(hexed))
+
+    # --- hex_to_unicode_string ---
+    for hexed in ("0041", "00410042", "D83CDF1F", "D83C", "DF1F", "0041D83C",
+                  "41", "09", "0A", "00", "1F", "7F", "80", "20",
+                  "00 41", "0 041", "004", "", "004G", "0041004200430044",
+                  "0020", "00200009", "00090020", "002D00AD", "00AD2010",
+                  "0066006600690", "FFFD", "D800DC00"):
+        lines.append("S " + enc(hexed))
+
+    # --- normalize_tounicode_destination ---
+    for text in ("A", "AB", " ", "  ", " \t", "\t ", " \n", "\t\n", "   ",
+                 "-", "--", "-\u00ad", "\u00ad-", "-\u2010\u00ad", "-\u2010",
+                 "\u00ad", "ffi", "a b", "\u00ad\u2212", "x\u00ad"):
+        lines.append("N " + enc(text))
+
+    # --- hex_to_unicode_scalar ---
+    for hexed in ("0041", "00410042", "D83CDF1F", "", "41", "0020",
+                  "00200009", "002D00AD"):
+        lines.append("C " + enc(hexed))
+
+    # --- find_usecmap_name ---
+    for text in ("/Adobe-Japan1-UCS2 usecmap", "/UniJIS-UCS2-H usecmap\nmore",
+                 "usecmap", "/A usecmap /B usecmap", "Adobe usecmap",
+                 "  /Name  usecmap  ", "no cmap here", "",
+                 "line one\n/Name usecmap\nline three",
+                 "/Name\nusecmap", "usecmap /Name"):
+        lines.append("U " + enc(text))
+
+    # Random hex strings.
+    digits = "0123456789abcdefABCDEF"
+    for _ in range(random_count):
+        length = rng.randint(0, 9)
+        lines.append("S " + enc("".join(rng.choice(digits) for _ in range(length))))
+
+    return lines
+
+
 def contentscan_cases(random_count):
     """Cases for the byte-level content-stream scanner."""
     rng = random.Random(94_2026)
@@ -6214,6 +6263,18 @@ def main():
         text=True, check=True
     )
     with open(os.path.join(arguments.directory, "wrapped-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write(r.stdout)
+
+    tt_lines = tounicodetext_cases(max(arguments.cases // 4, 100))
+    with open(os.path.join(arguments.directory, "tounicodetext-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n".join(tt_lines))
+    r = subprocess.run(
+        [probe, "--tounicodetext"], input="\n".join(tt_lines) + "\n", capture_output=True,
+        text=True, check=True
+    )
+    with open(os.path.join(arguments.directory, "tounicodetext-rust.txt"), "w",
               encoding="utf-8") as f:
         f.write(r.stdout)
 
