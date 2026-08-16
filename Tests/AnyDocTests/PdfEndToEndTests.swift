@@ -39,6 +39,7 @@ import Testing
         "merge-fragments.pdf",
         "merge-thresholds.pdf",
         "object-stream.pdf",
+        "two-column.pdf",
         "underline-basic.pdf",
         "underline-fraction.pdf",
         "underline-segmented.pdf",
@@ -128,5 +129,10 @@ import Testing
         #expect(
             regressions.isEmpty,
             "\(regressions.count) file(s) left the matching set:\n\(report)")
+        // Every file in the corpus now matches, so anything that does not is
+        // a regression whether or not it was on the list above.
+        #expect(
+            diverged.isEmpty && failed.isEmpty,
+            "\(diverged.count) diverged, \(failed.count) threw — the corpus was whole")
     }
 }

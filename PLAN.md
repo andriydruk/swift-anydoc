@@ -3986,3 +3986,36 @@ readings**.
   **The remaining divergence is `two-column.pdf`**, which needs per-page
   table detection — the largest of the five gaps wave 99 measured, and now
   the only one.
+
+- **Wave 103 — per-page table detection: the corpus goes whole.**
+  `PdfPageTables.swift` ports the detector cascade, and the end-to-end tally
+  reaches **27 of 27 — every file in the corpus byte-identical to the
+  reference.**
+
+  Four detectors run in priority order and each *claims* the items it uses,
+  so a later one never re-reads text an earlier one already gridded: rects,
+  then lines when rects found nothing, then rect-guided construction over
+  hint regions, then the borderless heuristic. The claimed items are
+  withheld from the text stream — a table's cells must not also appear as
+  prose — which is the half of this that the writer needed and the detectors
+  could not provide alone.
+
+  **This is the single-band, chart-free, untagged case**, and the omissions
+  are each noted at their branch: the reference also splits a page into
+  side-by-side bands and retries merged, masks chart regions from every
+  detector, and gives structure-tree tables priority over all four. Stage 3
+  is absent too — `try_build_rect_guided_table` is unported — so a page whose
+  rects cluster without gridding yields no table where the reference finds
+  one. No corpus file exercises any of those, which is precisely why they
+  can wait and why saying so matters.
+
+  One deliberate divergence, recorded rather than hidden: the heuristic
+  detector measures candidates against the document's body size, but nothing
+  has read the whole document at that point in the pipeline, so the page's
+  own body size is used. On a document whose pages differ in body size this
+  will diverge, and the fix is to move the analysis ahead of the page loop.
+
+  The ratchet is now closed: with every file matching, *any* divergence is a
+  regression, so the suite asserts the whole tally rather than a list.
+
+  5 unit tests.

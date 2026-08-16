@@ -28,6 +28,7 @@ func pdfMarkdown(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOpti
 {
     var document = try PdfDocument(bytes: bytes)
     var lines: [PdfTextLine] = []
+    var pageTables: [Int: [PdfPositionedMarkdown]] = [:]
 
     // A link is a rectangle plus an action and a field value lives off the
     // trailer, so neither is drawn by any content stream — they need their
@@ -84,13 +85,28 @@ func pdfMarkdown(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOpti
         // currently survives as plain text.
         items += formFields.filter { $0.page == number }.map(pdfAnnotationLayoutItem)
 
-        // No chart regions and no table regions: both need detectors this
-        // port has not wired to a document yet, so every page groups as
-        // plain prose. `pdfGroupPageIntoLines` accepts them the moment they
-        // are available.
+        // Tables are detected on the page's items and their cells are then
+        // **withheld** from the text stream, so a table's contents do not
+        // also appear as prose. The body size the heuristic detector
+        // measures against is the document's, but nothing has read the
+        // document yet at this point — so the page's own is used, which is
+        // a divergence noted in PLAN.md and revisited when the analysis
+        // moves ahead of the page loop.
+        let pageBaseSize = pdfFontStatsFromItems(items).mostCommonSize
+        let detected = pdfDetectPageTables(
+            items: items, rects: graphics.rectangles, lines: graphics.lines,
+            baseSize: pageBaseSize)
+        if !detected.tables.isEmpty { pageTables[number] = detected.tables }
+        let textItems = items.enumerated()
+            .filter { !detected.claimed.contains($0.offset) }.map(\.element)
+
+        // No chart regions: those need a detector this port has not wired to
+        // a document yet. `pdfGroupPageIntoLines` accepts them the moment it
+        // is available.
         lines.append(
             contentsOf: pdfGroupPageIntoLines(
-                items, page: number, adaptiveThreshold: threshold))
+                textItems, page: number, adaptiveThreshold: threshold,
+                hasTable: !detected.tables.isEmpty))
     }
 
     // Running headers and footers, which the reference strips before
@@ -103,8 +119,9 @@ func pdfMarkdown(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOpti
     // tagged PDF is read as an untagged one — its headings come from the
     // visual heuristics rather than from its own declarations.
     let analysis = pdfAnalyseDocument(lines, options: options, structRoles: nil)
-    // No tables, no images, no band-split pages, for the same reason.
-    return pdfWriteMarkdown(analysis, options: options)
+    // No images and no band-split pages: image extraction and
+    // `split_side_by_side`'s per-page wiring are still to come.
+    return pdfWriteMarkdown(analysis, options: options, pageTables: pageTables)
 }
 
 /// The pages of a document, in tree order.
