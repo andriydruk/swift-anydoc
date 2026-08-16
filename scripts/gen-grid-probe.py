@@ -2733,6 +2733,77 @@ def wrapped_cases(random_count):
     return lines
 
 
+def complexity_cases(random_count):
+    """Cases for layout complexity and the band filters."""
+    rng = random.Random(93_2026)
+    lines = []
+
+    # --- filter_rects_to_band: band 100..300, so 200 wide ---
+    rects = []
+    for x, w in ((50, 20), (95, 20), (99, 20), (100, 20), (290, 20), (300, 20),
+                 (310, 20), (0, 400), (0, 200), (50, 200), (90, 200), (150, 100),
+                 (100, 140), (100, 139), (0, 141), (200, -50), (350, -100)):
+        rects.append("{},10,{},10".format(x, w))
+    lines.append("R 100 300 ; " + " ".join(rects))
+    lines.append("R 100 300 ; ")
+    # A zero-width band, where every proportional test divides by zero.
+    lines.append("R 100 100 ; " + " ".join(rects))
+
+    # --- filter_lines_to_band ---
+    segs = []
+    for x1, x2 in ((50, 90), (50, 100), (50, 101), (100, 200), (299, 400),
+                   (300, 400), (301, 400), (400, 50), (150, 150)):
+        segs.append("{},10,{},20".format(x1, x2))
+    lines.append("S 100 300 ; " + " ".join(segs))
+    lines.append("S 100 300 ; ")
+
+    # --- compute_layout_complexity ---
+    def grid(page, rows, cols, x0=50, y0=700, dx=90, dy=20, text="cell~%d%d"):
+        return [
+            "{},{},{},10,{}".format(page, x0 + c * dx, y0 - r * dy,
+                                    (text % (r, c)) if "%" in text else text)
+            for r in range(rows) for c in range(cols)
+        ]
+
+    def prose(page, rows, x0=50, y0=700):
+        return ["{},{},{},10,a~line~of~ordinary~running~prose~here~%d".format(
+            page, x0, y0 - r * 14) % r for r in range(rows)]
+
+    # Plain prose: neither tables nor columns.
+    lines.append("C ; " + " ".join(prose(1, 10)))
+    # A grid that should read as a table.
+    lines.append("C ; " + " ".join(grid(1, 6, 4)))
+    # Two columns of prose far apart.
+    two = prose(1, 12) + prose(1, 12, x0=400)
+    lines.append("C ; " + " ".join(two))
+    # A table on page two only.
+    lines.append("C ; " + " ".join(prose(1, 10) + grid(2, 6, 4)))
+    # Several pages, mixed.
+    lines.append("C ; " + " ".join(prose(1, 10) + grid(2, 6, 4) + prose(3, 12)
+                                   + prose(3, 12, x0=400)))
+    # Side-by-side bands, each with its own small grid.
+    side = grid(1, 5, 2, x0=40, dx=60) + grid(1, 5, 2, x0=400, dx=60)
+    lines.append("C ; " + " ".join(side))
+    # Too few items for any detector.
+    lines.append("C ; " + " ".join(grid(1, 2, 2)))
+    lines.append("C ; ")
+
+    # Random pages.
+    for _ in range(random_count):
+        items = []
+        for page in range(1, rng.randint(2, 4)):
+            shape = rng.choice(["prose", "grid", "two"])
+            if shape == "prose":
+                items += prose(page, rng.randint(3, 12))
+            elif shape == "grid":
+                items += grid(page, rng.randint(3, 7), rng.randint(2, 5))
+            else:
+                items += prose(page, 10) + prose(page, 10, x0=rng.choice([350, 400, 450]))
+        lines.append("C ; " + " ".join(items))
+
+    return lines
+
+
 def writer_cases(random_count):
     """Cases for the whole line-to-Markdown conversion."""
     rng = random.Random(91_2026)
@@ -6061,6 +6132,18 @@ def main():
         text=True, check=True
     )
     with open(os.path.join(arguments.directory, "wrapped-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write(r.stdout)
+
+    cx2_lines = complexity_cases(max(arguments.cases // 16, 30))
+    with open(os.path.join(arguments.directory, "complexity-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n".join(cx2_lines))
+    r = subprocess.run(
+        [probe, "--complexity"], input="\n".join(cx2_lines) + "\n", capture_output=True,
+        text=True, check=True
+    )
+    with open(os.path.join(arguments.directory, "complexity-rust.txt"), "w",
               encoding="utf-8") as f:
         f.write(r.stdout)
 

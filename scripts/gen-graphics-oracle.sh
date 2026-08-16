@@ -83,6 +83,11 @@ perl -pi -e "s/^fn (resolve_line_struct_role|detect_overused_struct_heading_leve
 # `markdown::convert` — the merge pair (wave 86).
 perl -pi -e "s/^fn (merge_wrapped_bold_heading_groups|count_table_columns)/pub fn \$1/" \
     "$crate/src/markdown/convert.rs"
+# `lib` — layout complexity and the band filters (wave 93).
+perl -pi -e "s/^fn compute_layout_complexity/pub fn compute_layout_complexity/" "$crate/src/lib.rs"
+perl -pi -e "s/^pub\\(crate\\) fn (filter_rects_to_band|filter_lines_to_band)/pub fn \$1/" \
+    "$crate/src/markdown/mod.rs"
+
 # `markdown::preprocess` — the merge pair and comparison helpers (wave 88).
 perl -pi -e "s/^pub\\(crate\\) mod preprocess;/pub mod preprocess;/; s/^mod preprocess;/pub mod preprocess;/" \
     "$crate/src/markdown/mod.rs"
@@ -5012,6 +5017,13 @@ fn main() {
         print!("{}", pdf_inspector::markdown::preprocess::probe_preprocess(&input));
         return;
     }
+    if path == "--complexity" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::probe_complexity(&input));
+        return;
+    }
     if path == "--writer" {
         use std::io::Read;
         let mut input = String::new();
@@ -5156,6 +5168,140 @@ fn main() {
         pdf_inspector::extractor::content_stream::probe_graphics(&bytes)
     };
     print!("{dump}");
+}
+RUSTEOF
+
+cat >> "$crate/src/lib.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): layout complexity and the band filters.
+pub fn probe_complexity(input: &str) -> String {
+    use crate::types::{ItemType, PdfLine, PdfRect, TextItem};
+
+    fn item(page: u32, x: f32, y: f32, size: f32, text: &str) -> TextItem {
+        TextItem {
+            text: text.replace('~', " "),
+            x,
+            y,
+            width: 40.0,
+            height: 12.0,
+            font: "F1".to_string(),
+            font_size: size,
+            page,
+            is_bold: false,
+            is_italic: false,
+            is_underline: false,
+            is_strikeout: false,
+            item_type: ItemType::Text,
+            mcid: None,
+        }
+    }
+
+    let mut out = String::new();
+    for case in input.lines() {
+        let (tag, rest) = match case.split_once(' ') {
+            Some(pair) => pair,
+            None => (case, ""),
+        };
+        let fields: Vec<&str> = rest.split(' ').filter(|p| !p.is_empty()).collect();
+        let semi = fields.iter().position(|p| *p == ";");
+        match tag {
+            // R xlo xhi ; x,y,w,h ...
+            "R" => {
+                let Some(semi) = semi else { continue };
+                let x_lo: f32 = fields[0].parse().unwrap_or(0.0);
+                let x_hi: f32 = fields[1].parse().unwrap_or(0.0);
+                let rects: Vec<PdfRect> = fields[semi + 1..]
+                    .iter()
+                    .filter_map(|spec| {
+                        let f: Vec<&str> = spec.split(',').collect();
+                        if f.len() < 4 {
+                            return None;
+                        }
+                        Some(PdfRect {
+                            x: f[0].parse().ok()?,
+                            y: f[1].parse().ok()?,
+                            width: f[2].parse().ok()?,
+                            height: f[3].parse().ok()?,
+                            page: 1,
+                        })
+                    })
+                    .collect();
+                let kept = crate::markdown::filter_rects_to_band(&rects, 1, x_lo, x_hi);
+                out.push_str(&format!("cr {}", kept.len()));
+                for r in &kept {
+                    out.push_str(&format!(" {:.0}", r.x));
+                }
+                out.push('\n');
+            }
+            // S xlo xhi ; x1,y1,x2,y2 ...
+            "S" => {
+                let Some(semi) = semi else { continue };
+                let x_lo: f32 = fields[0].parse().unwrap_or(0.0);
+                let x_hi: f32 = fields[1].parse().unwrap_or(0.0);
+                let lines: Vec<PdfLine> = fields[semi + 1..]
+                    .iter()
+                    .filter_map(|spec| {
+                        let f: Vec<&str> = spec.split(',').collect();
+                        if f.len() < 4 {
+                            return None;
+                        }
+                        Some(PdfLine {
+                            x1: f[0].parse().ok()?,
+                            y1: f[1].parse().ok()?,
+                            x2: f[2].parse().ok()?,
+                            y2: f[3].parse().ok()?,
+                            page: 1,
+                        })
+                    })
+                    .collect();
+                let kept = crate::markdown::filter_lines_to_band(&lines, 1, x_lo, x_hi);
+                out.push_str(&format!("cs {}", kept.len()));
+                for l in &kept {
+                    out.push_str(&format!(" {:.0}", l.x1));
+                }
+                out.push('\n');
+            }
+            // C ; page,x,y,size,text ...
+            "C" => {
+                let Some(semi) = semi else { continue };
+                let items: Vec<TextItem> = fields[semi + 1..]
+                    .iter()
+                    .filter_map(|spec| {
+                        let f: Vec<&str> = spec.split(',').collect();
+                        if f.len() < 5 {
+                            return None;
+                        }
+                        Some(item(
+                            f[0].parse().ok()?,
+                            f[1].parse().ok()?,
+                            f[2].parse().ok()?,
+                            f[3].parse().ok()?,
+                            &f[4..].join(","),
+                        ))
+                    })
+                    .collect();
+                let complexity = compute_layout_complexity(&items, &[], &[]);
+                out.push_str(&format!(
+                    "cc {} t={} c={}\n",
+                    complexity.is_complex as u8,
+                    complexity
+                        .pages_with_tables
+                        .iter()
+                        .map(|p| p.to_string())
+                        .collect::<Vec<_>>()
+                        .join(","),
+                    complexity
+                        .pages_with_columns
+                        .iter()
+                        .map(|p| p.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                ));
+            }
+            _ => {}
+        }
+    }
+    out
 }
 RUSTEOF
 

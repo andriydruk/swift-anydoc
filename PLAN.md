@@ -3641,3 +3641,33 @@ readings**.
   live.
 
   200 probe documents, 10 unit tests, all passing first try.
+
+- **Wave 93 — the first piece of `lib.rs`.**
+  `PdfLayoutComplexity.swift` ports `compute_layout_complexity` from
+  `lib.rs`, together with `filter_rects_to_band` and `filter_lines_to_band`
+  from `markdown/mod.rs`.
+
+  This is the summary the pipeline reports alongside the Markdown — which
+  pages hold tables, which hold columns — and it is the first thing in
+  `lib.rs` this port reaches. It runs every table detector the project has,
+  rect-based then line-based then the borderless heuristic, per band of a
+  side-by-side page, and only a **data** table counts: a table of contents
+  routes through the same detector and renders as a flat list.
+
+  The two filters differ in a way worth knowing. A rectangle narrower than
+  70% of the band needs only to touch it, while one at or above that width
+  must have 70% of *itself* inside — so a cell border belongs to whichever
+  band it reaches and a page-spanning frame belongs to neither. Line segments
+  have no proportional rule at all: a plain overlap test, strict at both
+  ends, so a full-width rule is claimed by every band it crosses. Boundaries
+  pinned at 139/140/141 points and at the zero-overlap edge, along with the
+  negative-width normalisation a right-to-left path produces.
+
+  **Scoping note.** `process_document` is the pipeline proper, and it is not
+  portable yet: it needs `detector::detect_from_document`, the lopdf-dependent
+  half of `detector.rs`, which remains unported. This wave took the largest
+  self-contained piece downstream of it instead. Nothing in `Sources` calls
+  `pdfExtractTextRuns` yet and `AnyDoc.swift:27` still throws.
+
+  43 probe cases agree on the first run. 10 unit tests, all passing first
+  try.
