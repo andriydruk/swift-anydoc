@@ -1,38 +1,106 @@
 /// `ToUnicode` CMap parsing (ISO 32000-1 §9.10.3), ported from
-/// pdf-inspector's `tounicode.rs`.
+/// `ToUnicodeCMap::parse` in pdf-inspector's `tounicode.rs`.
 ///
 /// A CMap maps the character codes a content stream shows to Unicode. The
 /// reference scans the decoded CMap as text rather than running a PostScript
 /// interpreter over it, because the constructs that matter — the codespace
 /// ranges and the `bfchar`/`bfrange` sections — are a fixed shape.
+///
+/// **This file was rewritten in wave 97.** Wave 5 ported it by
+/// reimplementing the scan and flattening every mapping into one dictionary,
+/// which was simpler and wrong in four ways that only a differential probe
+/// against the reference could show: direct mappings must outrank ranges
+/// whatever order they appear in; a one-byte destination is legal; an
+/// unpaired surrogate voids its whole destination rather than being dropped
+/// from it; and the code width is inferred from the entries when the
+/// codespace disagrees with them. The structure below is the reference's,
+/// because the structure is what carries those behaviours.
 
 struct PdfToUnicodeCMap {
-    /// Code to the string it denotes. A code can map to several scalars:
-    /// ligatures decompose that way.
-    fileprivate(set) var map: [UInt32: String] = [:]
-    /// How many bytes a code occupies, from `begincodespacerange`. Fonts
-    /// with a simple encoding use one; CID fonts use two.
-    fileprivate(set) var codeByteLength: Int = 1
+    /// Direct mappings from `bfchar`, and from `bfrange`'s array form.
+    /// **These outrank ranges** — see `lookup`.
+    fileprivate(set) var charMap: [UInt16: String] = [:]
+    /// `bfrange`'s base form, held unexpanded as `(start, end, base)`. A
+    /// range covering the whole code space costs three numbers here; the
+    /// earlier port expanded them and had to cap the size to stay safe.
+    fileprivate(set) var ranges: [(start: UInt16, end: UInt16, base: UInt32)] = []
+    /// How many bytes a code occupies. One for a simple encoding, two for a
+    /// CID font — but see the inference in `parsePdfToUnicode`, which does
+    /// not simply believe the codespace.
+    fileprivate(set) var codeByteLength: Int = 2
 
     /// The string a code maps to, if any.
-    func lookup(_ code: UInt32) -> String? { map[code] }
+    ///
+    /// A direct mapping wins outright. Only if there is none are the ranges
+    /// consulted — and then just the two nearest the code, which is the
+    /// reference's binary search reproduced rather than a full scan. With
+    /// overlapping ranges that can miss a match a linear search would find.
+    private func lookupCid(_ cid: UInt16) -> String? {
+        if let direct = charMap[cid] { return direct }
 
-    var isEmpty: Bool { map.isEmpty }
+        // `binary_search_by` returns the index of an exact hit, or where the
+        // code would be inserted.
+        var low = 0
+        var high = ranges.count
+        while low < high {
+            let middle = (low + high) / 2
+            if ranges[middle].start < cid {
+                low = middle + 1
+            } else if ranges[middle].start > cid {
+                high = middle
+            } else {
+                low = middle
+                break
+            }
+        }
+        let index = low
+
+        // The range at that index, then the one before it. Note a match
+        // whose arithmetic lands outside Unicode does **not** stop the
+        // search — it falls through, as the reference's `if let` does.
+        for candidate in [index, index - 1] where candidate >= 0 && candidate < ranges.count {
+            let range = ranges[candidate]
+            if cid >= range.start && cid <= range.end {
+                let value = range.base + UInt32(cid - range.start)
+                if let scalar = Unicode.Scalar(value), !(0xD800...0xDFFF).contains(value) {
+                    return String(Character(scalar))
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Codes above `0xFFFF` cannot appear: the reference parses them with a
+    /// 16-bit reader, so a wider code never enters the map.
+    func lookup(_ code: UInt32) -> String? {
+        guard code <= 0xFFFF else { return nil }
+        return lookupCid(UInt16(code))
+    }
+
+    /// Direct mappings plus ranges, which is how the reference measures a
+    /// CMap's density when deciding whether to fall back.
+    var entryCount: Int { charMap.count + ranges.count }
+
+    /// The reference's `parse` returns nothing at all when no mapping was
+    /// found; this port models that as an empty map.
+    var isEmpty: Bool { charMap.isEmpty && ranges.isEmpty }
 }
 
 /// Parse a decoded `ToUnicode` stream.
 func parsePdfToUnicode(_ content: [UInt8]) -> PdfToUnicodeCMap {
     var cmap = PdfToUnicodeCMap()
-    // The CMap is ASCII-ish; anything outside is inside a hex string and is
-    // reached through the hex scanner rather than the text one.
     let text = Array(content)
+    /// The digit count of every source code seen, which decides the code
+    /// width when the codespace is absent or disagrees.
+    var sourceHexLengths: [Int] = []
 
-    // The codespace range fixes the code width. Its entries are pairs of
-    // hex strings whose digit count gives the byte width.
+    // The codespace range, if declared. The *last* pair in the section wins,
+    // because the reference overwrites as it scans.
+    var codespaceByteLength: Int?
     if let section = sectionBody(text, begin: "begincodespacerange", end: "endcodespacerange") {
         var scanner = PdfHexScanner(text, range: section)
-        if let first = scanner.nextHexDigits() {
-            cmap.codeByteLength = max(1, min(4, first.count / 2))
+        while let digits = scanner.nextHexDigits() {
+            if !digits.isEmpty { codespaceByteLength = (digits.count + 1) / 2 }
         }
     }
 
@@ -40,9 +108,13 @@ func parsePdfToUnicode(_ content: [UInt8]) -> PdfToUnicodeCMap {
     var searchFrom = 0
     while let section = sectionBody(text, begin: "beginbfchar", end: "endbfchar", from: searchFrom) {
         var scanner = PdfHexScanner(text, range: section)
-        while let src = scanner.nextHexDigits(), let dst = scanner.nextHexDigits() {
-            guard let code = hexDigitsToCode(src) else { continue }
-            cmap.setMapping(code, hexDigitsToString(dst))
+        while let source = scanner.nextHexDigits() {
+            guard let destination = scanner.nextHexDigits() else { break }
+            if !source.isEmpty { sourceHexLengths.append(source.count) }
+            guard let code = pdfParseHexU16(String(decoding: source, as: UTF8.self)),
+                let value = pdfHexToUnicodeString(String(decoding: destination, as: UTF8.self))
+            else { continue }
+            cmap.charMap[code] = value
         }
         searchFrom = section.upperBound
     }
@@ -52,42 +124,37 @@ func parsePdfToUnicode(_ content: [UInt8]) -> PdfToUnicodeCMap {
     while let section = sectionBody(text, begin: "beginbfrange", end: "endbfrange", from: searchFrom)
     {
         var scanner = PdfHexScanner(text, range: section)
-        while let loDigits = scanner.nextHexDigits() {
-            guard let hiDigits = scanner.nextHexDigits(), let lo = hexDigitsToCode(loDigits),
-                let hi = hexDigitsToCode(hiDigits)
-            else { break }
-            // A range longer than any real font is a crafted file.
-            let count = hi >= lo ? Int(hi - lo) + 1 : 0
-            guard count > 0, count <= 65_536 else {
-                _ = scanner.skipDestination()
-                continue
-            }
+        while let lowDigits = scanner.nextHexDigits() {
+            if !lowDigits.isEmpty { sourceHexLengths.append(lowDigits.count) }
+            guard let highDigits = scanner.nextHexDigits() else { break }
+            let low = pdfParseHexU16(String(decoding: lowDigits, as: UTF8.self))
+            let high = pdfParseHexU16(String(decoding: highDigits, as: UTF8.self))
+
             switch scanner.nextDestination() {
             case .single(let digits):
-                // The destination increments with the code, in its last
-                // UTF-16 unit.
-                let base = hexDigitsToUnits(digits)
-                // A base denoting more than one scalar drops the whole
-                // range. The reference converts it with a scalar-only helper
-                // that returns nothing for a multi-character string, so
-                // `<0004> <0004> <00660066>` — the `ff` ligature — maps to
-                // nothing at all rather than to `ff`. That loses text the
-                // font really shows, but output has to match. Note a
-                // surrogate pair is still *one* scalar and survives.
-                guard unitsToString(base).unicodeScalars.count == 1 else { break }
-                for offset in 0..<count {
-                    var units = base
-                    if var last = units.last {
-                        last = UInt16(truncatingIfNeeded: Int(last) + offset)
-                        units[units.count - 1] = last
-                    }
-                    cmap.setMapping(
-                        lo + UInt32(offset),
-                        pdfNormalizeToUnicodeDestination(unitsToString(units)))
+                // The base must denote exactly one scalar. A ligature base —
+                // `<0004> <0004> <00660066>` — maps to nothing at all rather
+                // than to `ff`, which loses text the font really shows.
+                if let low, let high,
+                    let base = pdfHexToUnicodeScalar(String(decoding: digits, as: UTF8.self))
+                {
+                    // Stored unchecked: an inverted range is kept, and simply
+                    // never matches. That still makes the CMap non-empty,
+                    // which is observable.
+                    cmap.ranges.append((start: low, end: high, base: base))
                 }
             case .array(let entries):
-                for (offset, digits) in entries.enumerated() where offset < count {
-                    cmap.setMapping(lo + UInt32(offset), hexDigitsToString(digits))
+                guard let low, let high else { break }
+                var code = low
+                for digits in entries {
+                    if let value = pdfHexToUnicodeString(String(decoding: digits, as: UTF8.self)) {
+                        cmap.charMap[code] = value
+                    }
+                    // The array stops at the range's end even if more
+                    // entries follow, and `>=` means a one-code range takes
+                    // exactly one entry.
+                    if code >= high { break }
+                    code = code &+ 1
                 }
             case .none:
                 break
@@ -95,16 +162,31 @@ func parsePdfToUnicode(_ content: [UInt8]) -> PdfToUnicodeCMap {
         }
         searchFrom = section.upperBound
     }
-    return cmap
-}
 
-extension PdfToUnicodeCMap {
-    fileprivate mutating func setMapping(_ code: UInt32, _ value: String) {
-        // An empty destination means "no mapping"; keeping it would erase
-        // text that a later section defines.
-        if value.isEmpty { return }
-        map[code] = value
+    if cmap.isEmpty { return cmap }
+
+    // The code width. A codespace of `<0000> <FFFF>` beside entries that are
+    // all one byte is a producer's boilerplate, not a description — so the
+    // entries win.
+    if let declared = codespaceByteLength {
+        cmap.codeByteLength =
+            (declared == 2 && !sourceHexLengths.isEmpty && sourceHexLengths.allSatisfy { $0 <= 2 })
+            ? 1 : declared
+    } else if let longest = sourceHexLengths.max() {
+        cmap.codeByteLength = longest <= 2 ? 1 : 2
+    } else {
+        cmap.codeByteLength = 2
     }
+
+    // Sorted for the binary search in `lookup`. The reference sorts
+    // unstably, so two ranges sharing a start are in an unspecified order
+    // there; this port keeps them in the order they were read.
+    cmap.ranges = cmap.ranges.enumerated().sorted {
+        $0.element.start != $1.element.start
+            ? $0.element.start < $1.element.start : $0.offset < $1.offset
+    }.map(\.element)
+
+    return cmap
 }
 
 /// The byte range between a `begin...`/`end...` keyword pair.
@@ -196,88 +278,5 @@ private struct PdfHexScanner {
         }
         guard let digits = nextHexDigits() else { return .none }
         return .single(digits)
-    }
-
-    /// Consume a destination without interpreting it.
-    mutating func skipDestination() -> Bool {
-        _ = nextDestination()
-        return true
-    }
-}
-
-/// Hex digits to the numeric code they denote, capped at four bytes.
-private func hexDigitsToCode(_ digits: [UInt8]) -> UInt32? {
-    guard !digits.isEmpty, digits.count <= 8 else { return nil }
-    var value: UInt32 = 0
-    for digit in digits {
-        guard let nibble = hexNibble(digit) else { return nil }
-        value = (value << 4) | UInt32(nibble)
-    }
-    return value
-}
-
-/// Hex digits to UTF-16 code units, two bytes each.
-private func hexDigitsToUnits(_ digits: [UInt8]) -> [UInt16] {
-    var units: [UInt16] = []
-    var index = 0
-    while index + 3 < digits.count {
-        var unit: UInt16 = 0
-        var valid = true
-        for k in 0..<4 {
-            guard let nibble = hexNibble(digits[index + k]) else {
-                valid = false
-                break
-            }
-            unit = (unit << 4) | UInt16(nibble)
-        }
-        if !valid { break }
-        units.append(unit)
-        index += 4
-    }
-    return units
-}
-
-/// A destination's hex digits as the text they denote.
-///
-/// Normalised, because a malformed producer may write a *list* of
-/// alternative whitespace or hyphen codepoints into one destination and the
-/// reference collapses those to a single character. See
-/// `pdfNormalizeToUnicodeDestination`.
-private func hexDigitsToString(_ digits: [UInt8]) -> String {
-    pdfNormalizeToUnicodeDestination(unitsToString(hexDigitsToUnits(digits)))
-}
-
-/// UTF-16 units to a string, pairing surrogates. Unpaired ones are dropped
-/// rather than becoming replacement characters: a CMap that names half a
-/// pair is naming nothing.
-private func unitsToString(_ units: [UInt16]) -> String {
-    var out = String.UnicodeScalarView()
-    var i = 0
-    while i < units.count {
-        let unit = units[i]
-        if unit >= 0xD800, unit <= 0xDBFF, i + 1 < units.count, units[i + 1] >= 0xDC00,
-            units[i + 1] <= 0xDFFF
-        {
-            let value = 0x10000 + (UInt32(unit - 0xD800) << 10) + UInt32(units[i + 1] - 0xDC00)
-            if let scalar = Unicode.Scalar(value) { out.append(scalar) }
-            i += 2
-            continue
-        }
-        if unit >= 0xD800, unit <= 0xDFFF {
-            i += 1
-            continue
-        }
-        if let scalar = Unicode.Scalar(unit) { out.append(scalar) }
-        i += 1
-    }
-    return String(out)
-}
-
-private func hexNibble(_ c: UInt8) -> UInt8? {
-    switch c {
-    case UInt8(ascii: "0")...UInt8(ascii: "9"): return c - UInt8(ascii: "0")
-    case UInt8(ascii: "a")...UInt8(ascii: "f"): return c - UInt8(ascii: "a") + 10
-    case UInt8(ascii: "A")...UInt8(ascii: "F"): return c - UInt8(ascii: "A") + 10
-    default: return nil
     }
 }

@@ -3767,3 +3767,50 @@ readings**.
   reimplemented rather than transliterated, the probe validates the port's
   structure, not the reference's behaviour.** Those sites are worth
   enumerating.
+
+- **Wave 97 — the audit's first result: four bugs in a ninety-wave-old file.**
+  `PdfToUnicode.swift` rewritten, and the `--cmapparse` differential suite
+  wave 96 left unwired now runs 383 streams.
+
+  Wave 5 ported `ToUnicodeCMap::parse` by **reimplementing** it — scanning
+  the stream its own way and flattening every mapping into one dictionary —
+  rather than transliterating the reference's structure. That passed its own
+  probe for ninety waves, because the probe compared the scanner against
+  cases of the scanner's own design and never against the reference running
+  on the same input. Wiring the differential suite found **seven divergences
+  immediately**, of which four were real defects:
+
+  1. **Direct mappings must outrank ranges**, whatever order the sections
+     appear in. The reference keeps `char_map` and `ranges` apart and
+     consults the first before the second; a flattened dictionary gets
+     whichever was written last, which is wrong for one of the two orders
+     whatever it picks.
+  2. **A one-byte destination is legal.** `<41>` means `A`; the port rejected
+     any destination whose digits did not divide into 16-bit units, losing
+     the character.
+  3. **An unpaired surrogate voids its whole destination.** The port dropped
+     the unpaired half and kept the rest, inventing a character —
+     `<D992C581>` became U+C581 where the reference maps nothing.
+  4. **The code width comes from the entries when the codespace disagrees.**
+     A `<0000> <FFFF>` codespace beside one-byte entries is producer
+     boilerplate, and the reference believes the entries.
+
+  Three further differences were structural rather than defects: the
+  reference returns `None` where this port returns an empty map, and it
+  stores ranges unexpanded so an *inverted* range still makes the CMap
+  non-empty while never matching. Both are now modelled explicitly.
+
+  The rewrite adopts the reference's structure — `charMap` plus unexpanded
+  `ranges`, with lookup precedence and its two-candidate binary search —
+  because the structure is what carries the behaviour. It also drops the
+  earlier port's range-size cap, which existed only because expansion made
+  a full-codespace range expensive.
+
+  **The lesson generalises.** Where an early wave reimplemented rather than
+  transliterated, its probe validates the port's structure, not the
+  reference's behaviour, and a missing behaviour has nothing to disagree
+  with. `parsePdfToUnicode` was one such site; enumerating the others is
+  still outstanding.
+
+  383 probe streams agree. 11 unit tests, each recording one of the fixed
+  behaviours.

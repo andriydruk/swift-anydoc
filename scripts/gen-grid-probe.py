@@ -2733,6 +2733,137 @@ def wrapped_cases(random_count):
     return lines
 
 
+def cmapparse_cases(random_count):
+    """Cases for the ToUnicode stream parser, compared by what it answers.
+
+    The reference keeps ranges lazily where the port flattens them, so the
+    only fair comparison is `lookup` over a set of codes.
+    """
+    rng = random.Random(97_2026)
+    lines = []
+
+    header = ("/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n")
+    footer = "endcmap\nend\nend\n"
+
+    def case(body, codes, prefix=header, suffix=footer):
+        stream = (prefix + body + suffix).replace(" ", "~").replace("\n", "^")
+        lines.append(stream + " ? " + codes)
+
+    def bfchar(pairs):
+        body = "%d beginbfchar\n" % len(pairs)
+        for src, dst in pairs:
+            body += "<%s> <%s>\n" % (src, dst)
+        return body + "endbfchar\n"
+
+    def bfrange(triples):
+        body = "%d beginbfrange\n" % len(triples)
+        for entry in triples:
+            body += "<%s> <%s> %s\n" % entry
+        return body + "endbfrange\n"
+
+    def codespace(lo, hi):
+        return "1 begincodespacerange\n<%s> <%s>\nendcodespacerange\n" % (lo, hi)
+
+    # --- bfchar ---
+    case(bfchar([("01", "0041"), ("02", "0042")]), "01,02,03")
+    case(codespace("00", "FF") + bfchar([("01", "0041")]), "01,02")
+    case(codespace("0000", "FFFF") + bfchar([("0041", "0061")]), "0041,0042")
+    # Multi-scalar destinations, and the malformed alternative lists.
+    case(bfchar([("01", "006600660069")]), "01")
+    case(bfchar([("01", "00200009")]), "01")
+    case(bfchar([("01", "00090020")]), "01")
+    case(bfchar([("01", "002D00AD")]), "01")
+    case(bfchar([("01", "00AD2010")]), "01")
+    case(bfchar([("01", "00200020")]), "01")
+    case(bfchar([("01", "0020000A")]), "01")
+    case(bfchar([("01", "00AD")]), "01")
+    # Surrogates.
+    case(bfchar([("01", "D83CDF1F")]), "01")
+    case(bfchar([("01", "D83C"), ("02", "0041")]), "01,02")
+    case(bfchar([("01", "DF1F")]), "01")
+    case(bfchar([("01", "D800DC00")]), "01")
+    # Malformed destinations.
+    case(bfchar([("01", "004")]), "01")
+    case(bfchar([("01", "")]), "01")
+    case(bfchar([("01", "41")]), "01")
+    case(bfchar([("01", "00")]), "01")
+    case(bfchar([("01", "09")]), "01")
+
+    # --- bfrange with a base ---
+    case(bfrange([("01", "03", "<0041>")]), "01,02,03,04")
+    case(bfrange([("01", "01", "<0041>")]), "01,02")
+    case(bfrange([("00", "FF", "<0041>")]), "00,01,7F,FF")
+    # A base that is not a single scalar.
+    case(bfrange([("01", "03", "<006600660069>")]), "01,02,03")
+    case(bfrange([("01", "03", "<D83CDF1F>")]), "01,02,03")
+    # An inverted range.
+    case(bfrange([("03", "01", "<0041>")]), "01,02,03")
+
+    # --- bfrange with an array ---
+    case(bfrange([("01", "03", "[<0041> <0042> <0043>]")]), "01,02,03,04")
+    case(bfrange([("01", "03", "[<0041> <0042>]")]), "01,02,03")
+    case(bfrange([("01", "02", "[<006600660069> <0041>]")]), "01,02")
+    case(bfrange([("01", "02", "[<00200009> <0041>]")]), "01,02")
+    case(bfrange([("01", "02", "[]")]), "01,02")
+
+    # --- several sections, and precedence ---
+    case(bfchar([("01", "0041")]) + bfrange([("01", "03", "<0061>")]), "01,02,03")
+    case(bfrange([("01", "03", "<0061>")]) + bfchar([("01", "0041")]), "01,02,03")
+    case(bfchar([("01", "0041")]) + bfchar([("01", "0042")]), "01")
+
+    # --- structural edge cases ---
+    case("", "01")
+    case(codespace("00", "FF"), "01")
+    case("1 beginbfchar\nendbfchar\n", "01")
+    case("beginbfchar\n<01> <0041>\nendbfchar\n", "01")
+    case(bfchar([("01", "0041")]), "0000,FFFF")
+    # A codespace that disagrees with the entry widths.
+    case(codespace("0000", "FFFF") + bfchar([("01", "0041")]), "01,0001")
+    case(codespace("00", "FF") + bfchar([("0041", "0061")]), "41,0041")
+    # No wrapper at all.
+    lines.append(bfchar([("01", "0041")]).replace(" ", "~").replace("\n", "^") + " ? 01")
+
+    # --- random maps, mixing all three section shapes ---
+    def random_dst():
+        width = rng.choice([2, 4, 4, 4, 6, 8, 12])
+        return "".join(rng.choice("0123456789ABCDEF") for _ in range(width))
+
+    for _ in range(random_count):
+        body = ""
+        if rng.random() < 0.7:
+            pairs, used = [], set()
+            for _ in range(rng.randint(1, 6)):
+                src = rng.randint(1, 40)
+                if src in used:
+                    continue
+                used.add(src)
+                pairs.append(("%02X" % src, random_dst()))
+            if pairs:
+                body += bfchar(pairs)
+        if rng.random() < 0.6:
+            triples = []
+            for _ in range(rng.randint(1, 3)):
+                lo = rng.randint(1, 30)
+                hi = lo + rng.choice([0, 1, 3, 10, -2])
+                if rng.random() < 0.7:
+                    triples.append(("%02X" % lo, "%02X" % hi, "<%s>" % random_dst()))
+                else:
+                    entries = " ".join(
+                        "<%s>" % random_dst() for _ in range(rng.randint(0, 4)))
+                    triples.append(("%02X" % lo, "%02X" % hi, "[%s]" % entries))
+            body += bfrange(triples)
+        if not body:
+            continue
+        prefix = header
+        if rng.random() < 0.4:
+            prefix = header + codespace(
+                *rng.choice([("00", "FF"), ("0000", "FFFF"), ("00", "FFFF")]))
+        codes = ",".join(sorted({"%02X" % rng.randint(1, 44) for _ in range(5)}))
+        case(body, codes, prefix=prefix)
+
+    return lines
+
+
 def tounicodetext_cases(random_count):
     """Cases for the pure ToUnicode string helpers."""
     rng = random.Random(95_2026)
@@ -6263,6 +6394,18 @@ def main():
         text=True, check=True
     )
     with open(os.path.join(arguments.directory, "wrapped-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write(r.stdout)
+
+    cp_lines = cmapparse_cases(max(arguments.cases, 400))
+    with open(os.path.join(arguments.directory, "cmapparse-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n".join(cp_lines))
+    r = subprocess.run(
+        [probe, "--cmapparse"], input="\n".join(cp_lines) + "\n", capture_output=True,
+        text=True, check=True
+    )
+    with open(os.path.join(arguments.directory, "cmapparse-rust.txt"), "w",
               encoding="utf-8") as f:
         f.write(r.stdout)
 

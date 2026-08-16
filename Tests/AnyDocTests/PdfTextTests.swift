@@ -259,7 +259,7 @@ func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [P
             let cmaps = pdfPageFontCMaps(&document, page)
             for (_, cmap) in cmaps {
                 #expect(!cmap.isEmpty)
-                total += cmap.map.count
+                total += cmap.entryCount
             }
         }
         #expect(total > 0, "no ToUnicode mappings were parsed")
