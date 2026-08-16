@@ -35,7 +35,13 @@ import Testing
 
         var compared = 0
         var mismatches: [String] = []
-        for file in walkFiles(directory).filter({ $0.pathExtension == "pdf" }).sorted(by: {
+        // `gap-*` files deliberately exercise stages this port has not wired
+        // yet — form XObjects, structure-tree tagging — so they are expected
+        // to differ here. `PdfEndToEndTests` tracks them by name instead, so
+        // the gap stays measured rather than merely excused.
+        for file in walkFiles(directory).filter({
+            $0.pathExtension == "pdf" && !$0.lastPathComponent.hasPrefix("gap-")
+        }).sorted(by: {
             $0.path < $1.path
         }) {
             let dumpPath = file.appendingPathExtension("graphics")
@@ -103,7 +109,13 @@ import Testing
 
         var compared = 0
         var mismatches: [String] = []
-        for file in walkFiles(directory).filter({ $0.pathExtension == "pdf" }).sorted(by: {
+        // `gap-*` files deliberately exercise stages this port has not wired
+        // yet — form XObjects, structure-tree tagging — so they are expected
+        // to differ here. `PdfEndToEndTests` tracks them by name instead, so
+        // the gap stays measured rather than merely excused.
+        for file in walkFiles(directory).filter({
+            $0.pathExtension == "pdf" && !$0.lastPathComponent.hasPrefix("gap-")
+        }).sorted(by: {
             $0.path < $1.path
         }) {
             let dumpPath = file.appendingPathExtension("underline")

@@ -4019,3 +4019,40 @@ readings**.
   regression, so the suite asserts the whole tally rather than a list.
 
   5 unit tests.
+
+- **Wave 104 — widening the corpus until it breaks.**
+  Fourteen documents added to `gen-pdf-corpus.py`, and the end-to-end
+  comparison now runs **38 of 41** with three named gaps.
+
+  Wave 103 finished at 27/27, but that corpus was built to stress the
+  *object layer* — xref shapes, filters, object streams — and its text is
+  deliberately trivial. A perfect score against it says little about the
+  passes that turn positioned glyphs into Markdown. So this wave built
+  documents for the other half.
+
+  **Nine markdown-shaped files, all byte-identical on the first run**:
+  heading tiers, lists with a wrapped continuation, captions and a dot-leader
+  contents page, bold/italic/monospace runs, a drop cap, a three-page
+  document with a running header and a numbered footer, hyphenation and a
+  bare URL and a standalone page number, a bordered table from `re` rects,
+  and a ruled table from strokes. That the whole markdown path agreed
+  immediately is the strongest evidence so far that waves 61–103 are sound.
+
+  **Five files built to fail**, targeting stages this port has not wired.
+  Three did, and each is exactly the predicted gap:
+
+  | file | reference | this port | missing |
+  |---|---|---|---|
+  | `gap-xobject-text.pdf` | the text | nothing at all | `extractor/xobjects.rs` |
+  | `gap-tagged.pdf` | `# Tagged As A Heading` | `##` | structure-tree tagging |
+  | `gap-rotated.pdf` | `## rotated ninety degrees` | no heading | rotated-CTM placement |
+
+  Two did **not** fail, which is as useful: `gap-chart.pdf` and
+  `gap-newspaper.pdf` both match without chart masking or band splitting.
+  Those stages are unported and, on these shapes, unnecessary — so they are
+  not the next work.
+
+  The `gap-*` files are excluded from the graphics and underline probes,
+  which would otherwise report the same three gaps a second time as noise.
+  `PdfEndToEndTests` tracks them by name, so the gap stays measured rather
+  than merely excused.

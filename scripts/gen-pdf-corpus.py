@@ -662,4 +662,300 @@ b = Builder()
 write("merge-thresholds", classic_trailer(b, base_document(b, content=MERGE_THRESHOLDS)))
 
 
+# --- the markdown path ----------------------------------------------------
+#
+# Everything above stresses the *object layer*: xref shapes, filters, object
+# streams. Those files convert byte-identically largely because their text is
+# trivial. The files below stress the other half — the passes that turn
+# positioned glyphs into Markdown — so the end-to-end comparison covers
+# headings, lists, captions, code, tables, and the multi-page bookkeeping.
+
+def font_named(name):
+    return (
+        b"<</Type/Font/Subtype/Type1/BaseFont/" + name
+        + b"/FirstChar 32/LastChar 126/Widths [%s]>>"
+        % b" ".join(b"500" for _ in range(95))
+    )
+
+
+BOLD_FONT = font_named(b"Helvetica-Bold")
+ITALIC_FONT = font_named(b"Helvetica-Oblique")
+MONO_FONT = font_named(b"Courier")
+
+
+def styled_document(b, content, fonts=None):
+    """One page whose resources carry several fonts: F1 plain, F2 bold, F3
+    italic, F4 monospace."""
+    fonts = fonts or [SIMPLE_FONT, BOLD_FONT, ITALIC_FONT, MONO_FONT]
+    content_id = b.stream(b"/Filter/FlateDecode", flate(content))
+    ids = [b.add(font) for font in fonts]
+    resources = b"".join(
+        b"/F%d %d 0 R" % (index + 1, font_id) for index, font_id in enumerate(ids)
+    )
+    page_id = b.reserve()
+    pages_id = b.reserve()
+    b.add(
+        b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+        b"/Resources<</Font<<%s>>>>/Contents %d 0 R>>" % (pages_id, resources, content_id),
+        page_id,
+    )
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+def paged_document(b, pages):
+    """Several pages sharing one font, each with its own content stream."""
+    font_id = b.add(SIMPLE_FONT)
+    pages_id = b.reserve()
+    page_ids = []
+    for content in pages:
+        content_id = b.stream(b"/Filter/FlateDecode", flate(content))
+        page_ids.append(
+            b.add(
+                b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+                b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+                % (pages_id, font_id, content_id)
+            )
+        )
+    kids = b" ".join(b"%d 0 R" % pid for pid in page_ids)
+    b.add(b"<</Type/Pages/Kids[%s]/Count %d>>" % (kids, len(page_ids)), pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+def line(text, y, size=10, x=72, font=1):
+    return b"BT /F%d %d Tf %d %d Td (%s) Tj ET\n" % (font, size, x, y, text)
+
+
+# Heading tiers: four sizes over body text, so `compute_heading_tiers` has a
+# ladder to find and `detect_header_level` a ratio to place each on.
+MD_HEADINGS = (
+    line(b"Document Title", 720, 24)
+    + line(b"Section One", 690, 18)
+    + line(b"Subsection", 665, 14)
+    + line(b"Body text under the subsection heading.", 645)
+    + line(b"A second line of body text.", 631)
+    + line(b"Section Two", 600, 18)
+    + line(b"More body text follows the second section.", 580)
+)
+b = Builder()
+write("md-headings", classic_trailer(b, base_document(b, content=MD_HEADINGS)))
+
+# Lists: a bullet, a numbered item, a wrapped continuation indented to the
+# item's text, and a paragraph that ends the list.
+MD_LISTS = (
+    line(b"Shopping", 720, 18)
+    + line(b"- first bullet item", 690)
+    + line(b"continues on the next line", 676, x=78)
+    + line(b"- second bullet item", 662)
+    + line(b"1. numbered item one", 640)
+    + line(b"2. numbered item two", 626)
+    + line(b"A closing paragraph well below the list.", 580)
+)
+b = Builder()
+write("md-lists", classic_trailer(b, base_document(b, content=MD_LISTS)))
+
+# Captions and a table of contents: `is_caption_line` and the dot-leader
+# rows, which must not run together into one paragraph.
+MD_CAPTIONS = (
+    line(b"Figure 1: a caption line", 720)
+    + line(b"Body text after the caption.", 700)
+    + line(b"Table 2. Another caption", 670)
+    + line(b"Contents", 630, 18)
+    + line(b"Chapter One .......... 5", 600)
+    + line(b"Chapter Two .......... 9", 586)
+)
+b = Builder()
+write("md-captions", classic_trailer(b, base_document(b, content=MD_CAPTIONS)))
+
+# Emphasis and code: bold, italic and monospace runs, the last of which
+# becomes a fenced block.
+MD_STYLES = (
+    line(b"Plain body text here.", 720)
+    + line(b"Bold heading line", 700, 12, font=2)
+    + line(b"italic words here", 686, 10, font=3)
+    + line(b"let x = 1", 660, 10, font=4)
+    + line(b"let y = 2", 646, 10, font=4)
+    + line(b"Ordinary prose after the code block.", 610)
+)
+b = Builder()
+write("md-styles", classic_trailer(b, styled_document(b, MD_STYLES)))
+
+# A drop cap: one outsized capital that belongs to the front of the line
+# below it, and which must not define a heading tier of its own.
+MD_DROPCAP = (
+    line(b"Chapter One", 720, 14)
+    + line(b"nce upon a time there was a document", 690)
+    + line(b"that began with an outsized letter.", 676)
+    + b"BT /F1 30 Tf 60 686 Td (O) Tj ET\n"
+)
+b = Builder()
+write("md-dropcap", classic_trailer(b, base_document(b, content=MD_DROPCAP)))
+
+# Three pages sharing a running header and footer, which
+# `strip_repeated_lines` must remove from all but the first — and a page
+# number in the footer, so the normalisation that ignores trailing digits is
+# exercised too.
+MD_PAGES = [
+    line(b"Annual Report of the Commission", 760)
+    + b"".join(
+        line(b"body line %d on page %d with plenty of text" % (row, page), 700 - row * 14)
+        for row in range(8)
+    )
+    + line(b"Confidential Working Draft %d" % page, 40)
+    for page in range(1, 4)
+]
+b = Builder()
+write("md-multipage", classic_trailer(b, paged_document(b, MD_PAGES)))
+
+# A hyphenated word broken across lines, a bare URL, and a standalone page
+# number — three of `clean_markdown`'s passes.
+MD_CLEANUP = (
+    line(b"A paragraph ending in a hyphen-", 720)
+    + line(b"ated word that continues here.", 706)
+    + line(b"See https://example.test/page for more.", 670)
+    + line(b"7", 40)
+)
+b = Builder()
+write("md-cleanup", classic_trailer(b, base_document(b, content=MD_CLEANUP)))
+
+# A bordered table: `re` rectangles forming a two-by-three grid with text in
+# each cell, which the rect detector should grid.
+MD_TABLE_RECTS = b"".join(
+    b"%d %d 120 20 re S\n" % (72 + column * 120, 700 - row * 20)
+    for row in range(3)
+    for column in range(2)
+) + b"".join(
+    line(b"cell %d%d" % (row, column), 706 - row * 20, x=78 + column * 120)
+    for row in range(3)
+    for column in range(2)
+)
+b = Builder()
+write("md-table-rects", classic_trailer(b, base_document(b, content=MD_TABLE_RECTS)))
+
+# A ruled table: horizontal and vertical strokes rather than rectangles, so
+# the line detector is the one that has to find it.
+MD_TABLE_LINES = (
+    b"".join(b"72 %d m 312 %d l S\n" % (700 - row * 20, 700 - row * 20) for row in range(4))
+    + b"".join(b"%d 700 m %d 640 l S\n" % (72 + col * 120, 72 + col * 120) for col in range(3))
+    + b"".join(
+        line(b"r%dc%d" % (row, column), 686 - row * 20, x=78 + column * 120)
+        for row in range(3)
+        for column in range(2)
+    )
+)
+b = Builder()
+write("md-table-lines", classic_trailer(b, base_document(b, content=MD_TABLE_LINES)))
+
+
+# --- documents aimed at the *unported* stages ------------------------------
+#
+# The files above pass. These are built to fail, or to prove they do not: each
+# targets a stage this port has not wired to a document — form XObjects,
+# structure-tree tagging, chart masking, side-by-side bands — so the
+# end-to-end comparison measures the gap instead of leaving it unexamined.
+
+# Text inside a Form XObject, invoked with `Do`. The content stream the page
+# names holds no glyphs at all.
+def xobject_document(b):
+    inner = b.stream(
+        b"/Type/XObject/Subtype/Form/BBox[0 0 612 792]/Filter/FlateDecode",
+        flate(line(b"text drawn inside a form xobject", 700)),
+    )
+    content_id = b.stream(
+        b"/Filter/FlateDecode",
+        flate(line(b"text drawn by the page itself", 730) + b"q /X0 Do Q\n"),
+    )
+    font_id = b.add(SIMPLE_FONT)
+    page_id = b.reserve()
+    pages_id = b.reserve()
+    b.add(
+        b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+        b"/Resources<</Font<</F1 %d 0 R>>/XObject<</X0 %d 0 R>>>>/Contents %d 0 R>>"
+        % (pages_id, font_id, inner, content_id),
+        page_id,
+    )
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+b = Builder()
+write("gap-xobject-text", classic_trailer(b, xobject_document(b)))
+
+
+# A tagged document: a structure tree marking one line as H1 and one as a
+# list item, with the content stream's marked-content ids to match. The
+# visual heuristics alone would read both as ordinary text.
+def tagged_document(b):
+    content = (
+        b"/P <</MCID 0>> BDC\n" + line(b"Tagged As A Heading", 720) + b"EMC\n"
+        b"/P <</MCID 1>> BDC\n" + line(b"tagged as a list item", 690) + b"EMC\n"
+        + line(b"untagged body text follows", 660)
+    )
+    content_id = b.stream(b"/Filter/FlateDecode", flate(content))
+    font_id = b.add(SIMPLE_FONT)
+    page_id = b.reserve()
+    pages_id = b.reserve()
+    struct_root = b.reserve()
+    heading = b.add(
+        b"<</Type/StructElem/S/H1/P %d 0 R/Pg %d 0 R/K 0>>" % (struct_root, page_id))
+    listitem = b.add(
+        b"<</Type/StructElem/S/LI/P %d 0 R/Pg %d 0 R/K 1>>" % (struct_root, page_id))
+    b.add(
+        b"<</Type/StructTreeRoot/K[%d 0 R %d 0 R]>>" % (heading, listitem), struct_root)
+    b.add(
+        b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+        b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R/StructParents 0>>"
+        % (pages_id, font_id, content_id),
+        page_id,
+    )
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(
+        b"<</Type/Catalog/Pages %d 0 R/StructTreeRoot %d 0 R>>" % (pages_id, struct_root))
+
+
+b = Builder()
+write("gap-tagged", classic_trailer(b, tagged_document(b)))
+
+# A bar chart: filled rectangles with value labels over them, beside prose.
+# The rects read as cell borders and the labels as aligned columns, so
+# without chart masking the whole page grids into a phantom table.
+GAP_CHART = (
+    b"".join(
+        b"%d 600 40 %d re f\n" % (100 + index * 60, 30 + index * 25) for index in range(5)
+    )
+    + b"".join(
+        line(b"%d" % (10 + index * 5), 590, x=110 + index * 60) for index in range(5)
+    )
+    + line(b"Quarterly Revenue", 700, 14)
+    + b"".join(
+        line(b"a line of prose beneath the chart number %d" % row, 540 - row * 14)
+        for row in range(6)
+    )
+)
+b = Builder()
+write("gap-chart", classic_trailer(b, base_document(b, content=GAP_CHART)))
+
+# Two prose columns with a wide gutter and no alignment between them — a
+# newspaper layout, not a table. Reading order must run down the left column
+# then down the right, and `split_side_by_side` is what decides that.
+GAP_NEWSPAPER = b"".join(
+    line(b"left column sentence number %d here" % row, 700 - row * 14, x=72)
+    for row in range(10)
+) + b"".join(
+    line(b"right column sentence number %d" % row, 700 - row * 14 - 7, x=330)
+    for row in range(10)
+)
+b = Builder()
+write("gap-newspaper", classic_trailer(b, base_document(b, content=GAP_NEWSPAPER)))
+
+# Text under a rotated CTM, which the extractor has to place through the
+# matrix rather than by its Td offsets alone.
+GAP_ROTATED = (
+    line(b"upright text on the page", 720)
+    + b"q 0 1 -1 0 400 200 cm\n" + line(b"rotated ninety degrees", 0, x=0) + b"Q\n"
+)
+b = Builder()
+write("gap-rotated", classic_trailer(b, base_document(b, content=GAP_ROTATED)))
+
+
 print("generated %d pdfs in %s" % (len([f for f in os.listdir(OUT) if f.endswith(".pdf")]), OUT))
