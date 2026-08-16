@@ -11,127 +11,18 @@ private func loadFixture() throws -> PdfDocument {
     return try PdfDocument(bytes: bytes)
 }
 
-/// The pages of a document, in tree order.
+/// The page-walking helpers these suites use now live in
+/// `Sources/AnyDoc/Pdf/PdfPipeline.swift` — they were duplicated here while
+/// the pipeline was still test scaffolding.
+///
+/// Keeping the copies was actively harmful: a file-scope function in the
+/// test target **shadows** the one in the module, so after wave 105 taught
+/// `pdfPageTextRuns` to inline form XObjects, every test still called the old
+/// copy that did not, and the form's text went missing in the probes while
+/// the pipeline handled it correctly. `pdfPages` is kept as a thin alias
+/// because several suites read better with the shorter name.
 func pdfPages(_ document: inout PdfDocument) -> [PdfDictionary] {
-    guard let catalog = document.catalog,
-        let root = document.value(catalog, "Pages")?.asDictionary
-    else { return [] }
-    var out: [PdfDictionary] = []
-    var queue: [PdfDictionary] = [root]
-    var visited = 0
-    while !queue.isEmpty, visited < 10_000 {
-        let node = queue.removeFirst()
-        visited += 1
-        let type = node["Type"]?.asName
-        if type == Array("Page".utf8) {
-            out.append(node)
-            continue
-        }
-        guard let kids = document.value(node, "Kids")?.asArray else { continue }
-        var children: [PdfDictionary] = []
-        for kid in kids {
-            if let dict = document.resolve(kid).asDictionary { children.append(dict) }
-        }
-        queue.insert(contentsOf: children, at: 0)
-    }
-    return out
-}
-
-/// The ToUnicode CMaps of a page's fonts, by resource name.
-func pdfPageFontCMaps(_ document: inout PdfDocument, _ page: PdfDictionary)
-    -> [String: PdfToUnicodeCMap]
-{
-    var out: [String: PdfToUnicodeCMap] = [:]
-    guard let resources = document.value(page, "Resources")?.asDictionary,
-        let fonts = document.value(resources, "Font")?.asDictionary
-    else { return out }
-    for key in fonts.keys {
-        let name = String(decoding: key, as: UTF8.self)
-        guard let font = document.value(fonts, name)?.asDictionary,
-            let toUnicode = document.value(font, "ToUnicode")?.asStream,
-            let data = document.decodedStream(toUnicode)
-        else { continue }
-        out[name] = parsePdfToUnicode(data)
-    }
-    return out
-}
-
-/// The glyph metrics of a page's fonts, by resource name.
-func pdfPageFontMetrics(_ document: inout PdfDocument, _ page: PdfDictionary)
-    -> [String: PdfFontWidths]
-{
-    var out: [String: PdfFontWidths] = [:]
-    guard let resources = document.value(page, "Resources")?.asDictionary,
-        let fonts = document.value(resources, "Font")?.asDictionary
-    else { return out }
-    for key in fonts.keys {
-        let name = String(decoding: key, as: UTF8.self)
-        guard let font = document.value(fonts, name)?.asDictionary,
-            let info = pdfParseFontWidths(&document, font)
-        else { continue }
-        out[name] = info
-    }
-    return out
-}
-
-/// The emphasis of a page's fonts, by resource name.
-func pdfPageFontStyles(_ document: inout PdfDocument, _ page: PdfDictionary)
-    -> [String: PdfFontStyle]
-{
-    var out: [String: PdfFontStyle] = [:]
-    guard let resources = document.value(page, "Resources")?.asDictionary,
-        let fonts = document.value(resources, "Font")?.asDictionary
-    else { return out }
-    for key in fonts.keys {
-        let name = String(decoding: key, as: UTF8.self)
-        guard let font = document.value(fonts, name)?.asDictionary else { continue }
-        out[name] = pdfFontStyle(&document, font)
-    }
-    return out
-}
-
-/// Every text run of a page, decoded through its fonts' ToUnicode CMaps.
-/// A page's content operations, with `/Contents` arrays concatenated.
-func pdfPageOperations(_ document: inout PdfDocument, _ page: PdfDictionary) -> [PdfOperation] {
-    var data: [UInt8] = []
-    // /Contents is a stream or an array of streams that concatenate.
-    if let single = document.value(page, "Contents")?.asStream {
-        data = document.decodedStream(single) ?? []
-    } else if let array = document.value(page, "Contents")?.asArray {
-        for entry in array {
-            guard let stream = document.resolve(entry).asStream,
-                let decoded = document.decodedStream(stream)
-            else { continue }
-            data.append(contentsOf: decoded)
-            data.append(0x0A)
-        }
-    }
-    return pdfParseContentStream(data)
-}
-
-func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [PdfTextRun] {
-    let cmaps = pdfPageFontCMaps(&document, page)
-    let metrics = pdfPageFontMetrics(&document, page)
-    let operations = pdfPageOperations(&document, page)
-    return pdfExtractTextRuns(operations, metrics: { metrics[$0] }) { fontName, bytes in
-        guard let cmap = cmaps[fontName] else {
-            // Without a CMap the bytes are their own code points, which is
-            // right for the ASCII a simple font shows.
-            return String(decoding: bytes, as: UTF8.self)
-        }
-        var out = ""
-        let width = cmap.codeByteLength
-        var i = 0
-        while i < bytes.count {
-            var code: UInt32 = 0
-            for k in 0..<width where i + k < bytes.count {
-                code = (code << 8) | UInt32(bytes[i + k])
-            }
-            out += cmap.lookup(code) ?? ""
-            i += width
-        }
-        return out
-    }
+    pdfDocumentPages(&document)
 }
 
 @Suite struct PdfContentStreamTests {

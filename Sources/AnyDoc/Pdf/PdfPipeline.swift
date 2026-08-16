@@ -39,8 +39,10 @@ func pdfMarkdown(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOpti
 
     for (index, page) in pdfDocumentPages(&document).enumerated() {
         let number = index + 1
-        let styles = pdfPageFontStyles(&document, page)
-        let graphics = pdfExtractGraphics(pdfPageOperations(&document, page))
+        var styles = pdfPageFontStyles(&document, page)
+        let (pageOperations, formFonts) = pdfPageOperationsWithForms(&document, page)
+        for (name, font) in formFonts { styles[name] = pdfFontStyle(&document, font) }
+        let graphics = pdfExtractGraphics(pageOperations)
 
         // Letter-spaced runs are repaired before grouping, and the
         // threshold that repair measures becomes the page's join threshold —
@@ -158,6 +160,24 @@ func pdfDocumentPageCount(_ document: inout PdfDocument) -> Int {
     pdfDocumentPages(&document).count
 }
 
+/// A page's operations with every form XObject spliced in, and the fonts
+/// those forms name.
+///
+/// A `Do` that invokes a form is replaced by the form's own content, so the
+/// one content-stream walker sees everything the page draws — including the
+/// text a producer factored out into a letterhead or a repeated block, which
+/// is otherwise lost without a trace.
+func pdfPageOperationsWithForms(
+    _ document: inout PdfDocument, _ page: PdfDictionary
+) -> (operations: [PdfOperation], fonts: [String: PdfDictionary]) {
+    let resources = document.value(page, "Resources")?.asDictionary
+    var formFonts: [String: PdfDictionary] = [:]
+    let operations = pdfInlineFormXObjects(
+        pdfPageOperations(&document, page), &document, resources: resources
+    ) { name, font in formFonts[name] = font }
+    return (operations, formFonts)
+}
+
 /// A page's content operations, with a `/Contents` array concatenated.
 ///
 /// The streams are joined with a newline, because two streams may split an
@@ -228,9 +248,19 @@ func pdfPageFontStyles(_ document: inout PdfDocument, _ page: PdfDictionary)
 
 /// Every text run of a page, decoded through its fonts' `ToUnicode` CMaps.
 func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [PdfTextRun] {
-    let cmaps = pdfPageFontCMaps(&document, page)
-    let metrics = pdfPageFontMetrics(&document, page)
-    let operations = pdfPageOperations(&document, page)
+    var cmaps = pdfPageFontCMaps(&document, page)
+    var metrics = pdfPageFontMetrics(&document, page)
+    let (operations, formFonts) = pdfPageOperationsWithForms(&document, page)
+    // A form's fonts join under the namespaced names its `Tf` operators were
+    // rewritten to, so a `/F1` inside a form cannot pick up the page's `/F1`.
+    for (name, font) in formFonts {
+        if let toUnicode = document.value(font, "ToUnicode")?.asStream,
+            let data = document.decodedStream(toUnicode)
+        {
+            cmaps[name] = parsePdfToUnicode(data)
+        }
+        if let widths = pdfParseFontWidths(&document, font) { metrics[name] = widths }
+    }
     return pdfExtractTextRuns(operations, metrics: { metrics[$0] }) { fontName, bytes in
         guard let cmap = cmaps[fontName] else {
             // With no CMap the bytes are their own code points, which is

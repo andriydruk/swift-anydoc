@@ -22,6 +22,11 @@ import Testing
 ///   done
 ///   ANYDOC_PDF_CORPUS=/tmp/pdfcorpus swift test --filter PdfGraphicsProbe
 @Suite struct PdfGraphicsProbeTests {
+    /// Corpus files whose divergence is a stage this port has not wired
+    /// yet, listed by name so the exclusion shrinks as the gaps close.
+    /// `PdfEndToEndTests` tracks the same files, so nothing goes unmeasured.
+    static let unwiredGaps: Set<String> = ["gap-tagged.pdf", "gap-rotated.pdf"]
+
     /// Format a float the way the probe does, so the two dumps compare as
     /// text rather than through a tolerance nobody chose deliberately.
     private func format(_ value: Float) -> String {
@@ -35,12 +40,12 @@ import Testing
 
         var compared = 0
         var mismatches: [String] = []
-        // `gap-*` files deliberately exercise stages this port has not wired
-        // yet — form XObjects, structure-tree tagging — so they are expected
-        // to differ here. `PdfEndToEndTests` tracks them by name instead, so
-        // the gap stays measured rather than merely excused.
+        // The `unwiredGaps` files exercise stages this port has not wired
+        // yet, so they are expected to differ here. `PdfEndToEndTests`
+        // tracks the same files by name, so nothing goes unmeasured.
         for file in walkFiles(directory).filter({
-            $0.pathExtension == "pdf" && !$0.lastPathComponent.hasPrefix("gap-")
+            $0.pathExtension == "pdf"
+                && !PdfGraphicsProbeTests.unwiredGaps.contains($0.lastPathComponent)
         }).sorted(by: {
             $0.path < $1.path
         }) {
@@ -109,12 +114,12 @@ import Testing
 
         var compared = 0
         var mismatches: [String] = []
-        // `gap-*` files deliberately exercise stages this port has not wired
-        // yet — form XObjects, structure-tree tagging — so they are expected
-        // to differ here. `PdfEndToEndTests` tracks them by name instead, so
-        // the gap stays measured rather than merely excused.
+        // The `unwiredGaps` files exercise stages this port has not wired
+        // yet, so they are expected to differ here. `PdfEndToEndTests`
+        // tracks the same files by name, so nothing goes unmeasured.
         for file in walkFiles(directory).filter({
-            $0.pathExtension == "pdf" && !$0.lastPathComponent.hasPrefix("gap-")
+            $0.pathExtension == "pdf"
+                && !PdfGraphicsProbeTests.unwiredGaps.contains($0.lastPathComponent)
         }).sorted(by: {
             $0.path < $1.path
         }) {
@@ -127,12 +132,17 @@ import Testing
 
             var ours: [String] = []
             for (index, page) in pdfPages(&document).enumerated() {
-                let operations = pdfPageOperations(&document, page)
+                // Form XObjects are spliced in, as the pipeline does: the
+                // reference walks into them, so a probe that did not would
+                // report every form's text as missing.
+                let (operations, formFonts) = pdfPageOperationsWithForms(&document, page)
                 let graphics = pdfExtractGraphics(operations)
                 // The reference's own order: extract, mark decoration, then
                 // merge fragments into words, then absorb scripts.
                 var items = pdfLayoutItems(pdfPageTextRuns(&document, page))
-                pdfApplyFontStyles(&items, pdfPageFontStyles(&document, page))
+                var styles = pdfPageFontStyles(&document, page)
+                for (name, font) in formFonts { styles[name] = pdfFontStyle(&document, font) }
+                pdfApplyFontStyles(&items, styles)
                 pdfMarkUnderlines(
                     &items, rectangles: pdfUnderlineInk(graphics), lines: graphics.lines)
                 items = pdfMergeSubscriptItems(pdfMergeTextItems(items))

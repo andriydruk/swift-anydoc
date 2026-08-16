@@ -30,6 +30,7 @@ import Testing
         "filter-chained.pdf",
         "filter-lzw.pdf",
         "filter-none.pdf",
+        "gap-xobject-text.pdf",
         "gap-chart.pdf",
         "gap-newspaper.pdf",
         "graphics-clips.pdf",

@@ -4056,3 +4056,39 @@ readings**.
   which would otherwise report the same three gaps a second time as noise.
   `PdfEndToEndTests` tracks them by name, so the gap stays measured rather
   than merely excused.
+
+- **Wave 105 — form XObjects, and a shadow that hid the fix.**
+  `PdfFormXObjects.swift` ports `extractor/xobjects.rs`, and the end-to-end
+  tally moves to **39 of 41**.
+
+  A `Do` invokes an XObject: an image, or a *form* — a content stream of its
+  own drawn under the graphics state in effect. Real documents put a great
+  deal of text in forms, and a reader that ignores `Do` loses all of it
+  silently, which is exactly what `gap-xobject-text.pdf` measured.
+
+  **This port inlines rather than recurses.** The reference carries a second
+  five-hundred-line walker specialised for forms; the specification says a
+  form invocation *means* `q`, the form's `/Matrix` as a `cm`, its content,
+  then `Q`, so splicing precisely that into the operation stream lets the one
+  walker already here handle both. A hundred and thirty lines instead of five
+  hundred, and the byte-diff judges whether it is equivalent.
+
+  Two findings, both caught by probes rather than by reading:
+
+  **A form never inherits the page's fonts.** The specification says
+  resources are inherited, so a form with no `/Resources` should draw with
+  the page's. `get_form_fonts` returns nothing at all in that case and never
+  consults the page, leaving those runs with no metrics and a **zero
+  advance**. This port inherited them, giving a real width of 160 where the
+  reference assigns 0 — invisible in the Markdown, caught by the item-level
+  underline probe. Reproduced by namespacing every `Tf` inside a form, so an
+  undeclared name resolves to nothing here too.
+
+  **A test-target function shadowed the module's.** `pdfPageTextRuns` and its
+  five siblings still existed at file scope in `PdfTextTests.swift` from when
+  the pipeline was scaffolding. A file-scope function in the test target
+  shadows the module's, so after teaching the real one to inline forms, every
+  test kept calling the old copy that did not — the pipeline handled forms
+  correctly while the probes reported them missing, and the two disagreed for
+  half an hour before the cause was obvious. The duplicates are deleted; 123
+  lines of them.
