@@ -3927,3 +3927,36 @@ readings**.
   7 unit tests. Remaining divergences: `two-column.pdf` (table detection),
   `annotations.pdf` (form-field text), `merge-thresholds.pdf` (a word-join
   threshold), `merge-fragments.pdf` (fragment merging).
+
+- **Wave 101 — two passes that were never connected.**
+  The per-page order in `PdfPipeline.swift` corrected, and the end-to-end
+  tally moves to **25 of 27**.
+
+  Wave 100 predicted this: `merge-fragments` and `merge-thresholds` both
+  concern page-level operations, so the same connected-at-the-wrong-level
+  question would apply. It did, and worse — `pdfMergeTextItems` and
+  `pdfMergeSubscriptItems` were ported, probed and **never called by
+  anything**. A PDF does not draw words: `Hel`/`lo`/`wor`/`ld` at four
+  explicit positions is one word, and without those passes it stays four.
+
+  The order matters as much as the presence. The reference runs, per page:
+  mark underlines, merge text, merge subscripts, measure letter-spacing,
+  suppress table underlines — then groups into lines. This port had the
+  letter-spacing measurement *before* the merges, so it was measuring
+  fragments rather than words. Both rows cleared at once when the order was
+  fixed.
+
+  `PdfPipelineOrderTests` pins the order by its **effects** rather than by
+  reading the code, so a dropped pass fails a test however the pipeline is
+  rearranged: fragments become words, a letterspaced run rejoins, a
+  mixed-case pair keeps its space where a lowercase pair does not, and a
+  subscript folds into `H₂O`.
+
+  Those tests failed on their first run for an unrelated reason worth
+  recording: a hand-built PDF whose font omits `/Widths` gets a different
+  glyph advance, so every gap measures differently and every threshold test
+  is meaningless. The corpus generator's font declares 500/1000 em for all
+  95 glyphs; the test's now does too.
+
+  Remaining: `two-column.pdf` (table detection) and `annotations.pdf`
+  (form-field text).

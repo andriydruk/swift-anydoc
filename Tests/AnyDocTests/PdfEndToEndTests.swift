@@ -35,6 +35,8 @@ import Testing
         "incremental-update.pdf",
         "indirect-length.pdf",
         "lying-length.pdf",
+        "merge-fragments.pdf",
+        "merge-thresholds.pdf",
         "object-stream.pdf",
         "underline-basic.pdf",
         "underline-fraction.pdf",

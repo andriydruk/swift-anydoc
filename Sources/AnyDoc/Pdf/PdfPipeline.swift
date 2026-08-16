@@ -39,18 +39,26 @@ func pdfMarkdown(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOpti
         // a page set with wide tracking needs a wider gap to count as a word
         // break. The reference keeps the threshold only when it exceeds the
         // 0.10 default, and so does this.
+        // Every pass below works on the **whole page**, before grouping,
+        // and in the reference's order — which matters twice over. The table
+        // detectors need every item on the page to find a grid at all; and
+        // the letter-spacing measurement has to see merged words, not the
+        // fragments a PDF draws them as.
         var items = pdfLayoutItems(pdfPageTextRuns(&document, page))
-        let measured = pdfFixLetterspacedItems(&items)
-        let threshold = measured > 0.10 ? measured : 0.10
-
-        // Emphasis and decoration are decided for the **whole page**, before
-        // grouping. The table detectors need every item on the page to find
-        // a grid at all — run per line, each sees one or two items and finds
-        // nothing, which is how the first attempt at this silently did
-        // nothing.
         pdfApplyFontStyles(&items, styles)
         pdfMarkUnderlines(
             &items, rectangles: pdfUnderlineInk(graphics), lines: graphics.lines)
+
+        // A PDF does not draw words. `Hel`/`lo`/`wor`/`ld` at four explicit
+        // positions is one word, and putting it back together is what these
+        // two passes do — the second for the raised and lowered runs that
+        // carry subscripts and footnote marks.
+        items = pdfMergeTextItems(items)
+        items = pdfMergeSubscriptItems(items)
+
+        let measured = pdfFixLetterspacedItems(&items)
+        let threshold = measured > 0.10 ? measured : 0.10
+
         // A ruled table's cell borders read as underlines on the text above
         // them, so the flags are cleared wherever a plausible table claims
         // the item.
