@@ -3145,9 +3145,12 @@ pub fn probe_writer(input: &str) -> String {
             Some(pair) => pair,
             None => (case, ""),
         };
-        if tag != "W" {
+        // `W` is the full conversion; `L` is the plain line entry point,
+        // which is a separate implementation rather than a special case.
+        if tag != "W" && tag != "L" {
             continue;
         }
+        let tag_is_simple = tag == "L";
         let fields: Vec<&str> = rest.split(' ').filter(|p| !p.is_empty()).collect();
         let Some(semi) = fields.iter().position(|p| *p == ";") else { continue };
         if semi < 6 {
@@ -3187,6 +3190,11 @@ pub fn probe_writer(input: &str) -> String {
         };
         let page_chart_regions: HashMap<u32, Vec<(f32, f32, f32, f32)>> = HashMap::new();
 
+        if tag_is_simple {
+            let markdown = to_markdown_from_lines(lines, options);
+            out.push_str(&format!("wt {}\n", markdown.replace('\n', "^")));
+            continue;
+        }
         let markdown = to_markdown_from_lines_with_tables_and_images(
             lines,
             options,

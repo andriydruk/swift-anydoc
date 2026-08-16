@@ -94,7 +94,8 @@ import Testing
     private func answer(for line: String) -> String? {
         let space = line.firstIndex(of: " ")
         let tag = space.map { String(line[line.startIndex..<$0]) } ?? line
-        guard tag == "W" else { return nil }
+        // `W` is the full conversion; `L` is the plain line entry point.
+        guard tag == "W" || tag == "L" else { return nil }
         let rest = space.map { String(line[line.index(after: $0)...]) } ?? ""
         let fields = rest.split(separator: " ").filter { !$0.isEmpty }.map(String.init)
         guard let semi = fields.firstIndex(of: ";"), semi >= 6 else { return nil }
@@ -122,6 +123,11 @@ import Testing
         let bandSplitPages: Set<Int> =
             fields[5] == "-" ? [] : Set(fields[5].split(separator: ",").compactMap { Int($0) })
 
+        if tag == "L" {
+            return "wt "
+                + pdfMarkdownFromLines(lines, options: options)
+                .replacingOccurrences(of: "\n", with: "^")
+        }
         let analysis = pdfAnalyseDocument(lines, options: options, structRoles: structRoles)
         let markdown = pdfWriteMarkdown(
             analysis, options: options, pageTables: parseBlocks(fields[3]),

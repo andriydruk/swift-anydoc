@@ -3607,3 +3607,37 @@ readings**.
   charge, so a tagged paragraph can still become a heading.
 
   95 documents agree after the fixes. 16 unit tests, all passing first try.
+
+- **Wave 92 — the plain entry point, and its nine divergences.**
+  `PdfWriterSimple.swift` ports `to_markdown_from_lines`, the reference's
+  public conversion for callers with nothing but text lines.
+
+  It is **not** the big writer with arguments defaulted. It is a separate,
+  older implementation that has drifted from its sibling, and the drift is
+  the substance of the port: no bold-run merge; a narrower sequence
+  exclusion; a page break that also clears the list state; no band-switch
+  break; a heading gate missing the bullet-marker, list-continuation and
+  non-heading-role tests; a rarity fallback that needs no strong signal but
+  demands isolation for a single word; no numbered-bold shortcut; code fenced
+  per line rather than accumulated; and no handling for tagged captions,
+  lists, quotes or code.
+
+  Sharing an implementation would mean choosing which behaviour is "right",
+  and both are the reference's. They are kept apart.
+
+  **The divergence is measured, not asserted.** The probe now runs every
+  document through both entry points: of 100 documents, **38 produce
+  different Markdown**. Two hundred documents compared in total, all agreeing
+  with the reference on the first run.
+
+  Checking before asserting paid again. Of three divergences I expected to
+  demonstrate, only one did. A bullet-marked line at heading size is a
+  heading here and a list item in the full writer — real. But a list crossing
+  a page break comes out identical, because the page break resets the
+  baseline and the continuation test fails on the gap whether or not the list
+  state was cleared; and a standalone bold `CONTENTS` is promoted by both.
+  The first was corrected in the doc comment from a behavioural claim to a
+  code-level one, and pinned by a test that records the difference is *not*
+  live.
+
+  200 probe documents, 10 unit tests, all passing first try.

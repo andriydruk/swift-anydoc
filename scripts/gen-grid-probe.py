@@ -2822,6 +2822,37 @@ def writer_cases(random_count):
                        prose(1, 686, "ANOTHER BOLD LINE", bold=1)]))
     lines.append(case([]))
 
+    # --- to_markdown_from_lines: the same documents through the plain
+    # entry point, which is a separate implementation ---
+    simple = [c for c in lines if c.startswith("W ")]
+    lines.extend("L" + c[1:] for c in simple)
+
+    # Cases aimed at where the two implementations disagree.
+    # Two monospace lines: one fenced block in the big writer, two here.
+    both = [prose(1, 700, "let x = 1", font="Courier"),
+            prose(1, 686, "let y = 2", font="Courier")]
+    lines.append(case(both))
+    lines.append("L" + case(both)[1:])
+    # A list open across a page break, which the plain writer closes.
+    across = [prose(1, 700, "- a bullet item here"),
+              prose(2, 700, "continuation on the next page", x=24)]
+    lines.append(case(across))
+    lines.append("L" + case(across)[1:])
+    # A bullet-marker line at heading size: the big writer's gate rejects it,
+    # the plain one has no bullet test.
+    bullet = [prose(1, 760, "- A Bulleted Heading Line", size=20)] + body
+    lines.append(case(bullet))
+    lines.append("L" + case(bullet)[1:])
+    # A single bold word, standalone but not isolated.
+    word = [prose(1, 760, "CONTENTS", bold=1)] + body
+    lines.append(case(word))
+    lines.append("L" + case(word)[1:])
+    # A wrapped bold heading, which only the big writer merges.
+    wrapped = [prose(1, 760, "A Short Bold Heading", bold=1),
+               prose(1, 746, "continuing here", bold=1)] + body
+    lines.append(case(wrapped))
+    lines.append("L" + case(wrapped)[1:])
+
     # Random small documents.
     texts = ["Acknowledgements", "a line of ordinary running prose that continues",
              "- a bullet item here", "Figure 1: a caption", "1. numbered item",
@@ -2838,6 +2869,7 @@ def writer_cases(random_count):
                                x=rng.choice([20, 24, 60]),
                                font=rng.choice(["F1", "F1", "Courier"])))
         lines.append(case(items))
+        lines.append("L" + case(items)[1:])
 
     return lines
 
