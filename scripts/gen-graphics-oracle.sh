@@ -2282,6 +2282,56 @@ pub fn probe_preprocess(input: &str) -> String {
                 "mx {}\n",
                 is_decorative_separator(&rest.replace('~', " ")) as u8
             )),
+            // R page_count ; page,y,text ...   (text is the rejoined tail)
+            "R" => {
+                let Some(semi) = semi else { continue };
+                let page_count: u32 = fields[0].parse().unwrap_or(3);
+                let mut input_lines: Vec<TextLine> = Vec::new();
+                for spec in &fields[semi + 1..] {
+                    let f: Vec<&str> = spec.split(',').collect();
+                    if f.len() < 3 {
+                        continue;
+                    }
+                    let y: f32 = f[1].parse().unwrap_or(0.0);
+                    let page: u32 = f[0].parse().unwrap_or(1);
+                    input_lines.push(TextLine {
+                        y,
+                        page,
+                        adaptive_threshold: 0.10,
+                        items: vec![TextItem {
+                            text: f[2..].join(",").replace('~', " "),
+                            x: 20.0,
+                            y,
+                            width: 40.0,
+                            height: 12.0,
+                            font: "F1".to_string(),
+                            font_size: 10.0,
+                            page,
+                            is_bold: false,
+                            is_italic: false,
+                            is_underline: false,
+                            is_strikeout: false,
+                            item_type: ItemType::Text,
+                            mcid: None,
+                        }],
+                    });
+                }
+                let kept = strip_repeated_lines(input_lines, page_count);
+                // Emit the survivors themselves — recovering original indices
+                // by text would be ambiguous precisely where this function is
+                // interesting, since the repeated lines are identical.
+                let mut out_line = format!("sr {}", kept.len());
+                for line in &kept {
+                    out_line.push_str(&format!(
+                        " {}:{:.0}:{}",
+                        line.page,
+                        line.y,
+                        line.text().replace(' ', "~")
+                    ));
+                }
+                out.push_str(&out_line);
+                out.push('\n');
+            }
             _ => {}
         }
     }

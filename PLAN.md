@@ -3481,3 +3481,45 @@ readings**.
   by querying the reference for both shapes.
 
   95 probe cases agree on the first run. 24 unit tests.
+
+- **Wave 89 — the running-header remover.**
+  `PdfStripRepeated.swift` ports `strip_repeated_lines`, the last thing in
+  `markdown/preprocess.rs` and the largest single function in it.
+
+  A header repeated on every page is noise once the document is one Markdown
+  stream, and finding it is a frequency problem with many ways to go wrong: a
+  table's column headings also repeat, a page number changes on every page,
+  and a document title at the top of page one must survive. Six conditions
+  hold together — enough distinct pages, ten bytes once normalised, not
+  structural, near a page edge, consistent vertical position, not a rule —
+  and lines sharing a baseline form **Y-bands**, so a column heading split
+  into fragments too short to qualify individually is caught by its row's
+  combined text, and removing any member removes the whole band.
+
+  Boundaries pinned: the three-page floor; the frequency bar at 30% by
+  *integer* division, so twenty pages need six occurrences and nineteen need
+  five; the edge test at five distinct baselines from either end, with a page
+  of ten or fewer counting as entirely margin — which is what lets a sparse
+  cover page have its mid-page title stripped.
+
+  **Two findings, both reproduced.**
+
+  The structural exemption is tested against the *normalised* text, and
+  normalisation strips leading digits. `1. Annual Report Section` arrives as
+  `. Annual Report Section`, which no longer looks structural — so a repeated
+  **numbered heading is stripped as a running header while a `#` or bullet
+  heading is not**. Pinned by a test asserting the exemption holds before
+  normalisation and fails after.
+
+  "Keep the first occurrence" means first in *array* order, not lowest page:
+  the reference records the page of whichever line it reaches first and never
+  revises it. The band pass explicitly takes the minimum; the individual pass
+  does not, and the two disagree. Fed pages in the order 3,1,2,4,5,6 the
+  stripper keeps three copies; fed them backwards it strips nothing at all.
+  The layout stage emits pages in order, so this does not bite in the
+  pipeline — but the comment is only true for sorted input.
+
+  123 probe cases agree on the first run. 13 unit tests, two of which had
+  wrong expectations: `Report 2024` normalises to six bytes and falls under
+  the length floor rather than being stripped, and the numbered-heading case
+  above. Both corrected against the reference.

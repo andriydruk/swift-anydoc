@@ -111,6 +111,23 @@ import Testing
             guard let semi = fields.firstIndex(of: ";"), !fields.isEmpty else { return nil }
             let built = parseLines(Array(fields[(semi + 1)...]))
             return shape("md", pdfMergeDropCaps(built, baseSize: Float(fields[0]) ?? 10))
+        case "R":
+            guard let semi = fields.firstIndex(of: ";"), !fields.isEmpty else { return nil }
+            var built: [PdfTextLine] = []
+            for spec in fields[(semi + 1)...] {
+                let f = spec.split(separator: ",", omittingEmptySubsequences: false)
+                guard f.count >= 3, let page = Int(f[0]), let y = Float(f[1]) else { continue }
+                let item = PdfLayoutItem(
+                    text: f[2...].joined(separator: ",").replacingOccurrences(of: "~", with: " "),
+                    x: 20, y: y, width: 40, fontSize: 10, fontName: "F1")
+                built.append(PdfTextLine(items: [item], y: y, page: page))
+            }
+            let kept = pdfStripRepeatedLines(built, pageCount: Int(fields[0]) ?? 3)
+            return "sr \(kept.count)"
+                + kept.map {
+                    " \($0.page):\(Int($0.y.rounded(.toNearestOrEven)))"
+                        + ":\(pdfLineText($0).replacingOccurrences(of: " ", with: "~"))"
+                }.joined()
         case "N":
             let text = rest.replacingOccurrences(of: "~", with: " ")
             return "mn "

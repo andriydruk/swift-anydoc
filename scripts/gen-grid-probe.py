@@ -2868,6 +2868,88 @@ def preprocess_cases(random_count):
                  "~~~~", "  "):
         lines.append("X " + text.replace(" ", "~"))
 
+    # --- strip_repeated_lines ---
+    HEADER = "Annual Report of the Commission"
+    FOOTER = "Confidential Working Draft"
+
+    def doc(pages, body_rows=12, header=HEADER, footer=FOOTER,
+            header_y=800, footer_y=40, skip_header=(), skip_footer=(),
+            header_drift=0, page_count=None):
+        """A document of `pages` pages, each with a header, a footer and
+        `body_rows` rows of ordinary prose well away from the margins."""
+        specs = []
+        for page in range(1, pages + 1):
+            if header and page not in skip_header:
+                y = header_y + (header_drift if page % 2 == 0 else 0)
+                specs.append("{},{},{}".format(page, y, header.replace(" ", "~")))
+            for row in range(body_rows):
+                specs.append("{},{},{}".format(
+                    page, 700 - row * 40,
+                    ("body line %d on page %d with plenty of text" % (row, page))
+                    .replace(" ", "~")))
+            if footer and page not in skip_footer:
+                specs.append("{},{},{}".format(page, footer_y, footer.replace(" ", "~")))
+        return "R {} ; ".format(page_count if page_count is not None else pages) + " ".join(specs)
+
+    # The page-count floor: under three pages nothing is stripped at all.
+    for pages in (2, 3, 4, 6):
+        lines.append(doc(pages))
+    # The threshold is max(3, 30% of pages) using integer division, so a
+    # header on exactly that many pages is stripped and one fewer is not.
+    for pages, present in ((10, 3), (10, 2), (20, 6), (20, 5)):
+        skip = tuple(range(present + 1, pages + 1))
+        lines.append(doc(pages, skip_header=skip, footer=None))
+    # A drifting header fails the Y-consistency test; a steady one passes.
+    for drift in (0, 2, 20, 100):
+        lines.append(doc(6, header_drift=drift, footer=None))
+    # Short and decorative texts are never candidates.
+    for header in ("Page 1", "---------------", "aaaaaaaaaaaaaaa", "Report 2024"):
+        lines.append(doc(6, header=header, footer=None))
+    # A structural-looking header is exempt.
+    for header in ("# Annual Report Heading", "1. Annual Report Section",
+                   "- Annual Report Bullet"):
+        lines.append(doc(6, header=header, footer=None))
+    # A header in the middle of the page is not at an edge.
+    lines.append(doc(6, header_y=500, footer=None))
+    # Sparse pages: with ten or fewer distinct Y values everything counts as
+    # an edge, so a mid-page repeat is stripped after all.
+    lines.append(doc(6, body_rows=4, header_y=500, footer=None))
+    lines.append(doc(6, body_rows=12, header_y=500, footer=None))
+    # A page_count larger than the pages actually present raises the bar.
+    lines.append(doc(6, footer=None, page_count=30))
+
+    # Y-band coalescing: two fragments at one Y, each too short alone.
+    def banded(pages, left="Column One", right="Column Two", y=800):
+        specs = []
+        for page in range(1, pages + 1):
+            specs.append("{},{},{}".format(page, y, left.replace(" ", "~")))
+            specs.append("{},{},{}".format(page, y, right.replace(" ", "~")))
+            for row in range(12):
+                specs.append("{},{},{}".format(
+                    page, 700 - row * 40,
+                    ("body line %d on page %d with plenty of text" % (row, page))
+                    .replace(" ", "~")))
+        return "R {} ; ".format(pages) + " ".join(specs)
+
+    lines.append(banded(6))
+    # One fragment long enough on its own, so sibling propagation takes the
+    # other with it.
+    lines.append(banded(6, left="A Very Long Column Header Indeed", right="x"))
+    lines.append(banded(6, y=500))
+
+    # Lines given out of page order, which the individual first-occurrence
+    # pass reads in array order rather than by page number.
+    shuffled = []
+    for page in (3, 1, 2, 4, 5, 6):
+        shuffled.append("{},800,{}".format(page, HEADER.replace(" ", "~")))
+        for row in range(12):
+            shuffled.append("{},{},{}".format(
+                page, 700 - row * 40,
+                ("body line %d on page %d with plenty of text" % (row, page))
+                .replace(" ", "~")))
+    lines.append("R 6 ; " + " ".join(shuffled))
+    lines.append("R 6 ; ")
+
     return lines
 
 
