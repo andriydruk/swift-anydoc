@@ -37,6 +37,15 @@ func pdfMarkdown(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOpti
     let pageNumbers = pdfPageNumbers(&document)
     let formFields = pdfFormFields(&document, pageNumbers: pageNumbers)
 
+    // A tagged document says what its content means, and the writer prefers
+    // those declarations to any geometric guess. An **empty** map becomes
+    // nothing at all rather than an empty dictionary: the two differ
+    // downstream, where the overuse audit returns before counting when there
+    // are no roles but counts nothing when there is an empty map.
+    let structRoles: PdfStructRoleMap? = pdfParseStructTree(&document)
+        .map { pdfStructRoleMap($0, pageNumbers: pageNumbers) }
+        .flatMap { $0.isEmpty ? nil : $0 }
+
     for (index, page) in pdfDocumentPages(&document).enumerated() {
         let number = index + 1
         var styles = pdfPageFontStyles(&document, page)
@@ -117,13 +126,11 @@ func pdfMarkdown(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOpti
         lines = pdfStripRepeatedLines(lines, pageCount: pdfDocumentPageCount(&document))
     }
 
-    // No structure roles: `structure_tree.rs`'s `from_doc` is unported, so a
-    // tagged PDF is read as an untagged one — its headings come from the
-    // visual heuristics rather than from its own declarations.
-    let analysis = pdfAnalyseDocument(lines, options: options, structRoles: nil)
+    let analysis = pdfAnalyseDocument(lines, options: options, structRoles: structRoles)
     // No images and no band-split pages: image extraction and
     // `split_side_by_side`'s per-page wiring are still to come.
-    return pdfWriteMarkdown(analysis, options: options, pageTables: pageTables)
+    return pdfWriteMarkdown(
+        analysis, options: options, pageTables: pageTables, structRoles: structRoles)
 }
 
 /// The pages of a document, in tree order.

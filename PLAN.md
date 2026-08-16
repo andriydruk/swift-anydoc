@@ -4092,3 +4092,34 @@ readings**.
   correctly while the probes reported them missing, and the two disagreed for
   half an hour before the cause was obvious. The duplicates are deleted; 123
   lines of them.
+
+- **Wave 106 — the tagged path, joined at last.**
+  `PdfStructRoles.swift` ports `mcid_to_roles` and `mcid_count`, and the
+  end-to-end tally moves to **40 of 41**.
+
+  A tagged PDF says what its content *means*, and the writer prefers those
+  declarations to any geometric guess. The link is the marked-content id: a
+  structure element names an id and a page, and the content stream's `BDC`
+  stamps the same id onto the runs it wraps.
+
+  **Every piece of this had been ported and none of them were joined.** The
+  tree walker landed in an early wave, the role vocabulary and
+  `resolve_line_struct_role` in wave 85, `effective_heading_level` in wave
+  88, the extractor's `BDC`/`EMC` tracking earlier still. What was missing
+  was forty lines mapping the tree's page *references* to the page *numbers*
+  items carry — the sixth connection gap this session, and the last one the
+  corpus could see.
+
+  One distinction that matters and is easy to lose: an empty map becomes
+  **nothing at all** rather than an empty dictionary. The two differ
+  downstream, where the overuse audit returns before counting when there are
+  no roles but counts nothing when handed an empty map. The reference makes
+  the same distinction explicitly.
+
+  A stale comment was corrected while here. `PdfLayoutItem.mcid` still
+  claimed "nothing sets this yet — the extractor's `BDC`/`EMC` tracking is
+  not ported", written when that was true and left standing after it stopped
+  being. A reader trusting it would have concluded the tagged path was
+  further away than it was.
+
+  5 unit tests. The last divergence is `gap-rotated.pdf`.
