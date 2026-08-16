@@ -3029,6 +3029,178 @@ pub fn probe_wrapped(input: &str) -> String {
     out
 }
 
+/// Probe (added for swift-anydoc): the whole line-to-Markdown conversion.
+///
+/// This calls `to_markdown_from_lines_with_tables_and_images` itself, so it
+/// covers the analysis prologue and the writer together and supersedes
+/// `probe_prologue`, which could only compare against a transcription.
+pub fn probe_writer(input: &str) -> String {
+    use super::MarkdownOptions;
+    use crate::structure_tree::StructRole;
+    use crate::types::{ItemType, TextItem, TextLine};
+    use std::collections::{HashMap, HashSet};
+
+    fn parse_lines(fields: &[&str]) -> Vec<TextLine> {
+        let mut out: Vec<TextLine> = Vec::new();
+        for spec in fields {
+            let append = spec.starts_with('+');
+            let body = spec.trim_start_matches('+');
+            let f: Vec<&str> = body.split(',').collect();
+            if f.len() < 8 {
+                continue;
+            }
+            let item = TextItem {
+                text: f[7..].join(",").replace('~', " "),
+                x: f[2].parse().unwrap_or(0.0),
+                y: f[1].parse().unwrap_or(0.0),
+                width: 40.0,
+                height: 12.0,
+                font: f[6].to_string(),
+                font_size: f[3].parse().unwrap_or(12.0),
+                page: f[0].parse().unwrap_or(1),
+                is_bold: f[4] == "1",
+                is_italic: f[5] == "1",
+                is_underline: false,
+                is_strikeout: false,
+                item_type: ItemType::Text,
+                mcid: None,
+            };
+            if append && !out.is_empty() {
+                let last = out.len() - 1;
+                out[last].items.push(item);
+            } else {
+                out.push(TextLine {
+                    y: item.y,
+                    page: item.page,
+                    adaptive_threshold: 0.10,
+                    items: vec![item],
+                });
+            }
+        }
+        out
+    }
+
+    // `page:mcid:Role` triples against a line index, since these cases build
+    // one item per line: `line:Role`.
+    fn parse_roles(
+        spec: &str,
+        lines: &mut [TextLine],
+    ) -> Option<HashMap<u32, HashMap<i64, StructRole>>> {
+        if spec == "!" {
+            return None;
+        }
+        let mut map: HashMap<u32, HashMap<i64, StructRole>> = HashMap::new();
+        if spec == "." {
+            return Some(map);
+        }
+        for pair in spec.split(',') {
+            let f: Vec<&str> = pair.split(':').collect();
+            if f.len() < 2 {
+                continue;
+            }
+            let Ok(index) = f[0].parse::<usize>() else { continue };
+            if index >= lines.len() {
+                continue;
+            }
+            let mcid = index as i64;
+            let page = lines[index].page;
+            for item in lines[index].items.iter_mut() {
+                item.mcid = Some(mcid);
+            }
+            map.entry(page)
+                .or_default()
+                .insert(mcid, StructRole::from_name(f[1]));
+        }
+        Some(map)
+    }
+
+    // `page:y:x:markdown` joined by `@`, or `-`. **Not** `|`: a rendered
+    // table is full of pipes, and splitting on one would silently feed the
+    // probe a different block than the case describes.
+    fn parse_blocks(spec: &str) -> HashMap<u32, Vec<PositionedMarkdown>> {
+        let mut map: HashMap<u32, Vec<PositionedMarkdown>> = HashMap::new();
+        if spec == "-" {
+            return map;
+        }
+        for block in spec.split('@') {
+            let f: Vec<&str> = block.split(':').collect();
+            if f.len() < 4 {
+                continue;
+            }
+            map.entry(f[0].parse().unwrap_or(1)).or_default().push(
+                PositionedMarkdown::new(
+                    f[1].parse().unwrap_or(0.0),
+                    f[2].parse().unwrap_or(0.0),
+                    f[3..].join(":").replace('~', " ").replace('^', "\n"),
+                    None,
+                ),
+            );
+        }
+        map
+    }
+
+    let mut out = String::new();
+    for case in input.lines() {
+        let (tag, rest) = match case.split_once(' ') {
+            Some(pair) => pair,
+            None => (case, ""),
+        };
+        if tag != "W" {
+            continue;
+        }
+        let fields: Vec<&str> = rest.split(' ').filter(|p| !p.is_empty()).collect();
+        let Some(semi) = fields.iter().position(|p| *p == ";") else { continue };
+        if semi < 6 {
+            continue;
+        }
+        let mut options = MarkdownOptions::default();
+        // Flags, in order: headers lists code bold italic underline pages
+        // hyphenation urls page-numbers images.
+        let flags: Vec<char> = fields[0].chars().collect();
+        let flag = |i: usize| flags.get(i).copied().unwrap_or('1') == '1';
+        if fields[0] != "d" {
+            options.detect_headers = flag(0);
+            options.detect_lists = flag(1);
+            options.detect_code = flag(2);
+            options.detect_bold = flag(3);
+            options.detect_italic = flag(4);
+            options.detect_underline = flag(5);
+            options.include_page_numbers = flag(6);
+            options.fix_hyphenation = flag(7);
+            options.format_urls = flag(8);
+            options.remove_page_numbers = flag(9);
+            options.include_images = flag(10);
+        }
+        options.base_font_size = if fields[1] == "-" {
+            None
+        } else {
+            fields[1].parse().ok()
+        };
+        let mut lines = parse_lines(&fields[semi + 1..]);
+        let struct_roles = parse_roles(fields[2], &mut lines);
+        let page_tables = parse_blocks(fields[3]);
+        let page_images = parse_blocks(fields[4]);
+        let band_split_pages: HashSet<u32> = if fields[5] == "-" {
+            HashSet::new()
+        } else {
+            fields[5].split(',').filter_map(|p| p.parse().ok()).collect()
+        };
+        let page_chart_regions: HashMap<u32, Vec<(f32, f32, f32, f32)>> = HashMap::new();
+
+        let markdown = to_markdown_from_lines_with_tables_and_images(
+            lines,
+            options,
+            page_tables,
+            page_images,
+            &page_chart_regions,
+            &band_split_pages,
+            struct_roles.as_ref(),
+        );
+        out.push_str(&format!("wt {}\n", markdown.replace('\n', "^")));
+    }
+    out
+}
+
 /// Probe (added for swift-anydoc): the analysis prologue.
 ///
 /// The prologue is the first third of
@@ -4830,6 +5002,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::markdown::preprocess::probe_preprocess(&input));
+        return;
+    }
+    if path == "--writer" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::markdown::convert::probe_writer(&input));
         return;
     }
     if path == "--prologue" {

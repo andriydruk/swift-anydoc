@@ -3563,3 +3563,47 @@ readings**.
 
   80 probe cases agree on the first run. 10 unit tests, all passing first
   try.
+
+- **Wave 91 — the writer, and the first end-to-end probe.**
+  `PdfWriter.swift` ports the body of
+  `to_markdown_from_lines_with_tables_and_images` together with
+  `flush_page_tables_and_images`. **`markdown/convert.rs` is now fully
+  ported.**
+
+  Everything the previous thirty waves built converges here: one pass over
+  the analysed lines deciding what each is — caption, heading, list item,
+  quote, code, prose — and emitting Markdown, with tables and images
+  interleaved. Most of the subtlety is in when the dozen pieces of running
+  state reset, not in the classification. A paragraph ends on a large
+  baseline gap (absolute, so a *backward* jump breaks too), on a column
+  switch, or on the transition out of a bold run; a list survives a paragraph
+  break but not a failed continuation test; a code block spans lines and must
+  be closed on a page break as well as on the first non-code line.
+
+  **The probe is the wave's real result.** Because the reference function is
+  callable whole, this compares *finished Markdown* for 95 documents against
+  the reference actually running — the strongest check in the project so far,
+  and it retires wave 90's transcription. That probe is kept only for
+  isolation: when both fail, the prologue is where to look.
+
+  It found three divergences on its first run, which is what an end-to-end
+  probe is for:
+
+  1. **The delimiter bug, a third time — and I introduced it knowing about
+     it.** The case format joined blocks with `|`, and a rendered Markdown
+     table is full of pipes, so every table case silently described a
+     different block. Waves 85 and 86 found this shape twice; writing a new
+     probe reintroduced it. Separator changed to `@`.
+  2. A missing early return: the reference answers an empty document with an
+     empty string, and the port returned a lone newline. I had read that
+     early return in wave 90, deferred it to "the main loop", and then not
+     written it.
+  3. A paragraph-break difference that turned out to be a symptom of (1).
+
+  Two reference behaviours worth naming, both pinned. A tagged `LI` at the
+  top of a page **absorbs the body text below it** — once a list opens,
+  following lines within seven line heights at a similar indent are
+  continuations. And `P` and `Figure` tags leave the visual heuristic in
+  charge, so a tagged paragraph can still become a heading.
+
+  95 documents agree after the fixes. 16 unit tests, all passing first try.

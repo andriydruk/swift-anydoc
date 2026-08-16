@@ -2733,6 +2733,115 @@ def wrapped_cases(random_count):
     return lines
 
 
+def writer_cases(random_count):
+    """Cases for the whole line-to-Markdown conversion."""
+    rng = random.Random(91_2026)
+    lines = []
+
+    def spec(page, y, x, size, bold, italic, font, text, append=False):
+        return "{}{},{},{},{},{},{},{},{}".format(
+            "+" if append else "", page, y, x, size, bold, italic, font,
+            text.replace(" ", "~") or "x")
+
+    def case(items, flags="d", base="-", roles="!", tables="-", images="-", bands="-"):
+        return "W {} {} {} {} {} {} ; ".format(
+            flags, base, roles, tables, images, bands) + " ".join(items)
+
+    def prose(page, y, text, size=10, bold=0, italic=0, x=20, font="F1"):
+        return spec(page, y, x, size, bold, italic, font, text)
+
+    body = [prose(1, 700 - r * 14, "body line %d of ordinary running prose here" % r)
+            for r in range(6)]
+
+    # The plainest possible document, then one with a title.
+    lines.append(case(body))
+    lines.append(case([prose(1, 760, "Document Title Here", size=20)] + body))
+    # A paragraph break from a large gap, and a backward jump.
+    lines.append(case([prose(1, 700, "first paragraph line here"),
+                       prose(1, 600, "second paragraph line here")]))
+    lines.append(case([prose(1, 600, "first paragraph line here"),
+                       prose(1, 700, "second paragraph line here")]))
+    # Emphasis on and off.
+    for flags in ("d", "1110001110", "1111111110"):
+        lines.append(case([prose(1, 700, "bold words here", bold=1),
+                           prose(1, 686, "italic words here", italic=1)], flags=flags))
+    # Lists: a marker, a continuation, and a line that ends the list.
+    lines.append(case([prose(1, 700, "- first bullet item"),
+                       prose(1, 686, "continues the bullet here", x=24),
+                       prose(1, 600, "a separate paragraph now")]))
+    lines.append(case([prose(1, 700, "1. numbered item here"),
+                       prose(1, 686, "2. second numbered item")]))
+    # A dot-leader row, which must not run together with its neighbour.
+    lines.append(case([prose(1, 700, "Chapter One .......... 5"),
+                       prose(1, 686, "Chapter Two .......... 9")]))
+    # Captions.
+    lines.append(case([prose(1, 700, "Figure 1: a caption line"),
+                       prose(1, 686, "body text following the caption")]))
+    # Code, by monospace font, opened and closed.
+    lines.append(case([prose(1, 700, "let x = 1", font="Courier"),
+                       prose(1, 686, "let y = 2", font="Courier"),
+                       prose(1, 600, "ordinary prose after the code")]))
+    # A code block still open at a page break.
+    lines.append(case([prose(1, 700, "let x = 1", font="Courier"),
+                       prose(2, 700, "ordinary prose on the next page")]))
+    # Page numbering markers.
+    lines.append(case([prose(1, 700, "page one text here"),
+                       prose(2, 700, "page two text here")], flags="1111111110"))
+    lines.append(case([prose(1, 700, "page one text here"),
+                       prose(2, 700, "page two text here")]))
+    # Struct roles: heading, caption, list item, quote, code.
+    for role in ("H1", "H2", "Caption", "LI", "BlockQuote", "Code", "P", "Figure"):
+        lines.append(case([prose(1, 760, "A Tagged Line Of Text"), ] + body,
+                          roles="0:" + role))
+    # A tagged non-heading role must not be promoted by the heuristic.
+    lines.append(case([prose(1, 760, "SHORT BOLD LINE", size=10, bold=1)] + body,
+                      roles="0:LI"))
+    lines.append(case([prose(1, 760, "SHORT BOLD LINE", size=10, bold=1)] + body))
+    # Tables and images interleaved.
+    lines.append(case(body, tables="1:650:20:|~a~|~b~|^|~---~|~---~|"))
+    lines.append(case(body, images="1:650:20:![Image](image)"))
+    lines.append(case(body, tables="1:650:20:|~a~|~b~|^|~---~|~---~|",
+                      images="1:640:20:![Image](image)"))
+    # A table-only page after the last text line.
+    lines.append(case(body, tables="3:650:20:|~a~|~b~|^|~---~|~---~|"))
+    # A band-split page.
+    lines.append(case([prose(1, 700, "left band line here", x=20),
+                       prose(1, 700, "right band line here", x=300)], bands="1"))
+    lines.append(case([prose(1, 700, "left band line here", x=20),
+                       prose(1, 700, "right band line here", x=300)]))
+    # A base size override.
+    lines.append(case(body, base="14"))
+    # A wrapped bold paragraph followed by ordinary prose.
+    bold_run = [prose(1, 760 - i * 14,
+                      "a bold paragraph line carrying quite a few words indeed", bold=1)
+                for i in range(3)]
+    lines.append(case(bold_run + [prose(1, 760 - 3 * 14 - 13, "ordinary prose follows")]))
+    # A table-of-contents marker heading, suppressing headings on its page.
+    lines.append(case([prose(1, 760, "Table of Contents", size=20),
+                       prose(1, 700, "Chapter One .......... 5"),
+                       prose(1, 686, "ANOTHER BOLD LINE", bold=1)]))
+    lines.append(case([]))
+
+    # Random small documents.
+    texts = ["Acknowledgements", "a line of ordinary running prose that continues",
+             "- a bullet item here", "Figure 1: a caption", "1. numbered item",
+             "SHORT BOLD", "Chapter One .......... 5"]
+    for _ in range(random_count):
+        count = rng.randint(1, 8)
+        items = []
+        y = 800
+        for _ in range(count):
+            y -= rng.choice([14, 20, 60, 120])
+            items.append(prose(rng.choice([1, 1, 2]), y, rng.choice(texts),
+                               size=rng.choice([10, 12, 20]),
+                               bold=rng.choice([0, 1]),
+                               x=rng.choice([20, 24, 60]),
+                               font=rng.choice(["F1", "F1", "Courier"])))
+        lines.append(case(items))
+
+    return lines
+
+
 def prologue_cases(random_count):
     """Cases for the analysis prologue."""
     rng = random.Random(90_2026)
@@ -5920,6 +6029,18 @@ def main():
         text=True, check=True
     )
     with open(os.path.join(arguments.directory, "wrapped-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write(r.stdout)
+
+    wt_lines = writer_cases(max(arguments.cases // 8, 60))
+    with open(os.path.join(arguments.directory, "writer-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n".join(wt_lines))
+    r = subprocess.run(
+        [probe, "--writer"], input="\n".join(wt_lines) + "\n", capture_output=True,
+        text=True, check=True
+    )
+    with open(os.path.join(arguments.directory, "writer-rust.txt"), "w",
               encoding="utf-8") as f:
         f.write(r.stdout)
 

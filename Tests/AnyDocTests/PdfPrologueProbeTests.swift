@@ -7,10 +7,13 @@ import Testing
 ///
 /// The reference's prologue sits inside a six-hundred-line function and
 /// cannot be called on its own, so the oracle transcribes it verbatim into a
-/// probe. That makes this weaker than the project's other probes — it
-/// compares the port against a copy of the reference's ordering rather than
-/// against the reference itself — and it is superseded once the writer lands
-/// and whole documents can be compared end to end.
+/// probe — which compares the port against a copy of the reference's
+/// ordering rather than against the reference itself.
+///
+/// `PdfWriterProbeTests` now covers the same ground properly, calling the
+/// reference function whole. This one is kept because it isolates: when both
+/// fail, the prologue is where to look; when only the writer probe fails,
+/// the prologue is fine.
 @Suite struct PdfPrologueProbeTests {
     @Test func theAnalysisPrologueMatchesTheReference() throws {
         guard let path = ProcessInfo.processInfo.environment["ANYDOC_GRID_PROBE"], !path.isEmpty

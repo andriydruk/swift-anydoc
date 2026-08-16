@@ -21,6 +21,9 @@ struct PdfDocumentAnalysis {
     /// into the caller's input.
     var lines: [PdfTextLine]
     var baseSize: Float
+    /// Measured on the lines as they arrived, before any merge — which is
+    /// what the writer's rarity score is scaled against.
+    var fontStats: PdfFontStats
     var headingTiers: [Float]
     var paragraphThreshold: Float
     /// Short lines with a paragraph break on both sides — heading candidates
@@ -100,6 +103,7 @@ func pdfAnalyseDocument(
     return PdfDocumentAnalysis(
         lines: working,
         baseSize: baseSize,
+        fontStats: fontStats,
         headingTiers: headingTiers,
         paragraphThreshold: paragraphThreshold,
         isolatedLines: isolatedLines,
