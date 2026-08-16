@@ -3814,3 +3814,43 @@ readings**.
 
   383 probe streams agree. 11 unit tests, each recording one of the fixed
   behaviours.
+
+- **Wave 98 — the audit: what was never being run.**
+  `scripts/run-probes.sh` and `PdfProbeCoverageTests.swift`.
+
+  Wave 97 showed that a reimplemented port's own probe proves less than it
+  appears to. This wave asked the next question — which probes were running
+  at all — and the answer was worse than the question assumed.
+
+  Every differential suite in the package is gated on an environment
+  variable naming a generated corpus, and a suite whose variable is unset
+  **returns before comparing anything and reports as a pass**. That is right
+  for a fresh checkout, which cannot build the oracles. It also means
+  `swift test` reports green whether or not a single comparison ran.
+
+  Seven gates exist. Only `ANYDOC_GRID_PROBE` was being set. The other six —
+  the object graph against lopdf, the font, marked-content and
+  structure-tree corpora, the line classifiers, and NFKC over every
+  codepoint — **had not run in more than thirty waves**. And no `ANYDOC`
+  variable appears in the CI workflow at all, so *every* differential suite,
+  the grid probe included, has always run vacuously in CI.
+
+  **All six were regenerated and run. Every one passes**: 27 object graphs
+  against lopdf with 3 rejections agreed, 26 graphics and underline dumps,
+  12 font documents, 21 marked-content cases, 20 tagged documents, 22,047
+  classifier strings, 5,579 cleanup strings, and 1,112,064 codepoints of
+  NFKC. No defects — the coverage was real and correct, it simply was not
+  being exercised.
+
+  Two changes so this cannot recur quietly. `scripts/run-probes.sh` builds
+  every oracle, generates every corpus and runs the suite with all seven
+  gates set, in one command. And `PdfProbeCoverageTests` prints, at the end
+  of *every* run, which gates were set and which compared nothing — it never
+  fails, it just refuses to let the gap be invisible.
+
+  **CI still does not run any of this, deliberately.** The oracles are built
+  from a vendored copy of the reference crate, and fetching that in CI was
+  rejected in favour of keeping the published repository independent of
+  upstream. That decision stands; what changes is that the reports now say
+  so. A green CI badge means the package builds and the non-differential
+  tests pass — nothing more.
