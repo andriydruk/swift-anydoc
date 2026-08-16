@@ -38,9 +38,14 @@ echo "==> building the vendored oracle"
 echo "==> grid, format and stream probes"
 python3 scripts/gen-grid-probe.py --oracle "$work/o" "$work/grid" >/dev/null
 
-echo "==> adversarial PDF corpus (object graph, graphics, underline)"
+echo "==> adversarial PDF corpus (object graph, graphics, underline, markdown)"
 python3 scripts/gen-pdf-corpus.py "$work/corpus" >/dev/null
 ./scripts/gen-pdf-oracles.sh "$work/corpus" "$work/o"
+# The whole-document answer, for the end-to-end comparison. A file the
+# reference refuses gets no `.md` and is not compared.
+for f in "$work"/corpus/*.pdf; do
+    "$probe" --markdown "$f" > "$f.md" 2>/dev/null || rm -f "$f.md"
+done
 
 echo "==> font, marked-content and structure-tree corpora"
 python3 scripts/gen-font-corpus.py "$work/font" --probe "$probe" >/dev/null

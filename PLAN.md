@@ -3854,3 +3854,44 @@ readings**.
   upstream. That decision stands; what changes is that the reports now say
   so. A green CI badge means the package builds and the non-differential
   tests pass — nothing more.
+
+- **Wave 99 — the pipeline, and the first byte-diff.**
+  `PdfPipeline.swift`, `AnyDoc.swift` wired, a `--markdown` oracle mode, and
+  `PdfEndToEndTests`.
+
+  `AnyDoc.markdown` no longer throws for PDF. The assembly the previous
+  ninety-eight waves were building towards is a hundred lines: pages, runs,
+  letter-spacing repair, line grouping, font styles, underlines, header
+  stripping, analysis, writer. Everything it calls was ported and probed
+  separately; what was missing was the wiring, which had been sitting in the
+  test target as scaffolding for the corpus suite.
+
+  **The byte-diff `PLAN.md` §2 calls the real bar now runs, and the result is
+  22 of 27 documents byte-identical to the reference on the first attempt.**
+  The five that differ each name a stage that is honestly unported, and the
+  suite prints the first differing line of each:
+
+  | file | reference | this port | missing |
+  |---|---|---|---|
+  | `two-column.pdf` | a Markdown table | prose | table detection per page |
+  | `annotations.pdf` | `address.city: Lisbon` | nothing | form-field text |
+  | `underline-fraction.pdf` | `12 34` | `<u>12</u> 34` | `suppress_table_underlines` |
+  | `merge-thresholds.pdf` | `AB cd` | `ABcd` | a word-join threshold |
+  | `merge-fragments.pdf` | `TRACK` | `## T R A C K` | fragment merging |
+
+  That is the remaining work ordered by a measurement rather than by
+  guesswork, and each row is a wave.
+
+  The suite **reports the tally rather than failing on it**, and fails only
+  when a file leaves the matching set — so the 22 are a ratchet. Adding to
+  that list is now the unit of progress.
+
+  One fix landed with the wiring: letter-spacing repair runs per page and
+  the threshold it measures becomes that page's word-join threshold, as the
+  reference does. It did not change the tally, which is worth stating —
+  `merge-fragments.pdf` needs fragment merging, not tracking repair.
+
+  **What the pipeline still is not.** No detector, so a scanned document is
+  not distinguished from a text one; no table or image detection; no
+  structure tree, so a tagged PDF is read as untagged. Each is noted at its
+  call site rather than summarised, so adding one is a local edit.

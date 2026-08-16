@@ -24,7 +24,7 @@ public enum AnyDoc {
         let format = try resolveFormat(bytes, format)
         // PDFs convert to Markdown directly without the document model.
         if format == .pdf {
-            throw ConvertError.unsupported("PDF conversion is not implemented yet in swift-anydoc")
+            return try pdfMarkdown(bytes)
         }
         return documentToMarkdown(try document(bytes, format: format))
     }

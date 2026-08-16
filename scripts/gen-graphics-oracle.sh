@@ -5028,6 +5028,18 @@ fn main() {
         print!("{}", pdf_inspector::markdown::preprocess::probe_preprocess(&input));
         return;
     }
+    if path == "--markdown" {
+        let file = std::env::args().nth(2).expect("usage: --markdown <file.pdf>");
+        let bytes = std::fs::read(&file).expect("read");
+        match pdf_inspector::process_pdf_mem(&bytes) {
+            Ok(result) => print!("{}", result.markdown.unwrap_or_default()),
+            Err(e) => {
+                eprintln!("{e:?}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     if path == "--cmapparse" {
         use std::io::Read;
         let mut input = String::new();
