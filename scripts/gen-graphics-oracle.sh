@@ -83,6 +83,12 @@ perl -pi -e "s/^fn (resolve_line_struct_role|detect_overused_struct_heading_leve
 # `markdown::convert` — the merge pair (wave 86).
 perl -pi -e "s/^fn (merge_wrapped_bold_heading_groups|count_table_columns)/pub fn \$1/" \
     "$crate/src/markdown/convert.rs"
+# `markdown::preprocess` — the merge pair and comparison helpers (wave 88).
+perl -pi -e "s/^pub\\(crate\\) mod preprocess;/pub mod preprocess;/; s/^mod preprocess;/pub mod preprocess;/" \
+    "$crate/src/markdown/mod.rs"
+perl -pi -e "s/^pub\\(crate\\) fn (merge_heading_lines|merge_drop_caps|strip_repeated_lines)/pub fn \$1/; s/^fn (effective_heading_level|normalize_whitespace|normalize_for_comparison|is_structural_line|is_decorative_separator)/pub fn \$1/" \
+    "$crate/src/markdown/preprocess.rs"
+
 # `markdown::convert` — the positioned-block cluster (wave 87).
 perl -pi -e "s/^fn (chart_stream_position|positioned_block_precedes_line|compare_positioned_blocks|positioned_blocks_for_page)/pub fn \$1/; s/^enum PositionedBlockKind/pub enum PositionedBlockKind/; s/^type PositionedBlockRef/pub type PositionedBlockRef/; s/^pub\\(super\\) struct ChartProseOrder/pub struct ChartProseOrder/; s/^pub\\(super\\) struct PositionedMarkdown/pub struct PositionedMarkdown/; s/^    pub\\(super\\) fn new/    pub fn new/" \
     "$crate/src/markdown/convert.rs"
@@ -2125,6 +2131,157 @@ pub fn probe_heading(input: &str) -> String {
                 let line = TextLine { y: 0.0, page: 1, adaptive_threshold: 0.10, items };
                 out.push_str(&format!("mb {}\n", line_is_mostly_bold(&line) as u8));
             }
+            _ => {}
+        }
+    }
+    out
+}
+RUSTEOF
+
+cat >> "$crate/src/markdown/preprocess.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): the preprocess merge pair.
+pub fn probe_preprocess(input: &str) -> String {
+    use crate::structure_tree::StructRole;
+    use crate::types::{ItemType, TextItem, TextLine};
+    use std::collections::HashMap;
+
+    // `[+]page,y,x,size,bold,mcid,text` — text is the rejoined tail so a
+    // comma inside it survives, and `+` appends to the previous line.
+    fn parse_lines(fields: &[&str]) -> Vec<TextLine> {
+        let mut out: Vec<TextLine> = Vec::new();
+        for spec in fields {
+            let append = spec.starts_with('+');
+            let body = spec.trim_start_matches('+');
+            let f: Vec<&str> = body.split(',').collect();
+            if f.len() < 7 {
+                continue;
+            }
+            let item = TextItem {
+                text: f[6..].join(",").replace('~', " "),
+                x: f[2].parse().unwrap_or(0.0),
+                y: f[1].parse().unwrap_or(0.0),
+                width: 40.0,
+                height: 12.0,
+                font: "F1".to_string(),
+                font_size: f[3].parse().unwrap_or(12.0),
+                page: f[0].parse().unwrap_or(1),
+                is_bold: f[4] == "1",
+                is_italic: false,
+                is_underline: false,
+                is_strikeout: false,
+                item_type: ItemType::Text,
+                mcid: if f[5] == "-" { None } else { f[5].parse().ok() },
+            };
+            if append && !out.is_empty() {
+                let last = out.len() - 1;
+                out[last].items.push(item);
+            } else {
+                out.push(TextLine {
+                    y: item.y,
+                    page: item.page,
+                    adaptive_threshold: 0.10,
+                    items: vec![item],
+                });
+            }
+        }
+        out
+    }
+
+    fn parse_roles(spec: &str) -> Option<HashMap<u32, HashMap<i64, StructRole>>> {
+        if spec == "!" {
+            return None;
+        }
+        let mut map: HashMap<u32, HashMap<i64, StructRole>> = HashMap::new();
+        if spec == "." {
+            return Some(map);
+        }
+        for triple in spec.split(',') {
+            let f: Vec<&str> = triple.split(':').collect();
+            if f.len() < 3 {
+                continue;
+            }
+            map.entry(f[0].parse().unwrap_or(1))
+                .or_default()
+                .insert(f[1].parse().unwrap_or(0), StructRole::from_name(f[2]));
+        }
+        Some(map)
+    }
+
+    fn shape(tag: &str, lines: &[TextLine]) -> String {
+        let mut out = format!("{tag} {}", lines.len());
+        for line in lines {
+            out.push_str(&format!(
+                " {:.0}:{}:{}",
+                line.y,
+                line.items.len(),
+                line.text().replace(' ', "~")
+            ));
+        }
+        out.push('\n');
+        out
+    }
+
+    let mut out = String::new();
+    for line in input.lines() {
+        let (tag, rest) = match line.split_once(' ') {
+            Some(pair) => pair,
+            None => (line, ""),
+        };
+        let fields: Vec<&str> = rest.split(' ').filter(|p| !p.is_empty()).collect();
+        let semi = fields.iter().position(|p| *p == ";");
+        match tag {
+            // H base roles tiers... ; lines...
+            "H" => {
+                let Some(semi) = semi else { continue };
+                if fields.len() < 2 {
+                    continue;
+                }
+                let base: f32 = fields[0].parse().unwrap_or(10.0);
+                let roles = parse_roles(fields[1]);
+                let tiers: Vec<f32> = fields[2..semi].iter().filter_map(|t| t.parse().ok()).collect();
+                let merged =
+                    merge_heading_lines(parse_lines(&fields[semi + 1..]), base, &tiers, roles.as_ref());
+                out.push_str(&shape("mh", &merged));
+            }
+            // E base roles tiers... ; lines...  (one level per line)
+            "E" => {
+                let Some(semi) = semi else { continue };
+                if fields.len() < 2 {
+                    continue;
+                }
+                let base: f32 = fields[0].parse().unwrap_or(10.0);
+                let roles = parse_roles(fields[1]);
+                let tiers: Vec<f32> = fields[2..semi].iter().filter_map(|t| t.parse().ok()).collect();
+                out.push_str("me");
+                for line in &parse_lines(&fields[semi + 1..]) {
+                    match effective_heading_level(line, base, &tiers, roles.as_ref()) {
+                        Some(level) => out.push_str(&format!(" {level}")),
+                        None => out.push_str(" -"),
+                    }
+                }
+                out.push('\n');
+            }
+            // D base ; lines...
+            "D" => {
+                let Some(semi) = semi else { continue };
+                let base: f32 = fields[0].parse().unwrap_or(10.0);
+                let merged = merge_drop_caps(parse_lines(&fields[semi + 1..]), base);
+                out.push_str(&shape("md", &merged));
+            }
+            // N/S/X text
+            "N" => out.push_str(&format!(
+                "mn {}\n",
+                normalize_for_comparison(&rest.replace('~', " ")).replace(' ', "~")
+            )),
+            "S" => out.push_str(&format!(
+                "ms {}\n",
+                is_structural_line(&rest.replace('~', " ")) as u8
+            )),
+            "X" => out.push_str(&format!(
+                "mx {}\n",
+                is_decorative_separator(&rest.replace('~', " ")) as u8
+            )),
             _ => {}
         }
     }
@@ -4401,6 +4558,13 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input).expect("stdin");
         print!("{}", pdf_inspector::markdown::convert::probe_wrapped(&input));
+        return;
+    }
+    if path == "--preprocess" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::markdown::preprocess::probe_preprocess(&input));
         return;
     }
     if path == "--positioned" {

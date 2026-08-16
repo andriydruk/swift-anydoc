@@ -2733,6 +2733,144 @@ def wrapped_cases(random_count):
     return lines
 
 
+def preprocess_cases(random_count):
+    """Cases for the preprocess merge pair and comparison helpers."""
+    rng = random.Random(88_2026)
+    lines = []
+
+    def spec(page, y, x, size, bold, mcid, text, append=False):
+        return "{}{},{},{},{},{},{},{}".format(
+            "+" if append else "", page, y, x, size, bold, mcid,
+            text.replace(" ", "~") or "x")
+
+    tiers = "14 12"
+
+    # --- effective_heading_level ---
+    # A struct role outranks the font heuristic, including when the role says
+    # a *different* level than the size would.
+    for role, size in (("H1", 10), ("H2", 20), ("H", 10), ("P", 20), ("Figure", 20)):
+        lines.append("E 10 1:5:{} {} ; ".format(role, tiers)
+                     + spec(1, 700, 20, size, 0, 5, "Heading"))
+    # No roles at all, and roles that do not cover this line.
+    for size in (10, 12, 14, 20, 9):
+        lines.append("E 10 ! {} ; ".format(tiers) + spec(1, 700, 20, size, 0, "-", "Heading"))
+    # An untagged item is skipped and a later tagged one still answers.
+    lines.append("E 10 1:6:H3 {} ; ".format(tiers)
+                 + spec(1, 700, 20, 10, 0, "-", "one") + " "
+                 + spec(1, 700, 60, 10, 0, 6, "two", append=True))
+    # A line with no items reads the base size.
+    lines.append("E 10 ! {} ; ".format(tiers))
+    # Boldness feeds the fallback, so a bold body-size line can reach a tier.
+    for bold in (0, 1):
+        lines.append("E 10 ! {} ; ".format(tiers)
+                     + spec(1, 700, 20, 10.6, bold, "-", "Bold Heading"))
+
+    # --- merge_heading_lines ---
+    def hcase(items, base=10, roles="!"):
+        return "H {} {} {} ; ".format(base, roles, tiers) + " ".join(items)
+
+    # Two heading fragments at one tier, at gaps either side of 2x the font.
+    for gap in (10, 27, 28, 29, 40):
+        lines.append(hcase([spec(1, 700, 20, 14, 0, "-", "About Glenair the"),
+                            spec(1, 700 - gap, 20, 14, 0, "-", "Interconnect Company")]))
+    # Upward and zero gaps never merge.
+    lines.append(hcase([spec(1, 700, 20, 14, 0, "-", "About Glenair"),
+                        spec(1, 700, 20, 14, 0, "-", "Interconnect")]))
+    lines.append(hcase([spec(1, 700, 20, 14, 0, "-", "About Glenair"),
+                        spec(1, 710, 20, 14, 0, "-", "Interconnect")]))
+    # Different pages, and different levels.
+    lines.append(hcase([spec(1, 700, 20, 14, 0, "-", "About Glenair"),
+                        spec(2, 690, 20, 14, 0, "-", "Interconnect")]))
+    lines.append(hcase([spec(1, 700, 20, 14, 0, "-", "About Glenair"),
+                        spec(1, 690, 20, 12, 0, "-", "Interconnect")]))
+    # The twenty-word ceiling on the combined heading.
+    long_words = " ".join("word%d" % i for i in range(11))
+    lines.append(hcase([spec(1, 700, 20, 14, 0, "-", long_words),
+                        spec(1, 690, 20, 14, 0, "-", "and more here")]))
+    for count in (10, 11):
+        lines.append(hcase([spec(1, 700, 20, 14, 0, "-", " ".join("w%d" % i for i in range(10))),
+                            spec(1, 690, 20, 14, 0, "-",
+                                 " ".join("v%d" % i for i in range(count)))]))
+    # Three fragments in a row.
+    lines.append(hcase([spec(1, 700, 20, 14, 0, "-", "One Two"),
+                        spec(1, 690, 20, 14, 0, "-", "Three Four"),
+                        spec(1, 680, 20, 14, 0, "-", "Five Six")]))
+    # Struct-tagged headings merge on the same rules.
+    lines.append("H 10 1:5:H2,1:6:H2 {} ; ".format(tiers)
+                 + spec(1, 700, 20, 10, 0, 5, "Tagged Heading") + " "
+                 + spec(1, 690, 20, 10, 0, 6, "Continues Here"))
+
+    # The bold-wrap merge: both tier-less, both fully bold, continuation
+    # starts lowercase, previous has no terminal punctuation.
+    def bold_pair(prev="of wood pellets and cost", curr="structure in Japan",
+                  gap=10, size=10, prev_bold=1, curr_bold=1):
+        return [spec(1, 700, 20, size, prev_bold, "-", prev),
+                spec(1, 700 - gap, 20, size, curr_bold, "-", curr)]
+    lines.append(hcase(bold_pair()))
+    # Gap either side of 1.6x the font size.
+    for gap in (15, 16, 17):
+        lines.append(hcase(bold_pair(gap=gap)))
+    # An uppercase continuation, and terminal punctuation on the previous.
+    lines.append(hcase(bold_pair(curr="Structure in Japan")))
+    for tail in (".", ":", ";", "!", "?", ",", ")"):
+        lines.append(hcase(bold_pair(prev="of wood pellets and cost" + tail)))
+    # Either line not fully bold.
+    lines.append(hcase(bold_pair(prev_bold=0)))
+    lines.append(hcase(bold_pair(curr_bold=0)))
+    # A mixed-bold previous line.
+    lines.append(hcase([spec(1, 700, 20, 10, 1, "-", "of wood pellets") + " "
+                        + spec(1, 700, 90, 10, 0, "-", "and cost", append=True),
+                        spec(1, 690, 20, 10, 1, "-", "structure in Japan")]))
+    # A tiered line must not absorb bold body text. At the same size both
+    # reach a tier and the ordinary same-level path merges them instead, so
+    # only the mixed pair isolates the tier-less requirement.
+    lines.append(hcase([spec(1, 700, 20, 14, 1, "-", "A Real Heading"),
+                        spec(1, 690, 20, 10, 1, "-", "continues lowercase")]))
+    lines.append(hcase([spec(1, 700, 20, 14, 1, "-", "A Real Heading"),
+                        spec(1, 690, 20, 14, 1, "-", "continues lowercase")]))
+    lines.append(hcase([]))
+
+    # --- merge_drop_caps ---
+    def dcase(items, base=10):
+        return "D {} ; ".format(base) + " ".join(items)
+
+    # The classic shape: a huge capital emitted after the paragraph it opens.
+    body = [spec(1, 700, 20, 10, 0, "-", "Chapter One"),
+            spec(1, 690, 20, 10, 0, "-", "nce upon a time there"),
+            spec(1, 680, 20, 10, 0, "-", "was a document")]
+    lines.append(dcase(body + [spec(1, 690, 10, 30, 0, "-", "O")]))
+    # Size either side of 2.5x the base.
+    for size in (24, 25, 26, 30):
+        lines.append(dcase(body + [spec(1, 690, 10, size, 0, "-", "O")]))
+    # Two characters is still a drop cap; three is not.
+    for text in ("O", "O~", "Oh", "Ohh", "o", "1", "É"):
+        lines.append(dcase(body + [spec(1, 690, 10, 30, 0, "-", text)]))
+    # No lowercase-starting line to attach to, and a drop cap on another page.
+    lines.append(dcase([spec(1, 700, 20, 10, 0, "-", "Chapter One"),
+                        spec(1, 690, 10, 30, 0, "-", "O")]))
+    lines.append(dcase(body + [spec(2, 690, 10, 30, 0, "-", "O")]))
+    # The first lowercase line wins, and only if it opens a paragraph.
+    lines.append(dcase([spec(1, 700, 20, 10, 0, "-", "already lowercase here"),
+                        spec(1, 690, 20, 10, 0, "-", "and continues lowercase"),
+                        spec(1, 680, 10, 30, 0, "-", "O")]))
+    lines.append(dcase([]))
+
+    # --- normalize_for_comparison / is_structural_line / is_decorative_separator ---
+    for text in ("Chapter 3 — Page 5", "  spaced   out  text ", "123 leading",
+                 "trailing 456", "42", "   ", "", "1a2", "9 Chapter 9",
+                 "Page~5~of~10"):
+        lines.append("N " + text.replace(" ", "~"))
+    for text in ("# Heading", "- bullet", "* star", "• dot", "1. numbered",
+                 "2) paren", "1.no space", "12 plain", "a. letter", "  # indented",
+                 "plain text", "", "3", "1. "):
+        lines.append("S " + text.replace(" ", "~"))
+    for text in ("----------", "**********", "=", "", "-a-", "aaa", "ab",
+                 "~~~~", "  "):
+        lines.append("X " + text.replace(" ", "~"))
+
+    return lines
+
+
 def positioned_cases(random_count):
     """Cases for the positioned-block cluster."""
     rng = random.Random(87_2026)
@@ -5612,6 +5750,18 @@ def main():
         text=True, check=True
     )
     with open(os.path.join(arguments.directory, "wrapped-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write(r.stdout)
+
+    pr_lines = preprocess_cases(max(arguments.cases // 8, 60))
+    with open(os.path.join(arguments.directory, "preprocess2-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n".join(pr_lines))
+    r = subprocess.run(
+        [probe, "--preprocess"], input="\n".join(pr_lines) + "\n", capture_output=True,
+        text=True, check=True
+    )
+    with open(os.path.join(arguments.directory, "preprocess2-rust.txt"), "w",
               encoding="utf-8") as f:
         f.write(r.stdout)
 

@@ -3436,3 +3436,48 @@ readings**.
 
   130 probe cases agree on the first run. 13 unit tests, all passing first
   try — sixth wave running.
+
+- **Wave 88 — repairing the lines before anything is written.**
+  `PdfPreprocess.swift` ports `effective_heading_level`,
+  `merge_heading_lines`, `merge_drop_caps`, `normalize_whitespace`,
+  `normalize_for_comparison`, `is_structural_line` and
+  `is_decorative_separator` from `markdown/preprocess.rs`.
+  `strip_repeated_lines` — the running-header remover, and the largest thing
+  in that file — is left for the next wave.
+
+  These run before any output, fixing lines the layout stage got right
+  geometrically and wrong semantically: a wrapped heading is two lines and
+  one heading, and a drop cap is a line of its own belonging to the front of
+  another. This is the prerequisite for the assembly prologue in
+  `to_markdown_from_lines_with_tables_and_images`, which calls both merges
+  before it computes anything else.
+
+  `merge_heading_lines` has two independent merge conditions. The ordinary
+  one joins consecutive same-level headings within twice the font size and
+  twenty words. The second exists because a bold heading at body size reaches
+  no tier and would otherwise split into two output headings — it is narrow
+  by design: both lines fully bold *and* tier-less, gap under 1.6× the font,
+  continuation starting lowercase, no terminal punctuation before. The join
+  is carried by a copied first item whose text gains a leading space, so the
+  merged line reads as two words rather than one.
+
+  `effective_heading_level` is **not** `resolve_line_struct_role`, though
+  both walk the same map. This one does not skip container roles; it ignores
+  every role that names no level and keeps looking. Two functions, one map,
+  different questions.
+
+  Findings: a drop cap that finds no home is **silently discarded** — the
+  line is dropped whether or not a target was found, so a cap on a page whose
+  paragraph starts uppercase loses its letter outright. And
+  `is_decorative_separator` asks only whether every character matches the
+  first, so `aaa` is a decorative separator and so is any single character.
+  Both reproduced, both pinned by tests.
+
+  **One wrong expectation, and the composition trap again.** The test for
+  "a tiered heading must not absorb bold body text" passed both lines at the
+  same size — where they reach the same tier and the *ordinary* path merges
+  them. Isolating the second condition needs the sizes to differ so the
+  levels disagree. Caught by the unit test rather than the probe, and fixed
+  by querying the reference for both shapes.
+
+  95 probe cases agree on the first run. 24 unit tests.
