@@ -3671,3 +3671,33 @@ readings**.
 
   43 probe cases agree on the first run. 10 unit tests, all passing first
   try.
+
+- **Wave 94 — the detector's byte-level half.**
+  `PdfContentScan.swift` ports `scan_content_for_text_operators`,
+  `extract_font_name_before_tf`, `collect_text_chars_before` and `hex_val`
+  from `detector.rs`.
+
+  Detection decides whether a page carries real text before anything is
+  decoded, by reading the raw content stream as bytes — no object graph, no
+  fonts. It counts text operators against path operators, because a page
+  whose "text" is vector outlines has thousands of the latter and almost none
+  of the former, and collects the distinct bytes inside string operands,
+  which is what later separates an Identity-H page with no ToUnicode from
+  ordinary text.
+
+  Behaviours pinned: `Tj` needs white space or the stream's end after it,
+  while `Tf` also accepts `[`, `(`, `<` or `/`, because writers run it
+  straight into the next operand; single-byte path operators must stand alone
+  as words, so `form` contributes nothing; `f*` counts once rather than twice,
+  since the lone `f` inside it fails the word-end test; and the image count is
+  **always zero** — `Do` invokes any XObject, forms included, so images are
+  counted by walking resources instead.
+
+  Two reference quirks, both reproduced. `/F1 ` with no size **loses its last
+  digit**: the backward scan skips a size that is not there, eating the `1`,
+  and yields `F`. And `collect_text_chars_before` collects rather than
+  parses, so the inner delimiters of `(a(b)c)` are themselves counted as
+  characters — which cost one wrong test expectation, corrected against the
+  reference.
+
+  191 probe cases agree on the first run. 15 unit tests.

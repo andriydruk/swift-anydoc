@@ -83,6 +83,10 @@ perl -pi -e "s/^fn (resolve_line_struct_role|detect_overused_struct_heading_leve
 # `markdown::convert` — the merge pair (wave 86).
 perl -pi -e "s/^fn (merge_wrapped_bold_heading_groups|count_table_columns)/pub fn \$1/" \
     "$crate/src/markdown/convert.rs"
+# `detector` — the pure content-stream scanner (wave 94).
+perl -pi -e "s/^fn (scan_content_for_text_operators|extract_font_name_before_tf|collect_text_chars_before|hex_val)/pub fn \$1/" \
+    "$crate/src/detector.rs"
+
 # `lib` — layout complexity and the band filters (wave 93).
 perl -pi -e "s/^fn compute_layout_complexity/pub fn compute_layout_complexity/" "$crate/src/lib.rs"
 perl -pi -e "s/^pub\\(crate\\) fn (filter_rects_to_band|filter_lines_to_band)/pub fn \$1/" \
@@ -5017,6 +5021,13 @@ fn main() {
         print!("{}", pdf_inspector::markdown::preprocess::probe_preprocess(&input));
         return;
     }
+    if path == "--contentscan" {
+        use std::io::Read;
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input).expect("stdin");
+        print!("{}", pdf_inspector::detector::probe_contentscan(&input));
+        return;
+    }
     if path == "--complexity" {
         use std::io::Read;
         let mut input = String::new();
@@ -5296,6 +5307,91 @@ pub fn probe_complexity(input: &str) -> String {
                         .map(|p| p.to_string())
                         .collect::<Vec<_>>()
                         .join(",")
+                ));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+RUSTEOF
+
+cat >> "$crate/src/detector.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): the byte-level content scanner. Each case
+/// is one line whose `~` stands for a space and `^` for a newline.
+pub fn probe_contentscan(input: &str) -> String {
+    use std::collections::HashSet;
+    let mut out = String::new();
+    for case in input.lines() {
+        let (tag, rest) = match case.split_once(' ') {
+            Some(pair) => pair,
+            None => (case, ""),
+        };
+        let content: Vec<u8> = rest
+            .replace('~', " ")
+            .replace('^', "\n")
+            .replace('%', "\t")
+            .into_bytes();
+        match tag {
+            "S" => {
+                let mut chars: HashSet<u8> = HashSet::new();
+                let mut fonts: HashSet<Vec<u8>> = HashSet::new();
+                let (text_ops, image_count, path_ops, font_changes) =
+                    scan_content_for_text_operators(&content, &mut chars, &mut fonts);
+                let mut sorted: Vec<u8> = chars.into_iter().collect();
+                sorted.sort();
+                let mut names: Vec<String> = fonts
+                    .into_iter()
+                    .map(|f| String::from_utf8_lossy(&f).to_string())
+                    .collect();
+                names.sort();
+                out.push_str(&format!(
+                    "sc t={text_ops} i={image_count} p={path_ops} f={font_changes} c={} n={}\n",
+                    sorted
+                        .iter()
+                        .map(|b| format!("{b:02x}"))
+                        .collect::<Vec<_>>()
+                        .join(""),
+                    names.join(",")
+                ));
+            }
+            // F: the content ends at the Tf whose name is wanted.
+            "F" => {
+                let pos = content.len();
+                let mut padded = content.clone();
+                padded.extend_from_slice(b"Tf ");
+                out.push_str(&format!(
+                    "sf {}\n",
+                    match extract_font_name_before_tf(&padded, pos) {
+                        Some(name) => String::from_utf8_lossy(&name).to_string(),
+                        None => "-".to_string(),
+                    }
+                ));
+            }
+            // C: the content ends just before the operator position.
+            "C" => {
+                let mut chars: HashSet<u8> = HashSet::new();
+                collect_text_chars_before(&content, content.len(), &mut chars);
+                let mut sorted: Vec<u8> = chars.into_iter().collect();
+                sorted.sort();
+                out.push_str(&format!(
+                    "sx {}\n",
+                    sorted
+                        .iter()
+                        .map(|b| format!("{b:02x}"))
+                        .collect::<Vec<_>>()
+                        .join("")
+                ));
+            }
+            "H" => {
+                let byte = content.first().copied().unwrap_or(0);
+                out.push_str(&format!(
+                    "sh {}\n",
+                    match hex_val(byte) {
+                        Some(v) => v.to_string(),
+                        None => "-".to_string(),
+                    }
                 ));
             }
             _ => {}

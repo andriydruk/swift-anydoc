@@ -2733,6 +2733,88 @@ def wrapped_cases(random_count):
     return lines
 
 
+def contentscan_cases(random_count):
+    """Cases for the byte-level content-stream scanner."""
+    rng = random.Random(94_2026)
+    lines = []
+
+    def enc(text):
+        return text.replace(" ", "~").replace("\n", "^").replace("\t", "%")
+
+    # --- scan_content_for_text_operators ---
+    streams = [
+        "(Hello) Tj",
+        "(Hello)Tj",
+        "[(A)-200(B)] TJ",
+        "<48656C6C6F> Tj",
+        "/F1 12 Tf (x) Tj",
+        "/F1 12 Tf[<01>] TJ",
+        "/F1 12 Tf(x) Tj",
+        "/F1 12 Tf<01> Tj",
+        "/F1 12 Tf/F2 10 Tf (y) Tj",
+        "/F1 12 Tf",
+        "100 200 m 300 400 l S",
+        "10 10 100 100 re f",
+        "10 10 100 100 re f*",
+        "m l c h f S s B F",
+        "mm ll form",
+        "f* f f*",
+        "re",
+        "0 0 1 rg 10 10 m",
+        "BT /F1 12 Tf 100 700 Td (Text here) Tj ET",
+        "BT /Helvetica-Bold 9.5 Tf (A) Tj ET",
+        "q 1 0 0 1 0 0 cm /Im0 Do Q",
+        "",
+        "T",
+        "Tj",
+        "TJ",
+        "Tf",
+        "(a)Tj(b)Tj",
+        "[(a)(b)(c)] TJ",
+        "[<41><42>] TJ",
+        "[(a)<42>(c)] TJ",
+        "(nested (parens) here) Tj",
+        "(escaped \\) paren) Tj",
+        "(with\ttab) Tj",
+        "<4 8 6 5> Tj",
+        "<486> Tj",
+        "<zz> Tj",
+        "<00412000> Tj",
+        "() Tj",
+        "<> Tj",
+        "[] TJ",
+    ]
+    for stream in streams:
+        lines.append("S " + enc(stream))
+
+    # --- extract_font_name_before_tf: the content ends where Tf begins ---
+    for prefix in ("/F1 12 ", "/F1 12", "/Helvetica-Bold 9.5 ", "/F1 -12 ", "/F1 .5 ",
+                   "/F1  12  ", "F1 12 ", "12 ", "/ 12 ", "/F1 ", "/F1",
+                   "(text) /F1 12 ", "/F1(x) 12 ", "BT /F1 12 ", "", "/F#20A 12 ",
+                   "/F1 12.5.5 ", "q /F1 12 "):
+        lines.append("F " + enc(prefix))
+
+    # --- collect_text_chars_before: content ends at the operator ---
+    for operand in ("(abc) ", "(abc)", "<414243> ", "[(a)(b)] ", "[<41>(b)] ",
+                    "(a(b)c) ", "(a\\)b) ", "<41 42> ", "<414> ", "<41zz> ",
+                    "(  ) ", "() ", "<> ", "[] ", "abc ", "", "   ",
+                    "<0041> ", "<0920> ", "[(a) -200 (b)] "):
+        lines.append("C " + enc(operand))
+
+    # --- hex_val ---
+    for ch in "0189aAfFgG/ z":
+        lines.append("H " + ch)
+
+    # Random streams built from operator fragments.
+    fragments = ["(x) Tj", "[(y)] TJ", "/F1 12 Tf", "10 10 m", "20 20 l", "S", "f",
+                 "re", "f*", "h", "B", "<41> Tj", "q", "Q", "BT", "ET"]
+    for _ in range(random_count):
+        count = rng.randint(1, 10)
+        lines.append("S " + enc(" ".join(rng.choice(fragments) for _ in range(count))))
+
+    return lines
+
+
 def complexity_cases(random_count):
     """Cases for layout complexity and the band filters."""
     rng = random.Random(93_2026)
@@ -6132,6 +6214,18 @@ def main():
         text=True, check=True
     )
     with open(os.path.join(arguments.directory, "wrapped-rust.txt"), "w",
+              encoding="utf-8") as f:
+        f.write(r.stdout)
+
+    cs_lines = contentscan_cases(max(arguments.cases // 4, 100))
+    with open(os.path.join(arguments.directory, "contentscan-cases.txt"), "w",
+              encoding="utf-8") as f:
+        f.write("\n".join(cs_lines))
+    r = subprocess.run(
+        [probe, "--contentscan"], input="\n".join(cs_lines) + "\n", capture_output=True,
+        text=True, check=True
+    )
+    with open(os.path.join(arguments.directory, "contentscan-rust.txt"), "w",
               encoding="utf-8") as f:
         f.write(r.stdout)
 
