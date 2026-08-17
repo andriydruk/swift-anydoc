@@ -10,7 +10,8 @@
 /// that belongs to the front of another.
 ///
 /// `strip_repeated_lines` — the running-header remover, and the largest
-/// thing in this file — is not ported yet.
+/// thing in this file — lives in `PdfStripRepeated.swift` (wave 89) and is
+/// called from the pipeline when `stripHeadersFooters` is on.
 
 /// The heading level a line carries, tags first.
 ///

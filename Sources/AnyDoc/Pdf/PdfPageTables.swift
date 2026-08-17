@@ -14,13 +14,15 @@
 /// The claimed items are then withheld from the text stream: a table's cells
 /// must not also appear as prose.
 ///
-/// **This is the single-band, chart-free, untagged case.** The reference
-/// additionally splits a page into side-by-side bands and retries merged,
-/// masks chart regions from every detector, and gives structure-tree tables
-/// priority over all four. Those are noted at the branches below and are
-/// wave 104. Stage 3 is also absent — `try_build_rect_guided_table` is
-/// unported — so a page whose rects cluster without gridding yields no table
-/// where the reference finds one.
+/// Ahead of all four sits **stage 0, the structure tree** (wave 113): a
+/// table the author declared outranks any guess read from ink.
+///
+/// **This is the single-band, chart-free case.** The reference additionally
+/// splits a page into side-by-side bands and retries merged, and masks chart
+/// regions from every detector. Those are noted at the branches below.
+/// Stage 3 is also absent — `try_build_rect_guided_table` is unported — so a
+/// page whose rects cluster without gridding yields no table where the
+/// reference finds one.
 
 /// What a page's table detection produced.
 struct PdfPageTableResult {
@@ -40,7 +42,8 @@ struct PdfPageTableResult {
 ///   - baseSize: the document's body size, which the heuristic detector
 ///     measures its candidates against.
 func pdfDetectPageTables(
-    items: [PdfLayoutItem], rects: [PdfRect], lines: [PdfLineSegment], baseSize: Float
+    items: [PdfLayoutItem], rects: [PdfRect], lines: [PdfLineSegment], baseSize: Float,
+    structTables: [PdfStructTable] = [], page: Int = 1
 ) -> PdfPageTableResult {
     var result = PdfPageTableResult()
     if items.isEmpty { return result }
@@ -58,9 +61,20 @@ func pdfDetectPageTables(
         result.tables.append(positioned(table))
     }
 
-    // A structure-tree stage runs before all of these in the reference, and
-    // takes priority when its tables cover at least half the page's items.
-    // Unported: `structure_tree.rs`'s `from_doc` has no document walker yet.
+    // 0. The structure tree, which outranks all four geometric detectors —
+    //    an author's own declaration beats any guess from ink. It is
+    //    believed only when its tables cover at least **half** the page's
+    //    items: a partially tagged document would otherwise claim a
+    //    fragment and hide the rest from the detectors that see everything.
+    if !structTables.isEmpty {
+        for table in pdfDetectTablesFromStructTree(
+            items: items, structTables: structTables, page: UInt32(page))
+        {
+            let coverage = Float(table.itemIndices.count) / Float(max(items.count, 1))
+            if coverage < 0.5 { continue }
+            claim(table)
+        }
+    }
 
     // 1. Rect-based. A table overlapping something already claimed is
     //    dropped whole rather than trimmed.

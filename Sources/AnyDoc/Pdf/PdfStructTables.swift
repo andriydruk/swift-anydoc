@@ -6,10 +6,16 @@
 /// the page's text through marked-content ids, then builds *two* candidate
 /// tables from the result and picks between them.
 ///
-/// Nothing produces tables on a real document yet — `PdfLayoutItem.mcid` is
-/// never set, because the extractor's `BDC`/`EMC` tracking is unported. The
-/// detector is complete and verified against the reference; it is waiting on
-/// that one input.
+/// This runs on real documents as of wave 113: the extractor sets
+/// `PdfLayoutItem.mcid` from its `BDC`/`EMC` tracking, and
+/// `pdfDetectPageTables` calls this as stage 0, ahead of all four geometric
+/// detectors — but believes it only when its tables cover at least half the
+/// page's items.
+///
+/// The claim that used to stand here — that nothing set `mcid`, so this
+/// could not run — was **stale**, and hid the fact that this function had no
+/// caller. That is why wave 113 swept every "unported" comment in this
+/// directory rather than trusting them.
 
 /// Column positions taken from the first row that can supply each column.
 ///

@@ -8,7 +8,8 @@
 /// `1.1` form a hierarchy, `1.` and `2.` do not.
 ///
 /// This is the first of the signals `PdfMarkdown.swift` records as missing.
-/// The sequence logic that consumes it is not ported yet.
+/// The sequence logic that consumes it is `pdfNumberedHeadingLevels` (wave
+/// 80), which relates each number to its neighbours.
 
 /// Whether a line's number is decimal or roman.
 enum PdfNumberingKind: Equatable {

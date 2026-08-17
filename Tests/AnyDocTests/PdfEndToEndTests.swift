@@ -53,6 +53,7 @@ import Testing
         "gap-newspaper.pdf",
         "gap-rotated.pdf",
         "gap-tagged.pdf",
+        "tagged-table.pdf", "tagged-table-sparse.pdf",
         "gap-xobject-text.pdf",
         "graphics-clips.pdf",
         "graphics-fills.pdf",

@@ -4323,3 +4323,48 @@ readings**.
   restore then hit an interactive `cp` prompt and silently did nothing, so
   the next measurement was of the *reverted* code. Checking the file rather
   than trusting the command is what caught it.
+
+- **Wave 113 — the stale-claim sweep, and the eighth connection gap.**
+  Structure-tree tables wired as stage 0 of the per-page cascade;
+  **62 of 62** byte-identical.
+
+  Wave 112 ended on "a comment that says 'not implemented' reads as a
+  decision; this one was an assumption". This wave took that seriously and
+  grepped every such claim in `Sources/AnyDoc/Pdf`. Eleven claims; **four
+  were stale**, describing work finished waves ago — `strip_repeated_lines`
+  (wave 89), the numbered-heading sequencer (wave 80), the structure-tree
+  walker (wave 106), and `PdfLayoutItem.mcid` (set since the `BDC`/`EMC`
+  tracking landed).
+
+  The fourth was the expensive one. `PdfStructTables.swift` said its
+  detector could not run because nothing set `mcid` — and behind that
+  claim, `pdfDetectTablesFromStructTree` **had no caller at all**. A
+  complete, probe-verified detector, unreachable from any document. That is
+  the eighth connection gap, and the first one a *comment* hid rather than
+  an oversight: the claim explained the silence, so nobody looked.
+
+  Wiring it is the reference's stage 0, ahead of all four geometric
+  detectors — an author's own tagging outranks any guess read from ink —
+  gated on the tagged tables covering at least **half** the page's items.
+
+  **Both halves were measured, and the first attempt measured nothing.**
+  The corpus document added to prove the stage works passed with the stage
+  suppressed: its cells sat at regular column positions, so the alignment
+  heuristic gridded them and the test named for stage 0 was carried by
+  stage 4. The composition trap again, this time in a fixture rather than
+  in a predicate. Making the columns **ragged** — no two rows sharing an x
+  — is what let the file discriminate: 61/62 with the stage off, 62/62
+  with it on. The 50% gate got the same treatment in the other direction:
+  a second document with ten untagged paragraphs against six tagged cells
+  (0.375 coverage), which the reference renders as prose, and which our
+  side renders as a table the moment the gate is widened.
+
+  The remaining claims were re-verified as true, not merely left alone:
+  `detector.rs`'s document half, the link-decoration pass, the rect-guided
+  detector, and `PdfLayoutItem.isImage` (`isImage = true` appears nowhere).
+
+  The lesson generalises past comments. A claim about *absence* is the one
+  kind a differential port cannot check, because both sides agree about a
+  feature neither exercises. It has to be re-derived from the code, and the
+  cost of not doing it is a finished component sitting unreachable for
+  seven waves.

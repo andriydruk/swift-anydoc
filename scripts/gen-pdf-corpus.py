@@ -916,6 +916,81 @@ def tagged_document(b):
 b = Builder()
 write("gap-tagged", classic_trailer(b, tagged_document(b)))
 
+
+def tagged_table_document(b, sparse=False):
+    """A document whose structure tree declares a table: /Table > /TR > /TD,
+    with marked-content ids tying each cell to the text that draws it. The
+    author's declaration is what the reference believes ahead of any
+    geometric guess."""
+    rows, columns = 3, 2
+    content = b""
+    mcid = 0
+    for row in range(rows):
+        for column in range(columns):
+            content += (
+                b"/P <</MCID %d>> BDC\n" % mcid
+                # Deliberately **ragged**: no two rows share a column x, so
+                # the alignment heuristic cannot find this grid and only the
+                # author's own tagging can. A regularly-spaced tagged table
+                # is silently carried by the heuristic detector and tests
+                # nothing.
+                + line(b"r%dc%d" % (row, column), 700 - row * 20,
+                       x=72 + column * 120 + row * 37)
+                + b"EMC\n"
+            )
+            mcid += 1
+    if sparse:
+        # Enough untagged prose to push the tagged table under the
+        # reference's 50% coverage gate, which then discards it entirely.
+        for index in range(10):
+            content += line(
+                b"Paragraph number %d, which is not part of any table." % index,
+                580 - index * 16)
+    else:
+        content += line(b"A paragraph well below the tagged table.", 580)
+
+    content_id = b.stream(b"/Filter/FlateDecode", flate(content))
+    font_id = b.add(SIMPLE_FONT)
+    page_id = b.reserve()
+    pages_id = b.reserve()
+    struct_root = b.reserve()
+    table_id = b.reserve()
+
+    row_ids = []
+    mcid = 0
+    for row in range(rows):
+        cell_ids = []
+        for _ in range(columns):
+            cell_ids.append(
+                b.add(b"<</Type/StructElem/S/TD/P %d 0 R/Pg %d 0 R/K %d>>"
+                      % (table_id, page_id, mcid)))
+            mcid += 1
+        kids = b" ".join(b"%d 0 R" % cid for cid in cell_ids)
+        row_ids.append(
+            b.add(b"<</Type/StructElem/S/TR/P %d 0 R/Pg %d 0 R/K[%s]>>"
+                  % (table_id, page_id, kids)))
+    table_kids = b" ".join(b"%d 0 R" % rid for rid in row_ids)
+    b.add(b"<</Type/StructElem/S/Table/P %d 0 R/Pg %d 0 R/K[%s]>>"
+          % (struct_root, page_id, table_kids), table_id)
+    b.add(b"<</Type/StructTreeRoot/K[%d 0 R]>>" % table_id, struct_root)
+
+    b.add(
+        b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+        b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R/StructParents 0>>"
+        % (pages_id, font_id, content_id),
+        page_id,
+    )
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(
+        b"<</Type/Catalog/Pages %d 0 R/StructTreeRoot %d 0 R>>" % (pages_id, struct_root))
+
+
+b = Builder()
+write("tagged-table", classic_trailer(b, tagged_table_document(b)))
+
+b = Builder()
+write("tagged-table-sparse", classic_trailer(b, tagged_table_document(b, sparse=True)))
+
 # A bar chart: filled rectangles with value labels over them, beside prose.
 # The rects read as cell borders and the labels as aligned columns, so
 # without chart masking the whole page grids into a phantom table.

@@ -9,11 +9,12 @@
 /// The reference's pipeline classifies the document first (scanned, mixed or
 /// text), retries extraction with invisible text when a mixed document
 /// yields garbage, detects tables and images per page and interleaves them,
-/// and reads the structure tree for tagged headings. None of that is here:
-/// `detector.rs`'s document half, the table detectors' per-page wiring, and
-/// `structure_tree.rs`'s `from_doc` are unported. What is here is the path a
-/// plain text PDF takes, which is the majority of documents and the whole of
-/// the byte-diff that can currently be run.
+/// and retries extraction with invisible text when a mixed document yields
+/// garbage. Neither is here: `detector.rs`'s document half is unported. The
+/// per-page table detectors and `structure_tree.rs`'s walker — including its
+/// tagged tables — *are* wired, in waves 100 to 113. What is here is the
+/// path a plain text PDF takes, which is the majority of documents and the
+/// whole of the byte-diff that can currently be run.
 ///
 /// The unported stages are listed at their call sites below rather than
 /// summarised, so that adding one is a local edit.
@@ -42,9 +43,16 @@ func pdfMarkdown(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOpti
     // nothing at all rather than an empty dictionary: the two differ
     // downstream, where the overuse audit returns before counting when there
     // are no roles but counts nothing when there is an empty map.
-    let structRoles: PdfStructRoleMap? = pdfParseStructTree(&document)
+    let structTree = pdfParseStructTree(&document)
+    let structRoles: PdfStructRoleMap? = structTree
         .map { pdfStructRoleMap($0, pageNumbers: pageNumbers) }
         .flatMap { $0.isEmpty ? nil : $0 }
+    // A tagged table is the author saying where the grid is, which beats
+    // every geometric detector — see the cascade in `PdfPageTables.swift`.
+    let structTables = structTree.map {
+        pdfCollectStructTables(
+            $0, pageNumbers: pageNumbers.mapValues { UInt32($0) })
+    } ?? []
 
     for (index, page) in pdfDocumentPages(&document).enumerated() {
         let number = index + 1
@@ -106,7 +114,7 @@ func pdfMarkdown(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOpti
         let pageBaseSize = pdfFontStatsFromItems(items).mostCommonSize
         let detected = pdfDetectPageTables(
             items: items, rects: graphics.rectangles, lines: graphics.lines,
-            baseSize: pageBaseSize)
+            baseSize: pageBaseSize, structTables: structTables, page: number)
         if !detected.tables.isEmpty { pageTables[number] = detected.tables }
         let textItems = items.enumerated()
             .filter { !detected.claimed.contains($0.offset) }.map(\.element)
