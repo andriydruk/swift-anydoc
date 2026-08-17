@@ -42,6 +42,17 @@ import Testing
         #expect(first.count == 16)
     }
 
+    @Test func theAesSaltIsAddedToTheObjectKey() {
+        // AES mixes four extra bytes — `sAlT` in ASCII — into every object
+        // key. Without them the key is an RC4 key and decrypts to noise.
+        var rc4 = encryption(revision: 4, keyLength: 16)
+        rc4.key = pdfDeriveFileKey(rc4)
+        var aes = rc4
+        aes.usesAES = true
+        let id = PdfObjectId(number: 1, generation: 0)
+        #expect(pdfObjectKey(rc4, id) != pdfObjectKey(aes, id))
+    }
+
     @Test func anUnsupportedRevisionDecryptsNothing() {
         // AES revisions are refused rather than attempted: RC4 against
         // AES-encrypted bytes yields plausible-looking noise, which is worse
@@ -54,7 +65,7 @@ import Testing
 
     @Test func anEncryptedDocumentReadsItsText() throws {
         guard let path = ProcessInfo.processInfo.environment["ANYDOC_PDF_CORPUS"] else { return }
-        for name in ["encrypted-rc4-r2.pdf", "encrypted-rc4-r3.pdf"] {
+        for name in ["encrypted-rc4-r2.pdf", "encrypted-rc4-r3.pdf", "encrypted-aes-v4.pdf"] {
             guard let data = FileManager.default.contents(atPath: path + "/" + name) else {
                 continue
             }

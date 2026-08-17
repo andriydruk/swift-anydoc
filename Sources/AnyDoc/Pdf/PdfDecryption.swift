@@ -10,10 +10,11 @@
 /// The reference does not implement any of this; it hands the file to lopdf.
 /// This port has no such dependency, so the handler is written out here.
 ///
-/// **Revisions 2 and 3 with RC4 only.** `/V 4` with `/AESV2`, and `/R 6`
-/// with AES-256, are not implemented — a document using them is reported as
-/// encrypted rather than decoded to noise, which is the one behaviour worse
-/// than failing.
+/// **RC4 (revisions 2 and 3) and AES-128 (`/V 4` with `/AESV2`).** `/R 5`
+/// and `/R 6` with AES-256 are not implemented — they key from SHA-256
+/// rather than MD5 — and a document using them is reported as encrypted
+/// rather than decoded to noise, which is the one behaviour worse than
+/// failing.
 
 /// The padding every password is extended with, from the specification's
 /// Algorithm 2. It is a fixed 32-byte string and not a secret.
@@ -35,6 +36,8 @@ struct PdfEncryption {
     var documentID: [UInt8]
     /// Whether `/EncryptMetadata` is false, which changes the key derivation.
     var encryptMetadata: Bool
+    /// True when the crypt filter is `/AESV2` rather than RC4.
+    var usesAES = false
     /// The file key, once derived.
     var key: [UInt8] = []
 
@@ -43,7 +46,7 @@ struct PdfEncryption {
     /// A revision it does not implement is refused rather than attempted:
     /// decrypting with the wrong algorithm yields plausible-looking bytes
     /// and a document full of noise.
-    var isSupported: Bool { revision == 2 || revision == 3 }
+    var isSupported: Bool { revision == 2 || revision == 3 || (revision == 4 && usesAES) }
 }
 
 /// Read an `/Encrypt` dictionary, if the document has one.
@@ -59,7 +62,25 @@ func pdfReadEncryption(
     let revision = Int(document.value(encrypt, "R")?.asInteger ?? 0)
     // Revision 2 fixes the key at 40 bits whatever `/Length` claims.
     let bits = Int(document.value(encrypt, "Length")?.asInteger ?? 40)
-    let keyLength = revision == 2 ? 5 : max(5, min(16, bits / 8))
+    var keyLength = revision == 2 ? 5 : max(5, min(16, bits / 8))
+
+    // `/V 4` names its algorithm in a crypt filter rather than inline. The
+    // one that matters is `/StmF`'s: `/AESV2` is AES-128, and its `/Length`
+    // is in *bytes* here where the outer one is in bits, which is a trap
+    // worth naming.
+    var usesAES = false
+    if let filters = document.value(encrypt, "CF")?.asDictionary {
+        let streamFilter = document.value(encrypt, "StmF")?.asName
+            .map { String(decoding: $0, as: UTF8.self) } ?? "Identity"
+        if let chosen = document.value(filters, streamFilter)?.asDictionary {
+            let method = document.value(chosen, "CFM")?.asName
+                .map { String(decoding: $0, as: UTF8.self) }
+            if method == "AESV2" {
+                usesAES = true
+                keyLength = 16
+            }
+        }
+    }
 
     guard let owner = document.value(encrypt, "O")?.asStringBytes,
         let user = document.value(encrypt, "U")?.asStringBytes
@@ -74,7 +95,8 @@ func pdfReadEncryption(
 
     return PdfEncryption(
         revision: revision, keyLength: keyLength, ownerKey: owner, userKey: user,
-        permissions: permissions, documentID: documentID, encryptMetadata: encryptMetadata)
+        permissions: permissions, documentID: documentID, encryptMetadata: encryptMetadata,
+        usesAES: usesAES)
 }
 
 /// Derive the file key from a password — the specification's Algorithm 2.
@@ -121,6 +143,9 @@ func pdfObjectKey(_ encryption: PdfEncryption, _ id: PdfObjectId) -> [UInt8] {
     input.append(UInt8(truncatingIfNeeded: number >> 16))
     input.append(UInt8(truncatingIfNeeded: generation))
     input.append(UInt8(truncatingIfNeeded: generation >> 8))
+    // AES adds a fixed four-byte salt before hashing — `sAlT` spelled in
+    // ASCII, which is the specification's own joke and its own constant.
+    if encryption.usesAES { input.append(contentsOf: [0x73, 0x41, 0x6C, 0x54]) }
     // Capped at sixteen: a longer key gains nothing and the specification
     // says so explicitly.
     return Array(pdfMD5(input).prefix(min(encryption.key.count + 5, 16)))
@@ -138,6 +163,8 @@ func pdfEmptyUserPasswordWorks(_ encryption: PdfEncryption) -> Bool {
     if encryption.revision == 2 {
         return pdfRC4(key: candidate.key, pdfPasswordPadding) == encryption.userKey
     }
+    // Revision 4 validates exactly as revision 3 does: the crypt filter
+    // changes how *data* is encrypted, not how the password is checked.
 
     // Revision 3: MD5 of the padding and the document id, encrypted with the
     // file key, then nineteen more times with the key's bytes each XORed
@@ -155,5 +182,6 @@ func pdfEmptyUserPasswordWorks(_ encryption: PdfEncryption) -> Bool {
 /// Decrypt one object's bytes.
 func pdfDecrypt(_ encryption: PdfEncryption, _ id: PdfObjectId, _ data: [UInt8]) -> [UInt8] {
     guard encryption.isSupported, !encryption.key.isEmpty else { return data }
-    return pdfRC4(key: pdfObjectKey(encryption, id), data)
+    let key = pdfObjectKey(encryption, id)
+    return encryption.usesAES ? pdfAESDecryptCBC(key: key, data) : pdfRC4(key: key, data)
 }

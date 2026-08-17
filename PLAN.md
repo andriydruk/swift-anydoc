@@ -4260,3 +4260,38 @@ readings**.
 
   7 unit tests, against `cmap` tables built byte by byte from the
   specification's layouts.
+
+- **Wave 111 — AES-128, the second delegated hole.**
+  `PdfAES.swift` and `/AESV2` wired into the security handler. The
+  end-to-end comparison reaches **59 of 59**.
+
+  Wave 109 refused the AES revisions deliberately, on the grounds that RC4
+  against AES bytes yields plausible noise. This closes the common one:
+  `/V 4` with a `/StdCF` crypt filter of `/AESV2`, which is what most
+  encryption written this century actually is.
+
+  The inverse cipher, the key schedule and CBC, checked against **FIPS-197's
+  own vectors** — appendix C.1's canonical block, appendix B's worked
+  example, and appendix A.1's expanded key. Padding is PKCS#7 and removed
+  only when it *is* valid: a corrupt final block otherwise truncates real
+  text, and a slightly-too-long string is the lesser damage.
+
+  Two details that are easy to miss and fatal to get wrong. AES mixes four
+  extra bytes into every object key — `sAlT` spelled in ASCII, which is the
+  specification's own joke and its own constant — so without them the key is
+  an RC4 key and decrypts to noise. And `/V 4` names its algorithm in a
+  crypt filter rather than inline, where `/Length` is in **bytes** while the
+  outer `/Length` is in bits.
+
+  `/R 5` and `/R 6` with AES-256 remain unimplemented: they key from SHA-256
+  rather than MD5, which is a different wave. They are still refused rather
+  than attempted.
+
+  As in wave 109 the corpus builds its encrypted file with an independent
+  Python implementation — this time of AES *encryption*, the direction this
+  port does not implement — and lopdf reads it. Three implementations
+  agreeing is worth more than one agreeing with itself.
+
+  One test-harness fix: the corpus comparison identified the `/Encrypt`
+  object by its key list, which broke the moment a document carried `/CF`,
+  `/StmF` and `/StrF`. It now uses the trailer's own reference.

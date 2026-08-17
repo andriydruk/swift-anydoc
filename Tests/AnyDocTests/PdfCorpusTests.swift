@@ -102,8 +102,15 @@ func normalizeOracleArtifacts(_ dump: String, against expected: String) -> Strin
             // byte for byte — so the object is dropped from this dump and
             // the count corrected before comparing.
             if document.encryption != nil {
+                // Identified by *number*, from the trailer's own reference —
+                // matching on its keys broke the moment a document used a
+                // crypt filter and carried `/CF`, `/StmF` and `/StrF` too.
+                let encryptNumber = document.trailer["Encrypt"]?.asReference?.number
                 let lines = dump.split(separator: "\n").map(String.init)
-                let kept = lines.filter { !$0.contains("keys=[Filter,Length,O,P,R,U,V]") }
+                let kept = lines.filter { line in
+                    guard let number = encryptNumber else { return true }
+                    return !line.hasPrefix("\(number) ")
+                }
                 if kept.count < lines.count {
                     var rebuilt = kept
                     if let first = rebuilt.first, first.hasPrefix("#OBJECTS ") {
