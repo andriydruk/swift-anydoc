@@ -146,6 +146,18 @@ func pdfLineText(_ line: PdfTextLine) -> String {
 }
 
 /// Whether a space belongs between two runs.
+///
+/// **This duplicates `pdfShouldJoinItems`.** The geometric tail below — the
+/// gap thresholds, the digit rule, the single-character rule — is the same
+/// decision that function already makes, and the reference's line assembler
+/// calls it rather than restating it. The duplication was found by wave
+/// 127's orphan sweep: `pdfShouldJoinItems` had never had a caller.
+///
+/// Switching needs a letter-spacing threshold threaded through here, which
+/// this function does not take. `PdfJoinDuplicationTests` establishes that
+/// the two agree on every ordinary case and names the single divergence — an
+/// unmeasured width, where this one joins and the other reads the text — so
+/// that switch can be made as a refactor rather than a guess.
 func pdfNeedsSpace(_ previous: PdfLayoutItem, _ current: PdfLayoutItem, _ soFar: String) -> Bool {
     // Text already ending in a space needs no second one.
     if soFar.hasSuffix(" ") { return false }

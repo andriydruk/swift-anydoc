@@ -4902,6 +4902,38 @@ readings**.
   count. A condition dropped from the port fails a named test rather than
   quietly widening the rejection, which would delete real tables.
 
+- **Wave 128 — the twelfth duplicate, measured rather than merged.**
+  **79 of 79** byte-identical, 1691 tests.
+
+  `pdfShouldJoinItems` — the port of `should_join_items` — has had no caller
+  since it was written. The reason is that `pdfNeedsSpace`, this port's line
+  assembler, **reimplements the same geometry inline**: the same gap
+  thresholds, the same digit rule, the same single-character rule. The
+  reference calls the function from its assembler rather than restating it.
+
+  This is the same shape as wave 116's `pdfMergedRetrySkipsBodyFont`, and it
+  is the reason the orphan sweep exists. A ported function with no caller is
+  usually either waiting for one or already inlined somewhere.
+
+  **It was not merged, because the merge is not free.** `pdfNeedsSpace`
+  takes no letter-spacing threshold and `pdfShouldJoinItems` needs one, so
+  switching means threading a parameter through the hottest path in the
+  port — every line of every document. With well under an hour left in the
+  session that is a change to make with room to measure, not without.
+
+  What this wave did instead is make that future switch cheap:
+  `PdfJoinDuplicationTests` compares the two directly across an obvious word
+  gap, glyphs inside a word, a column-scale gap, digits sharing a number,
+  and a split-word fragment — they agree on all five — and names the single
+  case where they do not. On an **unmeasured width** `pdfNeedsSpace` joins,
+  because there is no gap to reason about, while `pdfShouldJoinItems`
+  reaches its own conclusion from the text. Both sites now carry a comment
+  pointing at the other and at that test.
+
+  So the switch is a refactor with one known behavioural edge, rather than a
+  guess — which is the difference between a wave that can be finished
+  confidently and one that cannot.
+
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
   under test is carried by some other path more often than not. The

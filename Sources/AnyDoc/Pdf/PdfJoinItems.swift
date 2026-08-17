@@ -11,6 +11,10 @@
 /// The order of the tests is the design. Cheap textual signals come first and
 /// override geometry entirely — a leading `.` joins whatever the gap says,
 /// because `www` and `.com` are one word however they were positioned.
+/// **Not yet called.** This port's line assembler, `pdfNeedsSpace`,
+/// reimplements the geometry inline instead; see the note there. The two
+/// agree everywhere `PdfJoinDuplicationTests` checks except on an
+/// unmeasured width.
 func pdfShouldJoinItems(
     previous: PdfLayoutItem, current: PdfLayoutItem, singleCharacterThreshold: Float
 ) -> Bool {
