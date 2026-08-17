@@ -4753,6 +4753,47 @@ readings**.
   `image-small.pdf` sits in the other class only because it carries a
   caption.
 
+- **Wave 124 — the invisible-text retry, not ported; the detector's result,
+  exposed.** **78 of 78** byte-identical, 1672 tests.
+
+  This wave set out to port `process_document`'s retry: when a *mixed*
+  document extracts to garbage or nothing, the reference re-extracts with
+  invisible (`Tr 3`) text included, which is how an OCR layer behind a
+  scanned image gets recovered. `pdfIsGarbageText` was already ported and
+  the extractor already takes an `includeInvisible` flag, so the work looked
+  like threading one parameter.
+
+  **It was not ported, because it could not be verified.** Four documents
+  were built to make the reference exercise it — a scanned page with an
+  invisible OCR layer, the same as a two-page mixed document, the text moved
+  off the image, and a visible-text control. The control confirms the text
+  is extractable and the classification is `mixed 0.650`, so the retry's
+  precondition holds; every invisible variant still produces **empty**
+  output from the reference. Either the retry is dead in this version or
+  something downstream discards what it recovers.
+
+  Porting it anyway would have meant shipping a change with no measurement
+  behind it — the position wave 116 recorded and wave 118 resolved by
+  measuring instead of guessing. So it stays unported, with the four
+  experiments recorded here so the next attempt starts from them rather than
+  repeating them.
+
+  The wave pivoted to something the detector made newly worth doing.
+  `AnyDoc.markdown` returns a bare `String`, so a scanned document and an
+  empty one are indistinguishable — both `""`. That was cosmetic before wave
+  123 and a real gap after it, since the port now *knows* the difference and
+  was throwing it away. `AnyDoc.inspectPdf` and
+  `AnyDoc.markdownInspectingPdf` expose the classification, the confidence,
+  the title, and the per-page OCR reasons, with `isUnreadableWithoutOcr` for
+  the question the string cannot answer.
+
+  Deliberately not `markdown.isEmpty`: an empty page is *readable* and has
+  nothing on it, and its reason is `no_text` rather than `scanned`. Sending
+  it to OCR would be wasted work, and the tests pin that distinction.
+
+  `pdfConvert` now returns both, so a caller wanting the pair pays for one
+  content scan rather than two.
+
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
   under test is carried by some other path more often than not. The

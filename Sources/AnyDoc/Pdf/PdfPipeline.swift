@@ -27,6 +27,16 @@
 func pdfMarkdown(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOptions())
     throws -> String
 {
+    try pdfConvert(bytes, options: options).markdown
+}
+
+/// Convert a PDF, and report what the detector made of it.
+///
+/// The detection is computed once and returned, so a caller wanting both
+/// does not pay for two content scans of the same document.
+func pdfConvert(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOptions())
+    throws -> (markdown: String, detection: PdfTypeResult)
+{
     var document = try PdfDocument(bytes: bytes)
 
     // **Detection comes first, and can end the job.** A scanned or
@@ -39,7 +49,9 @@ func pdfMarkdown(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOpti
     // A *mixed* document still extracts — its text pages are real — and a
     // text-based one is the ordinary path.
     let detection = pdfDetectDocumentType(&document)
-    if detection.pdfType == .scanned || detection.pdfType == .imageBased { return "" }
+    if detection.pdfType == .scanned || detection.pdfType == .imageBased {
+        return ("", detection)
+    }
 
     var lines: [PdfTextLine] = []
     var pageTables: [Int: [PdfPositionedMarkdown]] = [:]
@@ -158,8 +170,9 @@ func pdfMarkdown(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOpti
     let analysis = pdfAnalyseDocument(lines, options: options, structRoles: structRoles)
     // No images and no band-split pages: image extraction and
     // `split_side_by_side`'s per-page wiring are still to come.
-    return pdfWriteMarkdown(
+    let markdown = pdfWriteMarkdown(
         analysis, options: options, pageTables: pageTables, structRoles: structRoles)
+    return (markdown, detection)
 }
 
 /// The pages of a document, in tree order.
