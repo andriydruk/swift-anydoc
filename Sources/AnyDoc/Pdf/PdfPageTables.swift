@@ -47,6 +47,51 @@ func pdfDetectPageTables(
     var result = PdfPageTableResult()
     if items.isEmpty { return result }
 
+    // The whole cascade runs **per band**, not per page: a two-column layout
+    // shown to a detector all at once reads across the gutter. See
+    // `PdfTableBands.swift`.
+    let bands = pdfTableBands(items: items, rects: rects, lines: lines)
+    for band in bands where !band.items.isEmpty {
+        let found = pdfDetectTablesInBand(
+            items: band.items, rects: band.rects, lines: band.lines, baseSize: baseSize,
+            structTables: structTables, page: page)
+        result.tables.append(contentsOf: found.tables)
+        // A band's indices are its own; the page wants page indices.
+        result.claimed.formUnion(found.claimed.compactMap {
+            $0 < band.indexMap.count ? band.indexMap[$0] : nil
+        })
+    }
+
+    // The retry. Splitting is a guess that fails in one specific way — a
+    // borderless table's columns are indistinguishable from page-layout
+    // columns — so a split page that found nothing is tried again whole.
+    // Only the heuristic runs: the geometric detectors already saw every
+    // rectangle and line their band contained.
+    if bands.count > 1 && result.tables.isEmpty {
+        // `merged_retry_skips_body_font`: with columns detected on the page,
+        // body-size text is not allowed to found a table on the retry. The
+        // reference's second argument is whether the page has chart regions,
+        // which are unported, so this is its no-chart branch.
+        let skipBodyFont = pdfDetectColumns(items, pageHasTable: false).count >= 2
+        for table in pdfDetectTables(items, baseFontSize: baseSize, skipBodyFont: skipBodyFont) {
+            result.claimed.formUnion(table.itemIndices)
+            result.tables.append(
+                PdfPositionedMarkdown(
+                    y: table.rows.first ?? 0, x: table.columns.first ?? 0,
+                    markdown: pdfTableToMarkdown(table), chartOrder: nil))
+        }
+    }
+    return result
+}
+
+/// The four-stage cascade, on one band's worth of a page.
+private func pdfDetectTablesInBand(
+    items: [PdfLayoutItem], rects: [PdfRect], lines: [PdfLineSegment], baseSize: Float,
+    structTables: [PdfStructTable], page: Int
+) -> PdfPageTableResult {
+    var result = PdfPageTableResult()
+    if items.isEmpty { return result }
+
     /// A table's Markdown, positioned at its first row and column — which is
     /// what lets the writer interleave it with the prose around it.
     func positioned(_ table: PdfTable) -> PdfPositionedMarkdown {

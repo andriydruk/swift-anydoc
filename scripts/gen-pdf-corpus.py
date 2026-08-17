@@ -1028,6 +1028,24 @@ MD_CALENDAR = b"".join(_cal_boxes) + b"".join(_cal_text)
 b = Builder()
 write("rect-guided-calendar", classic_trailer(b, base_document(b, content=MD_CALENDAR)))
 
+
+# Two columns of prose with aligned baselines — a newsletter, or any
+# two-up layout. Shown to a table detector all at once this is a perfect
+# two-column grid, so an unbanded cascade emits a table where there is only
+# prose. `split_side_by_side` finds the gutter and the two flows are read
+# independently.
+# Twenty rows, because `split_side_by_side` wants at least forty runs on the
+# page and twenty to either side of the gutter — a nine-row draft of this file
+# produced no split at all, and so tested nothing. The lines are short so that
+# none of them straddles the gutter.
+MD_TWO_COLUMNS = b"".join(
+    line(b"Left line %d here." % row, 700 - row * 18, x=72)
+    + line(b"Right line %d here." % row, 700 - row * 18, x=330)
+    for row in range(20)
+)
+b = Builder()
+write("two-column-prose", classic_trailer(b, base_document(b, content=MD_TWO_COLUMNS)))
+
 # A bar chart: filled rectangles with value labels over them, beside prose.
 # The rects read as cell borders and the labels as aligned columns, so
 # without chart masking the whole page grids into a phantom table.

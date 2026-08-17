@@ -4412,3 +4412,50 @@ readings**.
   wiring (dropping stage 3 costs `rect-guided-calendar.pdf` its
   byte-identical status, and the ratchet reports it), and the reference's
   own eight unit tests are ported case for case to pin the rest.
+
+- **Wave 115 — the ninth connection gap: the cascade runs per band.**
+  Side-by-side splitting wired into table detection; **64 of 64**
+  byte-identical.
+
+  The whole four-stage cascade is a *band*-level thing in the reference,
+  not a page-level one. A two-column page has two independent layouts side
+  by side, and a detector shown both at once reads across the gutter: the
+  left column's rows line up with the right column's, so the alignment
+  heuristic finds a two-column table where there is only prose.
+
+  `pdfSplitSideBySide` was ported waves ago and had exactly one caller —
+  the complexity scorer. The table cascade never saw it. That is the ninth
+  connection gap and the second in three waves found by reading a *call
+  site* rather than a function, which is now the more productive habit.
+
+  Ported with it: the two band filters, which are not the same rule. A
+  small rectangle need only touch a band, because a cell border may sit on
+  a boundary; one as wide as the band itself must be **70% inside** it, or
+  every band on the page would claim the page-wide rule. A line needs only
+  to touch, having no area to share out. And a negative width — a
+  rectangle drawn right to left, which producers do emit — is normalised
+  first, or it computes an empty overlap and vanishes from every band.
+
+  The retry is the half worth understanding. Splitting is a guess that
+  fails in one specific way: a genuinely borderless table's columns are
+  indistinguishable from page-layout columns. So a page that was split and
+  found nothing is tried again whole.
+
+  **Two fixtures and one corpus document all failed to test anything, for
+  the same reason.** `split_side_by_side` wants forty runs on the page and
+  twenty either side of the gutter; the nine-row two-column document was a
+  page it declined to split at all. It matched the reference with banding
+  on and with banding *ripped out*, because the layer under test never
+  ran — the same composition trap as wave 113's tagged table, from the same
+  cause: a fixture built to look like the case rather than to satisfy the
+  gate. Twenty rows fixed all three, and the document now diverges the
+  moment banding is disabled.
+
+  One test also had to be rewritten because it was wrong about the
+  reference rather than about the port. It asserted the retry recovers a
+  borderless table on a split page; `merged_retry_skips_body_font` says
+  otherwise — where the column detector *did* find columns, body-size text
+  may not found a table on the retry, because that is precisely the
+  evidence that just proved to be page layout. The test now pins the gate
+  and shows it is what decides, rather than the candidate being
+  unfindable.
