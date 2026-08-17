@@ -135,8 +135,10 @@ func pdfExtractTextRuns(
                 PdfTextRun(
                     text: text, x: placed.e, y: placed.f,
                     // The effective size is the nominal size under the
-                    // vertical scale of the combined transform.
-                    fontSize: fontSize * abs(placed.d),
+                    // combined transform's scale — see
+                    // `pdfEffectiveFontSize`, which is *not* simply the
+                    // vertical component.
+                    fontSize: pdfEffectiveFontSize(fontSize, placed),
                     width: advance * deviceScale,
                     fontName: fontName, renderingMode: renderingMode,
                     mcid: currentMcid()))
@@ -447,4 +449,18 @@ func pdfExtractTextRuns(
         }
     }
     return runs
+}
+
+/// The size text is actually rendered at, under a transform.
+///
+/// The two axes are measured as whole vectors — `√(a²+b²)` and `√(c²+d²)` —
+/// and the **larger** wins. Reading the vertical component alone agrees for
+/// ordinary upright text, where `b` and `c` are zero and `d` is the vertical
+/// scale, and collapses to nothing the moment the text is rotated: a quarter
+/// turn puts the scale entirely into `b` and `c` and leaves `d` at zero, so
+/// every rotated run reports size zero and can never be a heading.
+func pdfEffectiveFontSize(_ baseSize: Float, _ matrix: PdfMatrix) -> Float {
+    let scaleX = (matrix.a * matrix.a + matrix.b * matrix.b).squareRoot()
+    let scaleY = (matrix.c * matrix.c + matrix.d * matrix.d).squareRoot()
+    return baseSize * max(scaleX, scaleY)
 }

@@ -25,7 +25,10 @@ import Testing
     /// Corpus files whose divergence is a stage this port has not wired
     /// yet, listed by name so the exclusion shrinks as the gaps close.
     /// `PdfEndToEndTests` tracks the same files, so nothing goes unmeasured.
-    static let unwiredGaps: Set<String> = ["gap-rotated.pdf"]
+    /// Empty: every corpus file now agrees. Kept as the place to name a
+    /// file whose divergence is a stage that is knowingly unported, so an
+    /// exclusion always has to be written down rather than assumed.
+    static let unwiredGaps: Set<String> = []
 
     /// Format a float the way the probe does, so the two dumps compare as
     /// text rather than through a tolerance nobody chose deliberately.

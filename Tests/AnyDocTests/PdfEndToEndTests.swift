@@ -34,6 +34,7 @@ import Testing
         "gap-xobject-text.pdf",
         "gap-chart.pdf",
         "gap-newspaper.pdf",
+        "gap-rotated.pdf",
         "graphics-clips.pdf",
         "graphics-fills.pdf",
         "graphics-rects.pdf",
@@ -142,9 +143,10 @@ import Testing
         #expect(
             regressions.isEmpty,
             "\(regressions.count) file(s) left the matching set:\n\(report)")
-        // The corpus deliberately includes `gap-*` files aimed at stages
-        // this port has not wired yet, so a divergence is only a regression
-        // when the file was previously matching. Nothing may throw, though.
-        #expect(failed.isEmpty, "\(failed.count) file(s) threw")
+        // Every file matches again — including the five `gap-*` documents
+        // built to fail — so any divergence at all is a regression.
+        #expect(
+            diverged.isEmpty && failed.isEmpty,
+            "\(diverged.count) diverged, \(failed.count) threw — the corpus was whole")
     }
 }

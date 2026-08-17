@@ -4123,3 +4123,32 @@ readings**.
   further away than it was.
 
   5 unit tests. The last divergence is `gap-rotated.pdf`.
+
+- **Wave 107 — rotated text, and a bug that had been there since wave 2.**
+  `pdfEffectiveFontSize` ported from `text_utils.rs`, and the end-to-end
+  tally reaches **41 of 41 — every file, including all five documents built
+  to fail.**
+
+  The reference measures a transform's two axes as whole vectors —
+  `√(a²+b²)` and `√(c²+d²)` — and takes the larger. This port used the
+  vertical component `|d|` alone.
+
+  For ordinary upright text the two agree exactly: `b` and `c` are zero and
+  `d` *is* the vertical scale. They diverge the moment text is rotated. A
+  quarter turn puts the scale entirely into `b` and `c` and leaves `d` at
+  zero, so **every rotated run reported size zero** — invisible to heading
+  detection, and contributing a zero to the body-size statistics every
+  heading ratio is measured against. Anisotropic scaling was wrong too:
+  text stretched horizontally was measured by its height.
+
+  This is the first defect this session that is a **computation** rather
+  than a connection, and it had been in the extractor since wave 2. Ninety
+  waves of probes never touched it, because every probe fed the extractor
+  upright text — the same blind spot that made `gap-rotated.pdf` worth
+  writing.
+
+  The `unwiredGaps` exclusion list in the graphics probes is now empty, and
+  kept as the place a knowingly-unported divergence must be written down
+  rather than assumed. The end-to-end suite asserts the whole tally again.
+
+  6 unit tests.
