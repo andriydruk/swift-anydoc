@@ -5205,6 +5205,41 @@ readings**.
   waves 119–122 caught a regression the end-to-end comparison could not see,
   which is the clearest argument yet for having built them.
 
+- **Wave 136 — what is actually left, measured rather than counted.**
+  **88 of 88** byte-identical; no production code changed.
+
+  Wave 134 counted 241 reference functions with no Swift name-match and
+  treated the number as a backlog. This wave took three of them seriously
+  enough to check, and **none was a gap**:
+
+  - **A simple TrueType font with no `/ToUnicode`.** `characterToGlyph` is
+    populated and never read, which looked like a hole. It is not: for an
+    ordinary `cmap` the round trip code → glyph → Unicode is the identity,
+    so the port's last-resort path agrees with the reference. Both convert
+    the test document to `Hi!Tex`.
+  - **The key-value table detector** — ten functions building `Label: value`
+    grids. Its only caller is `lib.rs`'s **region API**, which this port does
+    not implement, so it cannot affect `--markdown` and could not be
+    verified if it were ported.
+  - **`try_build_table_from_columns` and the structured-cell module**, same
+    story: reachable only from region and structured APIs.
+
+  So `scripts/find-unported.py` now walks the reference's call graph from
+  the entry points this port *does* implement and reports only what is both
+  unmatched and reachable. With better name transforms as well, the list
+  goes **241 → 115 unmatched → 52 reachable candidates**.
+
+  **It says candidates, not gaps, and the script says so too.** A rename is
+  invisible to name matching — `detect_header_level` and
+  `extract_positioned_text_from_doc` are both on the list and both ported —
+  so every entry needs a look before it is believed. That is the honest
+  shape of the tool, and worth more than a confident wrong number.
+
+  The correction to the remaining-work estimate is the real result: a large
+  part of what looked like unported converter logic is a **different public
+  API surface**, and building it would be a separate project rather than
+  the next few waves of this one.
+
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
   under test is carried by some other path more often than not. The
