@@ -39,7 +39,7 @@ import Testing
     ///   text at all. This port applies the fallback once, in the extraction
     ///   both of its own paths share — so its items carry text where the
     ///   reference's dump is empty, and its Markdown still matches.
-    static let unwiredGaps: Set<String> = ["font-embedded-cmap.pdf"]
+    static let unwiredGaps: Set<String> = ["font-embedded-cmap.pdf", "font-opentype-cmap.pdf"]
 
     /// Format a float the way the probe does, so the two dumps compare as
     /// text rather than through a tolerance nobody chose deliberately.

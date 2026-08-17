@@ -1526,4 +1526,46 @@ b = Builder()
 write("font-embedded-cmap", classic_trailer(b, embedded_font_document(b)))
 
 
+def opentype_font_document(b):
+    """The same shape, but the program is an OpenType wrapper in
+    `/FontFile3`. OpenType puts CFF outlines inside the *same* sfnt
+    container, so its `cmap` is found by the same parser — which is why the
+    reference reads both through one code path and this port must too."""
+    font = bytearray(truetype_font({0x4F: 3, 0x54: 4, 0x70: 5, 0x65: 6}, 8))
+    font[0:4] = b"OTTO"
+    program = b.stream(b"/Subtype/OpenType", bytes(font))
+    descriptor = b.add(
+        b"<</Type/FontDescriptor/FontName/Test/Flags 4/ItalicAngle 0/Ascent 800"
+        b"/Descent -200/CapHeight 700/StemV 80/FontBBox[0 0 1000 1000]"
+        b"/FontFile3 %d 0 R>>" % program
+    )
+    descendant = b.add(
+        b"<</Type/Font/Subtype/CIDFontType0/BaseFont/Test"
+        b"/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>"
+        b"/FontDescriptor %d 0 R/DW 500>>" % descriptor
+    )
+    font_id = b.add(
+        b"<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-H"
+        b"/DescendantFonts[%d 0 R]>>" % descendant
+    )
+    content_id = b.stream(
+        b"/Filter/FlateDecode",
+        flate(b"BT /F1 24 Tf 72 700 Td <0003000400050006> Tj ET\n"),
+    )
+    page_id = b.reserve()
+    pages_id = b.reserve()
+    b.add(
+        b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+        b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+        % (pages_id, font_id, content_id),
+        page_id,
+    )
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+b = Builder()
+write("font-opentype-cmap", classic_trailer(b, opentype_font_document(b)))
+
+
 print("generated %d pdfs in %s" % (len([f for f in os.listdir(OUT) if f.endswith(".pdf")]), OUT))

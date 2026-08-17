@@ -48,6 +48,7 @@ import Testing
         "font-differences.pdf",
         "font-embedded-cmap.pdf",
         "font-no-widths.pdf",
+        "font-opentype-cmap.pdf",
         "gap-chart.pdf",
         "gap-newspaper.pdf",
         "gap-rotated.pdf",

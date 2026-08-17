@@ -4295,3 +4295,31 @@ readings**.
   One test-harness fix: the corpus comparison identified the `/Encrypt`
   object by its key list, which broke the moment a document carried `/CF`,
   `/StmF` and `/StrF`. It now uses the trailer's own reference.
+
+- **Wave 112 — OpenType programs, the third delegated hole.**
+  `/FontFile3` read alongside `/FontFile2`, and the end-to-end comparison
+  reaches **60 of 60**.
+
+  Wave 110 read a font program only from `/FontFile2` and said `/FontFile3`
+  "holds CFF, whose charset would need its own parser". That was half right
+  and the wrong half was load-bearing. OpenType wraps CFF outlines in the
+  **same sfnt container** — same table directory, same `cmap` — so the
+  parser wave 110 already wrote reads it unchanged. The reference passes
+  both to one function for exactly that reason. Only a bare `/Type1C`
+  program has no container, and that yields nothing here as it does there.
+
+  So the fix was two lines, and the wave was really about noticing that a
+  documented limitation was a mistaken one. A comment that says "not
+  implemented" reads as a decision; this one was an assumption.
+
+  **The necessity is now asserted, not assumed.** Wave 100 established that
+  an obviously-required fix can be a no-op, so `PdfFontProgramTests` checks
+  that the program is *located at all* — the part a refactor can silently
+  drop, after which the pipeline goes on emitting raw glyph ids that look
+  like text and pass every check not comparing against the reference.
+
+  A verification attempt worth recording: reverting the fix to watch the
+  tally drop timed out mid-run and left the working tree modified. The
+  restore then hit an interactive `cp` prompt and silently did nothing, so
+  the next measurement was of the *reverted* code. Checking the file rather
+  than trusting the command is what caught it.

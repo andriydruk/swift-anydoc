@@ -244,8 +244,14 @@ func pdfPageFontCMaps(_ document: inout PdfDocument, _ page: PdfDictionary)
 /// well-shaped nonsense. This is the authority that recovers it, and the
 /// reference gets the same thing from `ttf-parser`.
 ///
-/// Only `/FontFile2` (TrueType) is read. `/FontFile3` holds CFF, whose
-/// charset would need its own parser and is not implemented.
+/// `/FontFile2` holds a bare TrueType font and `/FontFile3` an OpenType
+/// one, which wraps CFF outlines in the *same* sfnt container — same table
+/// directory, same `cmap`. Both are read here, as the reference reads both
+/// through one parser.
+///
+/// A `/FontFile3` whose subtype is `/Type1C` is a bare CFF program with no
+/// sfnt container at all; it has no `cmap` to find and yields nothing, which
+/// is what the reference does with it too.
 func pdfPageFontPrograms(_ document: inout PdfDocument, _ page: PdfDictionary)
     -> [String: PdfTrueTypeCMap]
 {
@@ -259,10 +265,11 @@ func pdfPageFontPrograms(_ document: inout PdfDocument, _ page: PdfDictionary)
         {
             descriptor = document.value(descendant, "FontDescriptor")?.asDictionary
         }
-        guard let descriptor,
-            let program = document.value(descriptor, "FontFile2")?.asStream,
-            let data = document.decodedStream(program)
-        else { return nil }
+        guard let descriptor else { return nil }
+        let program =
+            document.value(descriptor, "FontFile2")?.asStream
+            ?? document.value(descriptor, "FontFile3")?.asStream
+        guard let program, let data = document.decodedStream(program) else { return nil }
         return pdfParseTrueTypeCMap(data)
     }
 }
