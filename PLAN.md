@@ -4677,6 +4677,49 @@ readings**.
   They now build real documents and run the real walker, and flipping the
   boundary from `>=` to `>` makes one fail.
 
+- **Wave 122 — the document detector.** `detect_from_document` ported;
+  **78 of 78** on a third oracle probe, all four kinds and all four OCR
+  reasons reached.
+
+  This is the spine PLAN.md named. Waves 119 to 121 built the per-page
+  evidence; this weighs it. The reference runs it *before* extraction to
+  decide whether extraction is worth attempting, and a port without it
+  converts every document as though it were text — including the scans
+  where there is no text to convert.
+
+  Four phases, ported in order: classify the document, list the pages a
+  mixed document needs OCR for, add pages whose fonts cannot decode what
+  they draw, and explain each one. The third phase is the one that matters
+  most and the easiest to leave out: it flags pages in a document the first
+  phase already called **text-based**, which is the ordinary case of a
+  readable file with two unreadable pages. Removing it diverges two corpus
+  documents.
+
+  Also ported: the newspaper rule, which recommends OCR for a document that
+  extracts cleanly and *reads* badly. Density alone would also catch a
+  heavily styled contract, so the discriminator is font changes per text
+  operator — a newspaper switches font rarely per unit of prose, a styled
+  document constantly.
+
+  **Two branch-coverage gaps, found by asserting the distribution rather
+  than the agreement.** The first probe run matched 75 of 75 while never
+  producing `mixed` or `no_text`. A two-page document (image page, text
+  page) and an empty page reach both.
+
+  **And one boundary that was untested and stayed untested for a while.**
+  Flipping `text_ratio >= threshold` to `>` changed nothing across 77
+  documents — no document sat on 0.6. The first attempt at one classified
+  `mixed` at 0.680 instead: a single large image makes a page a *template*,
+  and the template branch pre-empts the ratio branch entirely. Two small
+  images per page instead of one large one defeats the scan test, and the
+  document lands on `textBased 0.600` — flipping the comparison now moves
+  it to `mixed 0.700`.
+
+  That failure also corrected a misreading recorded in the generator: the
+  template and text conditions are counted per page and combined at
+  *document* level, so one page can supply the template and another the
+  text. They do not have to hold together, as the code first suggested.
+
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
   under test is carried by some other path more often than not. The

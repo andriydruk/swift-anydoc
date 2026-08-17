@@ -5054,6 +5054,12 @@ fn main() {
         print!("{}", pdf_inspector::tounicode::probe_tounicodetext(&input));
         return;
     }
+    if path == "--detectdoc" {
+        let file = std::env::args().nth(2).expect("usage: --detectdoc <file.pdf>");
+        let bytes = std::fs::read(&file).expect("read");
+        print!("{}", pdf_inspector::detector::probe_detectdoc(&bytes));
+        return;
+    }
     if path == "--pageanalysis" {
         let file = std::env::args().nth(2).expect("usage: --pageanalysis <file.pdf>");
         let bytes = std::fs::read(&file).expect("read");
@@ -5362,6 +5368,51 @@ pub fn probe_complexity(input: &str) -> String {
 RUSTEOF
 
 cat >> "$crate/src/detector.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): the document-level classification.
+///
+///     t <type> <pages> <sampled> <with-text> <confidence> <ocr-recommended>
+///     n <page> <reason>,<reason>   (one line per OCR-flagged page)
+///     title <text>                 (only when the document has one)
+pub fn probe_detectdoc(bytes: &[u8]) -> String {
+    let doc = match Document::load_mem(bytes) {
+        Ok(d) => d,
+        Err(_) => return String::from("error\n"),
+    };
+    let page_count = doc.get_pages().len() as u32;
+    let config = DetectionConfig::default();
+    let result = match detect_from_document(&doc, page_count, &config) {
+        Ok(r) => r,
+        Err(_) => return String::from("error\n"),
+    };
+    let kind = match result.pdf_type {
+        PdfType::TextBased => "textBased",
+        PdfType::Scanned => "scanned",
+        PdfType::ImageBased => "imageBased",
+        PdfType::Mixed => "mixed",
+    };
+    let mut out = format!(
+        "t {} {} {} {} {:.3} {}\n",
+        kind,
+        result.page_count,
+        result.pages_sampled,
+        result.pages_with_text,
+        result.confidence,
+        result.ocr_recommended as u8
+    );
+    for page in &result.pages_needing_ocr {
+        let reasons = result
+            .ocr_reasons_by_page
+            .get(page)
+            .map(|r| r.join(","))
+            .unwrap_or_default();
+        out.push_str(&format!("n {} {}\n", page, reasons));
+    }
+    if let Some(title) = &result.title {
+        out.push_str(&format!("title {}\n", title));
+    }
+    out
+}
 
 /// Probe (added for swift-anydoc): the whole `PageAnalysis`, per page.
 ///

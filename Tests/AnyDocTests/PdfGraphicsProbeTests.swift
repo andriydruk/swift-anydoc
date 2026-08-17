@@ -44,13 +44,15 @@ import Testing
     ///   each. Image extraction is genuinely unported here, so this port
     ///   reports no such item. Unlike the two above, this **is** a gap
     ///   rather than a disagreement between the reference's own paths —
-    ///   named here because these documents exist for `--pageanalysis`,
+    ///   named here because these documents exist for `--pageanalysis` and
+    ///   `--detectdoc`,
     ///   which they match exactly, and closing the gap belongs to the wave
     ///   that ports image extraction.
     static let unwiredGaps: Set<String> = [
         "font-embedded-cmap.pdf", "font-opentype-cmap.pdf",
         "image-small.pdf", "image-template.pdf", "image-tiled.pdf",
-        "image-in-form.pdf", "vector-text.pdf",
+        "image-in-form.pdf", "vector-text.pdf", "mixed-image-and-text.pdf",
+        "ratio-exactly-threshold.pdf",
     ]
 
     /// Format a float the way the probe does, so the two dumps compare as

@@ -1948,3 +1948,77 @@ _outlines = b"".join(
 b = Builder()
 write_detector("vector-text", classic_trailer(b, base_document(
     b, content=_outlines + b"BT /F1 10 Tf 72 100 Td (.) Tj ET\n")))
+
+# A two-page document: an image-only first page and a text second page.
+#
+# This reaches `mixed` through the **template** branch, which was not the
+# prediction — the reported confidence is 0.650, and only
+# `0.5 + 0.3 * (1 - template_ratio)` with a ratio of 0.5 produces that. The
+# per-page conditions are counted separately and combined at document level,
+# so one page can supply the template and another the text; they do not have
+# to hold on the same page, as a first reading of the code suggested.
+b = Builder()
+_img = image_xobject(b, 1000, 800)
+_font = b.add(SIMPLE_FONT)
+_c1 = b.stream(b"", b"q 400 0 0 300 72 300 cm /Im0 Do Q\n")
+_c2 = b.stream(b"", b"".join(
+    line(b"Line %d of ordinary readable prose on the second page." % k, 700 - k * 16)
+    for k in range(12)))
+_p1 = b.reserve()
+_p2 = b.reserve()
+_pages = b.reserve()
+b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+      b"/Resources<</XObject<</Im0 %d 0 R>>>>/Contents %d 0 R>>"
+      % (_pages, _img, _c1), _p1)
+b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+      b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+      % (_pages, _font, _c2), _p2)
+b.add(b"<</Type/Pages/Kids[%d 0 R %d 0 R]/Count 2>>" % (_p1, _p2), _pages)
+write_detector("mixed-image-and-text", classic_trailer(
+    b, b.add(b"<</Type/Catalog/Pages %d 0 R>>" % _pages)))
+
+# A page that draws nothing at all: no text, no images, no paths. The only
+# route to the `no_text` OCR reason, which every other document misses
+# because a page with an image reports `scanned` instead.
+b = Builder()
+_empty = b.stream(b"", b"")
+_pages = b.reserve()
+_page = b.reserve()
+b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+      b"/Resources<<>>/Contents %d 0 R>>" % (_pages, _empty), _page)
+b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % _page, _pages)
+write_detector("empty-page", classic_trailer(
+    b, b.add(b"<</Type/Catalog/Pages %d 0 R>>" % _pages)))
+
+# Five pages, three of them text: a ratio of exactly 0.60, which is the
+# `text_page_ratio_threshold` itself. Added in wave 122 after flipping the
+# comparison from `>=` to `>` changed nothing across 77 documents — no
+# document sat on the boundary, so the comparison was untested. This one
+# classifies as textBased only while the comparison is inclusive.
+b = Builder()
+_font = b.add(SIMPLE_FONT)
+_img = image_xobject(b, 200, 150)
+_img2 = image_xobject(b, 200, 150)
+_pages = b.reserve()
+_kids = []
+for _k in range(5):
+    if _k < 3:
+        _c = b.stream(b"", b"".join(
+            line(b"Page %d line %d of readable prose." % (_k, _j), 700 - _j * 16)
+            for _j in range(12)))
+        _res = b"<</Font<</F1 %d 0 R>>>>" % _font
+    else:
+        # **Two small** images, not one big one. A single large image makes
+        # the page a template, and the template branch pre-empts the ratio
+        # branch entirely — the first attempt at this document classified
+        # `mixed` at 0.680 and tested nothing about the threshold.
+        _c = b.stream(b"", b"q 60 0 0 40 72 300 cm /Im0 Do Q\n"
+                            b"q 60 0 0 40 200 300 cm /Im1 Do Q\n")
+        _res = b"<</XObject<</Im0 %d 0 R/Im1 %d 0 R>>>>" % (_img, _img2)
+    _pg = b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+                b"/Resources%s/Contents %d 0 R>>" % (_pages, _res, _c))
+    _kids.append(_pg)
+b.add(b"<</Type/Pages/Kids[%s]/Count 5>>"
+      % b" ".join(b"%d 0 R" % k for k in _kids), _pages)
+write_detector("ratio-exactly-threshold", classic_trailer(
+    b, b.add(b"<</Type/Catalog/Pages %d 0 R>>" % _pages)))
