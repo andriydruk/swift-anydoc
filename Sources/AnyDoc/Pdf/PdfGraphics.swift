@@ -61,7 +61,7 @@ private let pdfAxisAlignedEpsilon: Float = 0.5
 private let pdfMinimumRectangleSide: Float = 1.0
 
 /// A point in device space.
-private func pdfTransformPoint(_ x: Float, _ y: Float, _ ctm: PdfMatrix) -> (Float, Float) {
+func pdfTransformPoint(_ x: Float, _ y: Float, _ ctm: PdfMatrix) -> (Float, Float) {
     (x * ctm.a + y * ctm.c + ctm.e, x * ctm.b + y * ctm.d + ctm.f)
 }
 

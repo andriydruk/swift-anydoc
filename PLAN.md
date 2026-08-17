@@ -4794,6 +4794,43 @@ readings**.
   `pdfConvert` now returns both, so a caller wanting the pair pays for one
   content scan rather than two.
 
+- **Wave 125 — image extraction, and the last of `unwiredGaps`.**
+  **78 of 78** byte-identical, and the graphics probe's image exemptions are
+  gone.
+
+  A `Do` on an image XObject now leaves a **positional placeholder** in the
+  item stream — `[Image: Im0]`, at the box the transform paints into. Six
+  corpus documents whose item dumps had been exempted since wave 121 now
+  match the reference exactly, and disabling the collection breaks all six.
+
+  The box is the **unit square's four corners** transformed and bounded, not
+  two corners scaled. A negative scale is how a producer flips an image and
+  is common in real documents; two corners would give it a negative width.
+  A rotation puts no corner at the box's corner at all. Both are pinned.
+
+  **The image is inside a Form XObject in one document, and that found a
+  real hole.** `pdfPageOperationsWithForms` inlines a form's content stream,
+  which brings its `Do` operators along while leaving their names defined in
+  the *form's* resources — so a page whose only figure sits inside a form
+  loses it. The name collection recurses for that reason. Five of six
+  documents passed before the recursion was added, which is exactly how a
+  gap like this survives.
+
+  Two consequences had to be handled rather than papered over. Images
+  reaching the *text* stream merged with neighbouring prose and landed in
+  the Markdown as a literal `[Image: Im0]`; the reference partitions them at
+  the top of its writer, before any layout, and renders them only when
+  `include_images` is set — which it is not by default. And a geometry
+  invariant asserting `fontSize > 0` for every run now excludes images,
+  which carry a box rather than a baseline.
+
+  This also sets `PdfLayoutItem.isImage`, the one claim from wave 113's
+  stale-comment sweep that was **true**: nothing had ever set it. The column
+  detector already filtered on it, so it had been quietly reading figure
+  placeholders as text for as long as it had existed — except that no
+  placeholder existed either, which is why nothing showed. The image regions
+  are collected alongside, for the chart masking that is still to come.
+
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
   under test is carried by some other path more often than not. The

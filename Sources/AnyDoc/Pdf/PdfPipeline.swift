@@ -55,6 +55,11 @@ func pdfConvert(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOptio
 
     var lines: [PdfTextLine] = []
     var pageTables: [Int: [PdfPositionedMarkdown]] = [:]
+    /// Where each page's raster figures sit. Nothing consumes these yet —
+    /// chart masking is unported — but they are the reference's
+    /// `page_image_regions`, and collecting them is what makes the image
+    /// items worth extracting at all.
+    var imageRegions: [Int: [(x: Float, y: Float, width: Float, height: Float)]] = [:]
 
     // A link is a rectangle plus an action and a field value lives off the
     // trailer, so neither is drawn by any content stream — they need their
@@ -105,6 +110,21 @@ func pdfConvert(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOptio
         // the letter-spacing measurement has to see merged words, not the
         // fragments a PDF draws them as.
         var items = pdfLayoutItems(pdfPageTextRuns(&document, page))
+
+        // Images come out of the stream **before** any layout runs. They are
+        // placeholders, not prose: left in, they merge with neighbouring
+        // text, take part in table detection and land in the Markdown as a
+        // literal `[Image: Im0]`. The reference partitions them at the top
+        // of its writer for the same reason, and renders them only when
+        // `include_images` is set — which it is not by default.
+        //
+        // Their boxes are kept: chart masking and the column detector both
+        // need to know where the figures are.
+        imageRegions[number] = items.filter(\.isImage).map {
+            (x: $0.x, y: $0.y, width: $0.width, height: $0.height)
+        }
+        items.removeAll(where: \.isImage)
+
         pdfApplyFontStyles(&items, styles)
         pdfMarkUnderlines(
             &items, rectangles: pdfUnderlineInk(graphics), lines: graphics.lines)
@@ -170,6 +190,7 @@ func pdfConvert(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOptio
     let analysis = pdfAnalyseDocument(lines, options: options, structRoles: structRoles)
     // No images and no band-split pages: image extraction and
     // `split_side_by_side`'s per-page wiring are still to come.
+    _ = imageRegions
     let markdown = pdfWriteMarkdown(
         analysis, options: options, pageTables: pageTables, structRoles: structRoles)
     return (markdown, detection)
@@ -358,7 +379,9 @@ func pdfPageFontStyles(_ document: inout PdfDocument, _ page: PdfDictionary)
 }
 
 /// Every text run of a page, decoded through its fonts' `ToUnicode` CMaps.
-func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [PdfTextRun] {
+func pdfPageTextRuns(
+    _ document: inout PdfDocument, _ page: PdfDictionary, includeInvisible: Bool = false
+) -> [PdfTextRun] {
     var cmaps = pdfPageFontCMaps(&document, page)
     var metrics = pdfPageFontMetrics(&document, page)
     var encodings = pdfPageFontEncodings(&document, page)
@@ -396,7 +419,43 @@ func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [P
             encodings[name] = pdfParseEncodingDifferences(differences, baseFontName: baseFont)
         }
     }
-    return pdfExtractTextRuns(operations, metrics: { metrics[$0] }) { fontName, bytes in
+    // The names a surviving `Do` may invoke. Form XObjects were inlined by
+    // `pdfPageOperationsWithForms`, so anything left is an image — but the
+    // set is collected rather than assumed, since a `Do` naming something
+    // absent from `/XObject` must not become a phantom figure.
+    //
+    // The walk **recurses into forms**, because inlining a form's content
+    // brings its `Do` operators along while leaving their names defined in
+    // the form's own resources. A page whose only image sits inside a form
+    // otherwise loses it — which is exactly what `image-in-form.pdf` caught.
+    var imageNames: Set<[UInt8]> = []
+    var visitedForms: Set<PdfObjectId> = []
+    func collectImageNames(_ resources: PdfDictionary) {
+        guard let xobjects = document.value(resources, "XObject")?.asDictionary else { return }
+        for key in xobjects.keys {
+            guard let reference = xobjects[key]?.asReference,
+                let stream = document.object(reference).asStream,
+                let subtype = document.value(stream.dict, "Subtype")?.asName
+            else { continue }
+            switch String(decoding: subtype, as: UTF8.self) {
+            case "Image":
+                imageNames.insert(key)
+            case "Form":
+                guard visitedForms.insert(reference).inserted,
+                    let inner = document.value(stream.dict, "Resources")?.asDictionary
+                else { continue }
+                collectImageNames(inner)
+            default:
+                break
+            }
+        }
+    }
+    for resources in pdfPageResourceChain(&document, page) { collectImageNames(resources) }
+
+    return pdfExtractTextRuns(
+        operations, includeInvisible: includeInvisible, imageNames: imageNames,
+        metrics: { metrics[$0] }
+    ) { fontName, bytes in
         guard let cmap = cmaps[fontName], !cmap.isEmpty else {
             // No usable `ToUnicode`. A `/Differences` encoding is the next
             // authority: it says what glyph each code draws, which is the

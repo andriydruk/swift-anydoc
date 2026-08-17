@@ -25,6 +25,13 @@ struct PdfTextRun {
     /// The marked-content id in effect when the run was drawn, which is what
     /// links it to a node of the structure tree.
     var mcid: Int?
+    /// A placeholder for a raster image rather than drawn text. Its `text`
+    /// is `[Image: Name]` and its box is the image's, so a layout-aware
+    /// consumer can find the figure without re-parsing the document.
+    var isImage = false
+    /// The image's height. Text runs leave this zero; only an image needs a
+    /// box rather than a baseline.
+    var height: Float = 0
 }
 
 /// A 2-D affine transform as PDF writes it: [a b c d e f].
@@ -69,6 +76,7 @@ func pdfExtractTextRuns(
     _ operations: [PdfOperation],
     initialCtm: PdfMatrix = identityMatrix,
     includeInvisible: Bool = false,
+    imageNames: Set<[UInt8]> = [],
     metrics: (String) -> PdfFontWidths? = { _ in nil },
     /// Resolves a `BDC` properties dictionary given by reference. Supplied by
     /// the caller because the extractor holds no document; without it an
@@ -293,6 +301,27 @@ func pdfExtractTextRuns(
                 number(operands, 3, default: 1), number(operands, 4), number(operands, 5)
             )
             ctm = pdfMultiply(m, ctm)
+        case "Do":
+            // An image XObject leaves a **positional placeholder** in the
+            // item stream rather than pixels: downstream consumers — the
+            // column detector, chart masking, a figure-OCR router — need to
+            // know where the figure is, and re-parsing the document to find
+            // out would be absurd. The name is carried in the reference's
+            // `[Image: Im0]` form, which its Markdown emitter recognises.
+            //
+            // Form XObjects never reach here: `pdfPageOperationsWithForms`
+            // has already inlined their content streams, so a `Do` that
+            // survives to this point names an image or nothing at all.
+            guard let name = operands.first?.asName, imageNames.contains(name) else { break }
+            let box = pdfImageBoundingBox(ctm)
+            var run = PdfTextRun(
+                text: "[Image: \(String(decoding: name, as: UTF8.self))]",
+                x: box.x, y: box.y, fontSize: 0, width: box.width, fontName: "",
+                renderingMode: 0, mcid: currentMcid())
+            run.isImage = true
+            run.height = box.height
+            runs.append(run)
+
         case "BT":
             inText = true
             textMatrix = identityMatrix
@@ -463,4 +492,23 @@ func pdfEffectiveFontSize(_ baseSize: Float, _ matrix: PdfMatrix) -> Float {
     let scaleX = (matrix.a * matrix.a + matrix.b * matrix.b).squareRoot()
     let scaleY = (matrix.c * matrix.c + matrix.d * matrix.d).squareRoot()
     return baseSize * max(scaleX, scaleY)
+}
+
+/// The device-space box an image XObject paints into.
+///
+/// A `Do` paints the **unit square** through the current transform, so the
+/// box is that square's four corners transformed and bounded. Taking only
+/// two corners would be wrong the moment the transform rotates or flips —
+/// and a negative scale, which is how a producer flips an image vertically,
+/// is common enough that the shortcut fails on real documents.
+func pdfImageBoundingBox(_ ctm: PdfMatrix) -> (x: Float, y: Float, width: Float, height: Float) {
+    let corners = [
+        pdfTransformPoint(0, 0, ctm), pdfTransformPoint(1, 0, ctm),
+        pdfTransformPoint(1, 1, ctm), pdfTransformPoint(0, 1, ctm),
+    ]
+    let xs = corners.map(\.0)
+    let ys = corners.map(\.1)
+    let xMinimum = xs.min() ?? 0
+    let yMinimum = ys.min() ?? 0
+    return (xMinimum, yMinimum, (xs.max() ?? 0) - xMinimum, (ys.max() ?? 0) - yMinimum)
 }

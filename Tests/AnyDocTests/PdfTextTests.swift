@@ -188,8 +188,16 @@ func pdfPages(_ document: inout PdfDocument) -> [PdfDictionary] {
         let runs = pdfPageTextRuns(&document, pages[0])
         #expect(!runs.isEmpty)
         for run in runs {
-            #expect(run.fontSize > 0 && run.fontSize < 100, "implausible size \(run.fontSize)")
+            // An image placeholder carries a box rather than a baseline, so
+            // it has no font size to be plausible about. The invariant is
+            // about *text* geometry and always was; images only started
+            // appearing in this stream in wave 125.
+            if !run.isImage {
+                #expect(
+                    run.fontSize > 0 && run.fontSize < 100, "implausible size \(run.fontSize)")
+            }
             #expect(run.x.isFinite && run.y.isFinite)
+            #expect(run.width.isFinite && run.width >= 0)
         }
         // The first run should sit near the top of a US Letter page.
         let first = try #require(runs.first)

@@ -82,10 +82,13 @@ private let baselineTolerance: Float = 3.0
 /// another font — which real documents do.
 /// Text runs as layout items, before any grouping.
 func pdfLayoutItems(_ runs: [PdfTextRun]) -> [PdfLayoutItem] {
-    runs.map {
-        PdfLayoutItem(
-            text: $0.text, x: $0.x, y: $0.y, width: $0.width, fontSize: $0.fontSize,
-            fontName: $0.fontName, mcid: $0.mcid)
+    runs.map { run in
+        var item = PdfLayoutItem(
+            text: run.text, x: run.x, y: run.y, width: run.width, fontSize: run.fontSize,
+            fontName: run.fontName, mcid: run.mcid)
+        item.isImage = run.isImage
+        item.height = run.height
+        return item
     }
 }
 
