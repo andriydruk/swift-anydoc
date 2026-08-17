@@ -4943,6 +4943,45 @@ readings**.
   from there to the assembler rather than to invent it. That is a wave with
   room to measure, on the hottest path in the port.
 
+- **Wave 129 — the merge, and a scoping estimate that was wrong.**
+  **80 of 80** byte-identical; the inlined copy is gone.
+
+  Wave 128 sized this at ten-plus call sites across seven files and deferred
+  it. **That estimate was wrong, and wrong in the direction that matters.**
+  The call sites do not need a threshold, because `PdfTextLine` already
+  carries one: `adaptiveThreshold`, set by `pdfGroupPageIntoLines` from the
+  measured letter-spacing, with a doc comment reading "carried on the line so
+  the word joiner can use it later". The field was already there and already
+  live; nothing had ever read it. The real change was two lines and two call
+  sites.
+
+  Reading the field's own comment before estimating would have caught that.
+  The estimate was made from `grep` output at the end of a session, and it
+  cost a wave.
+
+  **The copy had gone stale, which makes this more than tidiness.** The
+  inlined geometry hardcoded the 0.10 word-gap bar and therefore had **no
+  letter-spaced branch at all** — where `pdfShouldJoinItems` compares a gap
+  against *character width*, the copy compared it against font size. On a
+  tracked page the two disagree.
+
+  **And that branch turns out to be unreachable here, for a reason worth
+  recording.** A corpus document was added — a heading drawn one glyph at a
+  time with a wide advance — and it changes nothing either way, because
+  `pdfMergeTextItems` joins the tracked letters into one item *before*
+  `pdfFixLetterspacedItems` measures anything. The measurement then sees
+  three items, returns 0.10, and the assembler never meets a
+  single-character run. That ordering is the reference's own (wave 101 fixed
+  it to match), so this is not a divergence — it means the letter-spaced
+  branch guards a path the merge pass normally resolves first, and reaching
+  it needs text the merge declines to join.
+
+  So the merge is verified **safe** rather than verified *effective*: 80 of
+  80 with the adaptive threshold and 80 of 80 with it pinned back to 0.10.
+  Said plainly, because the difference matters — a stale duplicate is gone
+  and the threshold is correctly wired, but no document in hand exercises
+  what it unlocks.
+
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
   under test is carried by some other path more often than not. The

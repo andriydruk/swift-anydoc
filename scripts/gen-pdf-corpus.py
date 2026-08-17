@@ -2056,3 +2056,29 @@ MD_BAR_CHART = (
 )
 b = Builder()
 write("chart-bars", classic_trailer(b, base_document(b, content=MD_BAR_CHART)))
+
+
+# A letter-spaced heading: each glyph drawn as its own `Tj` with a wide
+# advance, which is how a designer tracks out a title. `fix_letterspaced_items`
+# measures the page's word-gap bar from runs like these, and the bar it
+# returns is well above the 0.10 default — which is the *only* input that
+# reaches `should_join_items`' letter-spaced branch.
+#
+# Added in wave 129 after measuring that every other corpus page reports
+# exactly 0.10, so the branch had no coverage at all.
+def _tracked(word, x, y, size, step):
+    out = b"BT /F1 %d Tf %d %d Td" % (size, x, y)
+    for index, ch in enumerate(word):
+        if index:
+            out += b" %d 0 Td" % step
+        out += b" (%s) Tj" % bytes([ch])
+    return out + b" ET\n"
+
+
+MD_LETTERSPACED = (
+    _tracked(b"ANNUALREPORTING", 72, 700, 14, 13)
+    + line(b"Ordinary body text follows the tracked heading above.", 640)
+    + line(b"A second line of ordinary prose for the body size.", 624)
+)
+b = Builder()
+write("letterspaced-heading", classic_trailer(b, base_document(b, content=MD_LETTERSPACED)))

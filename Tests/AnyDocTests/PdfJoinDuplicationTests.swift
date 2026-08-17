@@ -2,20 +2,22 @@ import Testing
 
 @testable import AnyDoc
 
-/// Two implementations of one decision, compared.
+/// The line assembler's geometry, now delegated.
 ///
-/// `pdfShouldJoinItems` is the port of `should_join_items`, which the
-/// reference calls from its line assembler. This port's line assembler,
-/// `pdfNeedsSpace`, instead **reimplements the geometry inline** — the same
-/// gap thresholds, the same digit rule, the same single-character rule.
-/// Wave 127 found the duplication by the orphan sweep: `pdfShouldJoinItems`
-/// has had no caller since it was ported.
+/// `pdfNeedsSpace` used to inline a copy of `pdfShouldJoinItems` — the port
+/// of the function the reference's own assembler calls. Wave 127's orphan
+/// sweep found the copy; wave 129 removed it, and these tests are what made
+/// that safe to do.
 ///
-/// Switching `pdfNeedsSpace` to call it would need a letter-spacing
-/// threshold threaded through the line assembler, which does not currently
-/// take one. That is a wave of its own. What these tests do is establish
-/// whether the two **agree**, so that switch is a refactor rather than a
-/// behaviour change — and they find one case where it would not be.
+/// They were written against the two implementations to establish that they
+/// agreed, and they now pin the delegation instead: the same five cases, plus
+/// the one place `pdfNeedsSpace` still decides for itself. Keeping them is
+/// the point — a future edit that re-inlines the geometry, or drops the width
+/// guard, fails here rather than silently on some page nobody has.
+///
+/// **The copy had gone stale**, which is why this mattered beyond tidiness:
+/// it hardcoded the 0.10 word-gap bar and so had no letter-spaced branch at
+/// all, where `pdfShouldJoinItems` compares against character width.
 @Suite struct PdfJoinDuplicationTests {
     private func item(_ text: String, x: Float, width: Float, size: Float = 10)
         -> PdfLayoutItem
@@ -24,8 +26,8 @@ import Testing
     }
 
     /// `pdfNeedsSpace` asks whether a space belongs; `pdfShouldJoinItems`
-    /// asks whether the two are one word. On plain text they should be
-    /// exact opposites.
+    /// asks whether the two are one word. Past the textual rules they are
+    /// exact opposites, which is what delegation means here.
     private func agree(_ previous: PdfLayoutItem, _ current: PdfLayoutItem) -> Bool {
         pdfNeedsSpace(previous, current, "prev")
             == !pdfShouldJoinItems(
@@ -55,11 +57,10 @@ import Testing
         #expect(agree(item("b", x: 72, width: 6), item("illion", x: 78.4, width: 30)))
     }
 
-    /// The one divergence, and it is `pdfNeedsSpace`'s own rule rather than
-    /// a porting error: it returns `false` — join — when the previous run
-    /// has no measured width, because there is no gap to reason about.
-    /// `pdfShouldJoinItems` reaches its own conclusion from the text.
-    /// Recorded so the future switch is made knowingly.
+    /// The one decision `pdfNeedsSpace` still makes alone: with no measured
+    /// width there is no gap to reason about, so it joins, while
+    /// `pdfShouldJoinItems` would reach a conclusion from the text. The guard
+    /// is kept deliberately and this test is what says so.
     @Test func theyDivergeWhenTheWidthIsUnmeasured() {
         let previous = item("word", x: 72, width: 0)
         let current = item("next", x: 200, width: 24)

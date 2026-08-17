@@ -104,7 +104,8 @@ func pdfLineTextWithEmphasis(
         let needsSpace =
             index == 0 || result.isEmpty
             ? false
-            : pdfNeedsSpace(line.items[index - 1], item, result)
+            : pdfNeedsSpace(
+                line.items[index - 1], item, result, threshold: line.adaptiveThreshold)
         // A leading space in the run is itself a word boundary, and the
         // trimmed text about to be appended would lose it.
         let hasLeadingSpace = item.text.hasPrefix(" ")

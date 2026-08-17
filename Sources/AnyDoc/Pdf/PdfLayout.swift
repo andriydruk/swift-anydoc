@@ -137,7 +137,9 @@ func pdfLineText(_ line: PdfTextLine) -> String {
             continue
         }
         if let previous, !result.isEmpty {
-            if pdfNeedsSpace(previous, item, result) { result += " " }
+            if pdfNeedsSpace(previous, item, result, threshold: line.adaptiveThreshold) {
+                result += " "
+            }
         }
         result += trimmed
         previous = item
@@ -147,18 +149,19 @@ func pdfLineText(_ line: PdfTextLine) -> String {
 
 /// Whether a space belongs between two runs.
 ///
-/// **This duplicates `pdfShouldJoinItems`.** The geometric tail below — the
-/// gap thresholds, the digit rule, the single-character rule — is the same
-/// decision that function already makes, and the reference's line assembler
-/// calls it rather than restating it. The duplication was found by wave
-/// 127's orphan sweep: `pdfShouldJoinItems` had never had a caller.
+/// The textual rules are here — explicit spaces, hyphens, punctuation that
+/// follows its word, the sub- and superscript test — and the geometry is
+/// `pdfShouldJoinItems`. That split is the reference's: its
+/// `needs_space_between` makes exactly these checks and calls
+/// `should_join_items` for the gap.
 ///
-/// Switching needs a letter-spacing threshold threaded through here, which
-/// this function does not take. `PdfJoinDuplicationTests` establishes that
-/// the two agree on every ordinary case and names the single divergence — an
-/// unmeasured width, where this one joins and the other reads the text — so
-/// that switch can be made as a refactor rather than a guess.
-func pdfNeedsSpace(_ previous: PdfLayoutItem, _ current: PdfLayoutItem, _ soFar: String) -> Bool {
+/// - Parameter threshold: the page's measured word-gap bar, carried on the
+///   line as `adaptiveThreshold`. 0.10 for an ordinary page; wider for a
+///   letter-spaced one, which changes the comparison entirely.
+func pdfNeedsSpace(
+    _ previous: PdfLayoutItem, _ current: PdfLayoutItem, _ soFar: String,
+    threshold: Float = 0.10
+) -> Bool {
     // Text already ending in a space needs no second one.
     if soFar.hasSuffix(" ") { return false }
     // An explicit space on either run *is* the word boundary. The runs are
@@ -200,53 +203,21 @@ func pdfNeedsSpace(_ previous: PdfLayoutItem, _ current: PdfLayoutItem, _ soFar:
     }
 
     // Without a measured width there is no gap to reason about, so fall back
-    // to joining — the reference does the same.
+    // to joining. `pdfShouldJoinItems` would instead reach a conclusion from
+    // the text, so this guard is a real difference between the two and is
+    // kept deliberately — see `PdfJoinDuplicationTests`.
     guard previous.width > 0 else { return false }
-    let gap =
-        previous.x <= current.x
-        ? current.x - (previous.x + previous.width)
-        : previous.x - (current.x + current.width)
-    let fontSize = previous.fontSize > 0 ? previous.fontSize : current.fontSize
-    guard fontSize > 0 else { return false }
 
-    // A column-scale gap, or a large overlap, is never a word join.
-    if gap > fontSize * 3.0 || gap < -fontSize { return true }
-
-    // Digits and their separators that sit close together are one number.
-    if let previousLast, let currentFirst {
-        let previousNumeric =
-            previousLast.isAsciiDigit || previousLast == "," || previousLast == "."
-        let currentNumeric =
-            currentFirst.isAsciiDigit || currentFirst == "%" || currentFirst == "."
-        if previousNumeric && currentNumeric {
-            return !(gap > -fontSize && gap < fontSize * 0.3)
-        }
-        if previousLast == "+" || previousLast == "-", currentFirst.isAsciiDigit {
-            return !(gap > -fontSize && gap < fontSize * 0.3)
-        }
-    }
-
-    let previousChars = previous.text.trimmingCharactersInPdfWhitespace().unicodeScalars.count
-    let currentChars = current.text.trimmingCharactersInPdfWhitespace().unicodeScalars.count
-    // A single-character fragment beside a longer one is usually a split
-    // word ("b" + "illion"), so it joins across a wider gap.
-    if (previousChars == 1) != (currentChars == 1) {
-        return !(gap < fontSize * 0.20)
-    }
-    // Per-glyph positioning: intra-word gaps are near zero, word boundaries
-    // around 0.15 em. Digits get a looser bound, since spaces inside numbers
-    // are rare.
-    if previousChars == 1, currentChars == 1 {
-        if let previousLast, let currentFirst {
-            let previousNumeric =
-                previousLast.isAsciiDigit || ",.%+-".unicodeScalars.contains(previousLast)
-            let currentNumeric =
-                currentFirst.isAsciiDigit || ",.%".unicodeScalars.contains(currentFirst)
-            if previousNumeric && currentNumeric { return !(gap < fontSize * 0.25) }
-        }
-        return !(gap < fontSize * 0.10)
-    }
-    return !(gap < fontSize * 0.10)
+    // Everything geometric is `pdfShouldJoinItems`, which is the port of the
+    // function the reference's own line assembler calls here. This used to be
+    // a copy of it inlined, and the copy had gone stale: it hardcoded the
+    // 0.10 word-gap bar and so had **no letter-spaced branch at all**. On a
+    // page whose tracking was measured wide — the pages
+    // `pdfFixLetterspacedItems` exists for — it compared against font size
+    // where the reference compares against character width, and split words
+    // the reference joins.
+    return !pdfShouldJoinItems(
+        previous: previous, current: current, singleCharacterThreshold: threshold)
 }
 
 extension String {
