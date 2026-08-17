@@ -43,6 +43,16 @@ struct PdfDocument {
     private var cache: [PdfObjectId: PdfObject] = [:]
     /// Object streams already expanded, so each is inflated at most once.
     private var expandedStreams: Set<UInt32> = []
+    /// The standard security handler's state, once `/Encrypt` has been read.
+    ///
+    /// Most "protected" documents use an empty user password, so this is set
+    /// up automatically at load and the caller never learns the file was
+    /// encrypted. A revision this port cannot decrypt leaves it nil and
+    /// `isUnreadablyEncrypted` true, so the caller can say so rather than
+    /// emit noise.
+    private(set) var encryption: PdfEncryption?
+    /// True when the document is encrypted in a way this port cannot open.
+    private(set) var isUnreadablyEncrypted = false
 
     init(bytes: [UInt8]) throws {
         self.bytes = bytes
@@ -51,6 +61,41 @@ struct PdfDocument {
         }
         _ = headerEnd
         try loadXref()
+        setUpDecryption()
+    }
+
+    /// Read `/Encrypt` and derive the file key, if the document has one.
+    ///
+    /// Only the empty user password is tried. A document that genuinely
+    /// needs a password is marked unreadable rather than decoded to noise —
+    /// the failure mode worth avoiding is the silent one.
+    private mutating func setUpDecryption() {
+        guard let encryptEntry = trailer["Encrypt"] else { return }
+        // The `/Encrypt` dictionary is itself never encrypted, and neither
+        // is `/ID`, which the key derivation needs.
+        guard let encrypt = resolve(encryptEntry).asDictionary else {
+            isUnreadablyEncrypted = true
+            return
+        }
+        var documentID: [UInt8] = []
+        if let ids = trailer["ID"]?.asArray, let first = ids.first,
+            let bytes = resolve(first).asStringBytes
+        {
+            documentID = bytes
+        }
+        guard var found = pdfReadEncryption(&self, encrypt, documentID: documentID),
+            found.isSupported, pdfEmptyUserPasswordWorks(found)
+        else {
+            isUnreadablyEncrypted = true
+            return
+        }
+        found.key = pdfDeriveFileKey(found)
+        encryption = found
+        // Anything already parsed was read before the key existed. Only the
+        // trailer and `/Encrypt` can be in that state, and neither is
+        // encrypted — but the cache is cleared rather than reasoned about.
+        cache.removeAll()
+        expandedStreams.removeAll()
     }
 
     /// The document catalog (`/Root`), the entry point to the page tree.
@@ -238,8 +283,12 @@ struct PdfDocument {
             // A mismatched header means the offset is stale; the object is
             // not what the table promised.
             guard parsedId.number == id.number else { return .null }
-            cache[id] = object
-            return object
+            // Objects inside an object stream are *not* decrypted
+            // individually — the containing stream was, so their bytes are
+            // already clear. Only objects read straight from the file are.
+            let decrypted = encryption.map { pdfDecryptObject($0, id, object) } ?? object
+            cache[id] = decrypted
+            return decrypted
         case .compressed(let container, _):
             expandObjectStream(container)
             return cache[id] ?? .null
@@ -431,4 +480,38 @@ private func findKeyword(_ bytes: [UInt8], _ keyword: [UInt8], from: Int) -> Int
         i += 1
     }
     return nil
+}
+
+
+/// Decrypt an object's strings and stream data in place.
+///
+/// Every string and every stream in an encrypted document is encrypted with
+/// a key derived from the object's own number, so this walks the object and
+/// rewrites the leaves.
+func pdfDecryptObject(
+    _ encryption: PdfEncryption, _ id: PdfObjectId, _ object: PdfObject
+) -> PdfObject {
+    switch object {
+    case .string(let bytes, let format):
+        // The format — literal or hex — is how it was *written*, and stays
+        // as it was; only the bytes were encrypted.
+        return .string(pdfDecrypt(encryption, id, bytes), format)
+    case .array(let entries):
+        return .array(entries.map { pdfDecryptObject(encryption, id, $0) })
+    case .dictionary(let dictionary):
+        var out = PdfDictionary()
+        for key in dictionary.keys {
+            guard let value = dictionary[key] else { continue }
+            out[key] = pdfDecryptObject(encryption, id, value)
+        }
+        return .dictionary(out)
+    case .stream(let stream):
+        var out = stream
+        out.dict = pdfDecryptObject(encryption, id, .dictionary(stream.dict)).asDictionary
+            ?? stream.dict
+        out.content = pdfDecrypt(encryption, id, stream.content)
+        return .stream(out)
+    default:
+        return object
+    }
 }

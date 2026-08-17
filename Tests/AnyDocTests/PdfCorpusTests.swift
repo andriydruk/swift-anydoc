@@ -93,7 +93,25 @@ func normalizeOracleArtifacts(_ dump: String, against expected: String) -> Strin
             }
 
             var document = try PdfDocument(bytes: bytes)
-            let dump = normalizeOracleArtifacts(pdfObjectDump(&document), against: expected)
+            var dump = normalizeOracleArtifacts(pdfObjectDump(&document), against: expected)
+            // lopdf *consumes* the `/Encrypt` dictionary when it decrypts a
+            // document and drops it from the object table; this reader keeps
+            // it, since it is a reader and removing objects would be
+            // surprising. That is a difference in what the two model, not in
+            // what they parsed — the stream lengths either side of it agree
+            // byte for byte — so the object is dropped from this dump and
+            // the count corrected before comparing.
+            if document.encryption != nil {
+                let lines = dump.split(separator: "\n").map(String.init)
+                let kept = lines.filter { !$0.contains("keys=[Filter,Length,O,P,R,U,V]") }
+                if kept.count < lines.count {
+                    var rebuilt = kept
+                    if let first = rebuilt.first, first.hasPrefix("#OBJECTS ") {
+                        rebuilt[0] = "#OBJECTS \(rebuilt.count - 1)"
+                    }
+                    dump = rebuilt.joined(separator: "\n")
+                }
+            }
             let expectedGraph = expected.split(separator: "\n", omittingEmptySubsequences: false)
                 .prefix { !$0.hasPrefix("#PAGES") }
                 .joined(separator: "\n")

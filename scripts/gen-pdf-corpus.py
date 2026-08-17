@@ -1179,4 +1179,122 @@ b = Builder()
 write("font-actualtext", classic_trailer(b, base_document(b, content=ACTUAL_TEXT)))
 
 
+# --- encryption -----------------------------------------------------------
+#
+# Most "protected" PDFs are encrypted with an *empty* user password: the
+# producer wanted to set permissions, not to keep anyone out. A reader that
+# cannot decrypt them fails on a large share of real documents, and fails
+# silently — the file parses and its streams decode to noise.
+#
+# These files are encrypted here rather than by a library, so the corpus can
+# be regenerated anywhere without one.
+
+import hashlib
+
+PASSWORD_PADDING = bytes([
+    0x28, 0xBF, 0x4E, 0x5E, 0x4E, 0x75, 0x8A, 0x41, 0x64, 0x00, 0x4E, 0x56,
+    0xFF, 0xFA, 0x01, 0x08, 0x2E, 0x2E, 0x00, 0xB6, 0xD0, 0x68, 0x3E, 0x80,
+    0x2F, 0x0C, 0xA9, 0xFE, 0x64, 0x53, 0x69, 0x7A,
+])
+
+
+def rc4(key, data):
+    state = list(range(256))
+    j = 0
+    for i in range(256):
+        j = (j + state[i] + key[i % len(key)]) & 0xFF
+        state[i], state[j] = state[j], state[i]
+    out = bytearray()
+    x = y = 0
+    for byte in data:
+        x = (x + 1) & 0xFF
+        y = (y + state[x]) & 0xFF
+        state[x], state[y] = state[y], state[x]
+        out.append(byte ^ state[(state[x] + state[y]) & 0xFF])
+    return bytes(out)
+
+
+def encryption_dictionary(revision, key_length, doc_id, permissions=-4):
+    """Owner and user strings for an empty user *and* owner password."""
+    # Algorithm 3: the owner string, from the owner password (empty here).
+    digest = hashlib.md5(PASSWORD_PADDING).digest()
+    if revision >= 3:
+        for _ in range(50):
+            digest = hashlib.md5(digest).digest()
+    rc4_key = digest[:key_length]
+    owner = rc4(rc4_key, PASSWORD_PADDING)
+    if revision >= 3:
+        for round in range(1, 20):
+            owner = rc4(bytes(b ^ round for b in rc4_key), owner)
+
+    # Algorithm 2: the file key.
+    material = bytearray(PASSWORD_PADDING)
+    material += owner
+    material += (permissions & 0xFFFFFFFF).to_bytes(4, "little")
+    material += doc_id
+    key = hashlib.md5(bytes(material)).digest()
+    if revision >= 3:
+        for _ in range(50):
+            key = hashlib.md5(key[:key_length]).digest()
+    key = key[:key_length]
+
+    # Algorithms 4 and 5: the user string.
+    if revision == 2:
+        user = rc4(key, PASSWORD_PADDING)
+    else:
+        user = rc4(key, hashlib.md5(PASSWORD_PADDING + doc_id).digest())
+        for round in range(1, 20):
+            user = rc4(bytes(b ^ round for b in key), user)
+        user += b"\x00" * 16
+    return owner, user, key
+
+
+def object_key(key, number, generation):
+    material = key + bytes([
+        number & 0xFF, (number >> 8) & 0xFF, (number >> 16) & 0xFF,
+        generation & 0xFF, (generation >> 8) & 0xFF,
+    ])
+    return hashlib.md5(material).digest()[: min(len(key) + 5, 16)]
+
+
+def encrypted_document(revision, key_length):
+    """A one-page document whose content stream is RC4-encrypted."""
+    doc_id = bytes(range(16))
+    owner, user, key = encryption_dictionary(revision, key_length, doc_id)
+
+    content = (
+        line(b"Encrypted Document", 720, 18)
+        + line(b"This text was RC4 encrypted in the file.", 690)
+        + line(b"A second line, also encrypted.", 676)
+    )
+    stream = flate(content)
+
+    b = Builder()
+    # Object numbers are assigned in order below; the content stream is 1.
+    content_id = b.stream(b"/Filter/FlateDecode", rc4(object_key(key, 1, 0), stream))
+    font_id = b.add(SIMPLE_FONT)
+    page_id = b.reserve()
+    pages_id = b.reserve()
+    b.add(
+        b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+        b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+        % (pages_id, font_id, content_id),
+        page_id,
+    )
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    root = b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+    encrypt_id = b.add(
+        b"<</Filter/Standard/V %d/R %d/Length %d/P -4/O <%s>/U <%s>>>"
+        % (1 if revision == 2 else 2, revision, key_length * 8,
+           owner.hex().encode(), user.hex().encode())
+    )
+    extra = b"/Encrypt %d 0 R/ID[<%s><%s>]" % (
+        encrypt_id, doc_id.hex().encode(), doc_id.hex().encode())
+    return classic_trailer(b, root, extra=extra)
+
+
+write("encrypted-rc4-r2", encrypted_document(2, 5))
+write("encrypted-rc4-r3", encrypted_document(3, 16))
+
+
 print("generated %d pdfs in %s" % (len([f for f in os.listdir(OUT) if f.endswith(".pdf")]), OUT))

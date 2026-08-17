@@ -34,6 +34,8 @@ import Testing
         "classic-xref.pdf",
         "content-array.pdf",
         "content-shapes.pdf",
+        "encrypted-rc4-r2.pdf",
+        "encrypted-rc4-r3.pdf",
         "filter-ascii85.pdf",
         "filter-chained.pdf",
         "filter-lzw.pdf",

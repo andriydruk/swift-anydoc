@@ -4186,3 +4186,37 @@ readings**.
   time: `bfchar`, `bfrange` in both forms, a surrogate pair, a ligature
   destination, and the whitespace-list collapse wave 96 found — all correct
   on real documents.
+
+- **Wave 109 — encrypted documents, which the reference does not implement.**
+  `PdfCrypto.swift` and `PdfDecryption.swift`: MD5, RC4 and the standard
+  security handler for revisions 2 and 3. The end-to-end comparison reaches
+  **57 of 57**, two of them encrypted.
+
+  This is the first wave with nothing to transliterate. The reference hands
+  an encrypted file to lopdf and lets that crate decrypt; this port has no
+  such dependency, so the algorithms are written out. Both are small, both
+  are fully specified, and both have published test vectors — which is what
+  makes hand-rolling them defensible rather than reckless. MD5 is checked
+  against every vector in RFC 1321's own test suite plus the 55/56/64-byte
+  block boundary, and RC4 against RFC 6229.
+
+  **Why this matters more than its size suggests.** Most "protected" PDFs
+  carry an *empty user password*: the producer wanted permissions, not
+  secrecy, and every reader opens them without asking. Before this wave they
+  parsed, decoded to noise, and produced confident nonsense. Failing loudly
+  would have been better; succeeding wrongly is the worst option, and it was
+  the one in place.
+
+  Unsupported revisions are now refused rather than attempted. Running RC4
+  over AES-encrypted bytes yields plausible-looking noise, so `/V 4` with
+  `/AESV2` and `/R 6` with AES-256 set `isUnreadablyEncrypted` instead. Those
+  remain unported.
+
+  Two notes on verification. The corpus builds its encrypted files with its
+  own Python implementation of the same algorithms, and **lopdf reads them** —
+  so the generator is confirmed by a third party rather than by agreeing with
+  the code under test. And lopdf *consumes* the `/Encrypt` dictionary when it
+  decrypts, dropping it from the object table, where this reader keeps it;
+  that is a difference in what the two model, not in what they parsed — the
+  stream lengths either side agree byte for byte — and it is corrected in the
+  comparison rather than papered over.
