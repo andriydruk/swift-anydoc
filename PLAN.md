@@ -5031,6 +5031,41 @@ readings**.
   It now pins the real contract — 16 and 32 accepted, 24 and 31 refused —
   and catching a widening like that is what it was for.
 
+- **Wave 131 — tables that run across a page break.** **82 of 82**
+  byte-identical.
+
+  A long table in a report is one table to its reader and several to an
+  extractor: each page repeats the header, and the rows beneath arrive as a
+  separate grid. Emitted that way the Markdown holds three tables where the
+  document has one, and the repeated headers read as data.
+
+  `merge_continuation_tables` is ported and wired. Its conditions are strict
+  and each prevents a specific wrong join — consecutive page numbers, one
+  table per page, the same column count, and **every page table-only**,
+  since prose between two tables means the second starts a new thought. Wave
+  128 deferred this for time; it took about forty minutes with room to
+  measure.
+
+  Verified end to end: without the merge, `table-continuation.pdf` emits the
+  header twice and stops matching. The unit tests pin the four negative
+  conditions, none of which a single document can show.
+
+  Two smaller findings. `pdfCountTableColumns` was an orphan from wave 116's
+  sweep — it had been ported into `PdfMergeBoldHeadings.swift` and never
+  called, and it is the merge's own width test. I wrote a second copy before
+  noticing, and **kept the original**: it reads the separator through
+  `rustLines()`, Rust's `.lines()`, which drops a trailing empty line where
+  Swift's `split` keeps one. On a table ending in a newline the two disagree
+  about the count, so the copy I had written was the less faithful of the
+  two.
+
+  And the wave began somewhere else entirely. The plan was to mine the
+  reference's 716 tests for behaviours the corpus misses, starting with
+  `markdown/postprocess.rs`. That turned out to be already covered — the
+  existing probe feeds it about nine hundred adversarial cases — so the
+  measurement redirected the wave rather than filling it. Checking coverage
+  before porting tests was five minutes well spent.
+
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
   under test is carried by some other path more often than not. The

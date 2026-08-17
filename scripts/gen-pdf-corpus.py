@@ -2254,3 +2254,35 @@ def aes256_document():
 
 
 write("encrypted-aes-256", aes256_document())
+
+
+# A table continuing across a page break: two pages, each a bordered grid of
+# the same width, each repeating the header, and **neither carrying any other
+# text**. That last condition is the strict one — prose on either page means
+# the second table starts a new thought and the two must stay apart.
+def continuation_table_page(b, pages_id, font_id, rows, first_value):
+    cells = b"".join(
+        b"%d %d 120 20 re S\n" % (72 + column * 120, 700 - row * 20)
+        for row in range(rows)
+        for column in range(2)
+    )
+    text = line(b"Region", 706, x=78) + line(b"Total", 706, x=198)
+    for row in range(1, rows):
+        text += line(b"R%d" % (first_value + row), 706 - row * 20, x=78)
+        text += line(b"%d" % ((first_value + row) * 11), 706 - row * 20, x=198)
+    content = b.stream(b"", cells + text)
+    return b.add(
+        b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+        b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+        % (pages_id, font_id, content)
+    )
+
+
+b = Builder()
+_font = b.add(SIMPLE_FONT)
+_pages = b.reserve()
+_p1 = continuation_table_page(b, _pages, _font, 4, 0)
+_p2 = continuation_table_page(b, _pages, _font, 4, 10)
+b.add(b"<</Type/Pages/Kids[%d 0 R %d 0 R]/Count 2>>" % (_p1, _p2), _pages)
+write("table-continuation", classic_trailer(
+    b, b.add(b"<</Type/Catalog/Pages %d 0 R>>" % _pages)))

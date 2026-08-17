@@ -217,6 +217,18 @@ func pdfConvert(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOptio
     // No images and no band-split pages: image extraction and
     // `split_side_by_side`'s per-page wiring are still to come.
     _ = imageRegions
+
+    // A table running across a page break is one table, and the extractor
+    // sees several — each page repeating the header. Merging them needs the
+    // set of pages carrying a table and **no prose at all**: text between
+    // two tables means the second starts a new thought.
+    //
+    // `lines` holds every non-table line, so a page absent from it and
+    // present in `pageTables` is table-only.
+    let pagesWithText = Set(lines.map(\.page))
+    let tableOnlyPages = Set(pageTables.keys.filter { !pagesWithText.contains($0) })
+    pdfMergeContinuationTables(&pageTables, tableOnlyPages: tableOnlyPages)
+
     let markdown = pdfWriteMarkdown(
         analysis, options: options, pageTables: pageTables, structRoles: structRoles)
     return (markdown, detection)
