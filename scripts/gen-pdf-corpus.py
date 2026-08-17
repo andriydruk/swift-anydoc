@@ -2082,3 +2082,175 @@ MD_LETTERSPACED = (
 )
 b = Builder()
 write("letterspaced-heading", classic_trailer(b, base_document(b, content=MD_LETTERSPACED)))
+
+
+# --- AES-256, revision 6 -----------------------------------------------------
+#
+# What Acrobat X and later write by default. The key is *not* derived from the
+# password: the password unwraps /UE, which holds it. Getting there needs
+# Algorithm 2.B, whose whole purpose is to be expensive — sixty-plus rounds of
+# AES mixing and re-hashing, with the hash chosen per round by the data.
+
+_AES_SBOX = None
+
+
+def _aes_tables():
+    global _AES_SBOX
+    if _AES_SBOX is None:
+        p = q = 1
+        sbox = [0] * 256
+        while True:
+            p = p ^ ((p << 1) & 0xFF) ^ (0x1B if p & 0x80 else 0)
+            q ^= q << 1
+            q ^= q << 2
+            q ^= q << 4
+            q &= 0xFF
+            if q & 0x80:
+                q ^= 0x09
+            x = q ^ ((q << 1) | (q >> 7)) ^ ((q << 2) | (q >> 6))
+            x ^= ((q << 3) | (q >> 5)) ^ ((q << 4) | (q >> 4))
+            sbox[p] = (x ^ 0x63) & 0xFF
+            if p == 1:
+                break
+        sbox[0] = 0x63
+        _AES_SBOX = sbox
+    return _AES_SBOX
+
+
+def _gmul(a, b):
+    result = 0
+    for _ in range(8):
+        if b & 1:
+            result ^= a
+        high = a & 0x80
+        a = (a << 1) & 0xFF
+        if high:
+            a ^= 0x1B
+        b >>= 1
+    return result
+
+
+def _aes_expand(key):
+    sbox = _aes_tables()
+    nk = len(key) // 4
+    rounds = 10 if nk == 4 else 14
+    words = [list(key[i * 4:i * 4 + 4]) for i in range(nk)]
+    rcon = 1
+    for i in range(nk, (rounds + 1) * 4):
+        word = list(words[i - 1])
+        if i % nk == 0:
+            word = [sbox[b] for b in word[1:] + word[:1]]
+            word[0] ^= rcon
+            rcon = _gmul(rcon, 2)
+        elif nk == 8 and i % nk == 4:
+            word = [sbox[b] for b in word]
+        words.append([words[i - nk][j] ^ word[j] for j in range(4)])
+    return [sum(words[i * 4:i * 4 + 4], []) for i in range(rounds + 1)]
+
+
+def _aes_encrypt_block(round_keys, block):
+    sbox = _aes_tables()
+    rounds = len(round_keys) - 1
+    state = [block[i] ^ round_keys[0][i] for i in range(16)]
+    for rnd in range(1, rounds + 1):
+        state = [sbox[b] for b in state]
+        shifted = list(state)
+        for row in range(1, 4):
+            for col in range(4):
+                shifted[col * 4 + row] = state[((col + row) % 4) * 4 + row]
+        state = shifted
+        if rnd < rounds:
+            mixed = list(state)
+            for col in range(4):
+                base = col * 4
+                a = state[base:base + 4]
+                mixed[base] = _gmul(a[0], 2) ^ _gmul(a[1], 3) ^ a[2] ^ a[3]
+                mixed[base + 1] = a[0] ^ _gmul(a[1], 2) ^ _gmul(a[2], 3) ^ a[3]
+                mixed[base + 2] = a[0] ^ a[1] ^ _gmul(a[2], 2) ^ _gmul(a[3], 3)
+                mixed[base + 3] = _gmul(a[0], 3) ^ a[1] ^ a[2] ^ _gmul(a[3], 2)
+            state = mixed
+        state = [state[i] ^ round_keys[rnd][i] for i in range(16)]
+    return bytes(state)
+
+
+def aes_cbc_encrypt_raw(key, iv, data):
+    """CBC with no padding and no prepended IV — Algorithm 2.B's mixer."""
+    round_keys = _aes_expand(key)
+    out = bytearray()
+    previous = iv
+    for start in range(0, len(data), 16):
+        block = bytes(a ^ b for a, b in zip(data[start:start + 16], previous))
+        previous = _aes_encrypt_block(round_keys, block)
+        out += previous
+    return bytes(out)
+
+
+def hash_2b(password, salt, udata=b""):
+    """ISO 32000-2 Algorithm 2.B."""
+    k = hashlib.sha256(password + salt + udata).digest()
+    rnd = 1
+    while True:
+        k1 = (password + k + udata) * 64
+        e = aes_cbc_encrypt_raw(k[0:16], k[16:32], k1)
+        remainder = sum(e[:16]) % 3
+        k = [hashlib.sha256, hashlib.sha384, hashlib.sha512][remainder](e).digest()
+        if rnd >= 64 and e[-1] <= rnd - 32:
+            break
+        rnd += 1
+    return k[:32]
+
+
+def aes256_document():
+    """A `/V 5 /R 6` document with an empty user password."""
+    file_key = bytes((i * 7 + 11) & 0xFF for i in range(32))
+    user_vsalt = bytes(range(8))
+    user_ksalt = bytes(range(8, 16))
+    owner_vsalt = bytes(range(16, 24))
+    owner_ksalt = bytes(range(24, 32))
+
+    u = hash_2b(b"", user_vsalt) + user_vsalt + user_ksalt
+    ue = aes_cbc_encrypt_raw(hash_2b(b"", user_ksalt), b"\x00" * 16, file_key)
+    o = hash_2b(b"", owner_vsalt, u) + owner_vsalt + owner_ksalt
+    oe = aes_cbc_encrypt_raw(hash_2b(b"", owner_ksalt, u), b"\x00" * 16, file_key)
+
+    permissions = 0xFFFFFFFC
+    perms_block = (
+        bytes([permissions & 0xFF, (permissions >> 8) & 0xFF,
+               (permissions >> 16) & 0xFF, (permissions >> 24) & 0xFF])
+        + b"\xff\xff\xff\xff" + b"T" + b"adb" + b"\x00\x00\x00\x00"
+    )
+    perms = aes_cbc_encrypt_raw(file_key, b"\x00" * 16, perms_block)
+
+    def encrypt_stream(data):
+        iv = bytes((i * 3 + 5) & 0xFF for i in range(16))
+        pad = 16 - len(data) % 16
+        return iv + aes_cbc_encrypt_raw(file_key, iv, data + bytes([pad]) * pad)
+
+    b = Builder()
+    content = encrypt_stream(
+        line(b"AES-256 protected document.", 700)
+        + line(b"Revision six, empty user password.", 680))
+    content_id = b.stream(b"", content)
+    font_id = b.add(SIMPLE_FONT)
+    page_id = b.reserve()
+    pages_id = b.reserve()
+    b.add(
+        b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+        b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+        % (pages_id, font_id, content_id),
+        page_id,
+    )
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    root = b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+    encrypt_id = b.add(
+        b"<</Filter/Standard/V 5/R 6/Length 256"
+        b"/CF<</StdCF<</CFM/AESV3/AuthEvent/DocOpen/Length 32>>>>"
+        b"/StmF/StdCF/StrF/StdCF"
+        b"/U<%s>/UE<%s>/O<%s>/OE<%s>/Perms<%s>/P -4/EncryptMetadata true>>"
+        % (u.hex().encode(), ue.hex().encode(), o.hex().encode(),
+           oe.hex().encode(), perms.hex().encode())
+    )
+    return classic_trailer(b, root, extra=b"/Encrypt %d 0 R" % encrypt_id)
+
+
+write("encrypted-aes-256", aes256_document())

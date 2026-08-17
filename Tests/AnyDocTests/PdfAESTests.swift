@@ -43,9 +43,14 @@ import Testing
     }
 
     @Test func aWrongSizedKeyIsRefused() {
-        // Only AES-128 is implemented; a 256-bit key must not be silently
-        // truncated into a cipher that decrypts to noise.
-        #expect(pdfAESExpandKey([UInt8](repeating: 0, count: 32)) == nil)
+        // AES-128 and AES-256 are both implemented as of wave 130; a key of
+        // any other length must not be silently padded or truncated into a
+        // cipher that decrypts to noise. This test previously asserted that
+        // 32 bytes was refused, and catching that change is what it is for.
+        #expect(pdfAESExpandKey([UInt8](repeating: 0, count: 16))?.count == 11)
+        #expect(pdfAESExpandKey([UInt8](repeating: 0, count: 32))?.count == 15)
+        #expect(pdfAESExpandKey([UInt8](repeating: 0, count: 24)) == nil)
+        #expect(pdfAESExpandKey([UInt8](repeating: 0, count: 31)) == nil)
         #expect(pdfAESExpandKey([]) == nil)
     }
 

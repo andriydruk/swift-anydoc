@@ -4982,6 +4982,55 @@ readings**.
   and the threshold is correctly wired, but no document in hand exercises
   what it unlocks.
 
+- **Wave 130 — AES-256, the last encryption gap.** **81 of 81**
+  byte-identical; `/R 5` and `/R 6` open.
+
+  This is what Acrobat X and everything since writes by default, so it was
+  never an exotic case — the port refused a large and growing share of
+  protected documents, safely but completely. The refusal was the right
+  behaviour while it was unimplemented and is now gone.
+
+  Ported, each against published vectors rather than against the reference,
+  because the reference does not implement any of it — it hands the file to
+  lopdf, exactly as with MD5, RC4 and AES-128 before:
+
+  - **SHA-256, SHA-384 and SHA-512** (FIPS 180-4), including the
+    million-character and padding-boundary vectors. All three are needed:
+    Algorithm 2.B picks between them *per round* by an intermediate value
+    modulo three, so porting only SHA-256 would give a correct key one round
+    in three.
+  - **AES-256 and the forward cipher** (FIPS 197 C.3, NIST SP 800-38A). The
+    256-bit key schedule is not AES-128's stretched — it takes an extra
+    `SubWord` at every fourth word inside each eight-word group, and a
+    schedule missing it produces plausible round keys that are wrong from
+    round eight. A round-trip test would still pass; only the published
+    ciphertext catches it, which is why the vectors matter more than the
+    symmetry.
+  - **Algorithm 2.B** and Algorithm 2.A, cross-read against lopdf's own
+    implementation to confirm the loop's stopping rule and the `/R 5` early
+    return.
+
+  Two rules that are easy to get backwards and produce noise which still
+  *inflates*: `/V 5` uses the file key **directly**, with no per-object
+  mixing, unlike every earlier revision; and the key is not derived from the
+  password at all — the password unwraps `/UE`, which holds it.
+
+  Verified end to end by a generated `/R 6` document with an empty user
+  password, which meant implementing AES-256 and Algorithm 2.B a second time
+  in the corpus generator. Removing the support costs that file its
+  byte-identical status.
+
+  **The suite now takes 30 seconds rather than 4.** Algorithm 2.B is
+  deliberately expensive — sixty-plus rounds over a buffer sixty-four times
+  the key — and that cost is the feature. The handler tests were merged into
+  fewer, larger cases for that reason; the remaining time is the algorithm
+  itself and cannot be optimised away without weakening what is tested.
+
+  An existing test caught the change, correctly: `aWrongSizedKeyIsRefused`
+  had pinned "only 16-byte keys expand", which was true and is no longer.
+  It now pins the real contract — 16 and 32 accepted, 24 and 31 refused —
+  and catching a widening like that is what it was for.
+
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
   under test is carried by some other path more often than not. The

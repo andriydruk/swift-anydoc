@@ -57,7 +57,7 @@ import Testing
         "rect-guided-calendar.pdf", "two-column-prose.pdf", "path-drawn-table.pdf",
         "detector-identityh-bare.pdf", "detector-identityh-unicode-w.pdf",
         "detector-type3-only.pdf", "detector-mixed-fonts.pdf",
-        "decode-control-bytes.pdf", "chart-bars.pdf", "letterspaced-heading.pdf",
+        "decode-control-bytes.pdf", "chart-bars.pdf", "letterspaced-heading.pdf", "encrypted-aes-256.pdf",
         "image-small.pdf", "image-template.pdf", "image-tiled.pdf",
         "image-in-form.pdf", "vector-text.pdf", "empty-page.pdf",
         "mixed-image-and-text.pdf", "ratio-exactly-threshold.pdf",

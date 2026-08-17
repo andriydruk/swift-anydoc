@@ -1,12 +1,16 @@
-/// AES-128 decryption in CBC mode, for PDF's `/AESV2` security handler.
+/// AES-128 and AES-256 in CBC mode, for PDF's `/AESV2` and `/AESV3`
+/// security handlers.
 ///
 /// Like MD5 and RC4 in `PdfCrypto.swift`, this is not something the
 /// reference implements — it hands the file to lopdf. And like those, it is
 /// written out here because the algorithm is fully specified and has
 /// published test vectors, which is what makes hand-rolling defensible.
 ///
-/// Only decryption is implemented. Nothing in this package encrypts, and a
-/// half-used cipher is worth less than none.
+/// **Encryption is implemented too, and only for one purpose.** The `/R 6`
+/// key derivation (Algorithm 2.B) is defined in terms of AES-128-CBC
+/// *encryption* of an intermediate buffer — the cipher is used there as a
+/// mixing function, not to protect anything. Nothing in this package
+/// encrypts a document.
 
 /// The AES substitution box, and its inverse.
 ///
@@ -55,35 +59,52 @@ private func pdfGaloisMultiply(_ a: UInt8, _ b: UInt8) -> UInt8 {
     return result
 }
 
-/// Expand a 128-bit key into the eleven round keys the cipher consumes.
+/// Expand a 128- or 256-bit key into the round keys the cipher consumes.
+///
+/// Eleven for AES-128, fifteen for AES-256. The 256-bit schedule differs in
+/// more than length: it takes a `SubWord` at every fourth word *within* each
+/// eight-word group as well, which a schedule written only for AES-128 has
+/// no place for.
 func pdfAESExpandKey(_ key: [UInt8]) -> [[UInt8]]? {
-    guard key.count == 16 else { return nil }
-    var words: [[UInt8]] = stride(from: 0, to: 16, by: 4).map { Array(key[$0..<($0 + 4)]) }
+    guard key.count == 16 || key.count == 32 else { return nil }
+    let keyWords = key.count / 4
+    let rounds = keyWords == 4 ? 10 : 14
+    let total = (rounds + 1) * 4
+
+    var words: [[UInt8]] = stride(from: 0, to: key.count, by: 4).map {
+        Array(key[$0..<($0 + 4)])
+    }
     var rcon: UInt8 = 1
-    for index in 4..<44 {
+    for index in keyWords..<total {
         var word = words[index - 1]
-        if index % 4 == 0 {
+        if index % keyWords == 0 {
             // Rotate, substitute, then add the round constant — the only
             // place the key schedule is not linear.
             word = [word[1], word[2], word[3], word[0]].map { pdfAESSBox[Int($0)] }
             word[0] ^= rcon
             rcon = pdfGaloisMultiply(rcon, 2)
+        } else if keyWords == 8 && index % keyWords == 4 {
+            // AES-256 only: a substitution with no rotation and no round
+            // constant. Omitting it yields a plausible schedule and wrong
+            // keys from round eight onwards.
+            word = word.map { pdfAESSBox[Int($0)] }
         }
-        words.append((0..<4).map { words[index - 4][$0] ^ word[$0] })
+        words.append((0..<4).map { words[index - keyWords][$0] ^ word[$0] })
     }
-    return stride(from: 0, to: 44, by: 4).map { Array(words[$0..<($0 + 4)].joined()) }
+    return stride(from: 0, to: total, by: 4).map { Array(words[$0..<($0 + 4)].joined()) }
 }
 
 /// Decrypt one sixteen-byte block.
 func pdfAESDecryptBlock(_ roundKeys: [[UInt8]], _ block: [UInt8]) -> [UInt8] {
-    guard block.count == 16, roundKeys.count == 11 else { return block }
+    guard block.count == 16, roundKeys.count == 11 || roundKeys.count == 15 else { return block }
+    let rounds = roundKeys.count - 1
     var state = block
     func addRoundKey(_ round: Int) {
         for index in 0..<16 { state[index] ^= roundKeys[round][index] }
     }
 
-    addRoundKey(10)
-    for round in stride(from: 9, through: 0, by: -1) {
+    addRoundKey(rounds)
+    for round in stride(from: rounds - 1, through: 0, by: -1) {
         // InvShiftRows: row r rotates right by r, and the state is held in
         // column-major order, so the indices step by four.
         var shifted = state
@@ -147,6 +168,97 @@ func pdfAESDecryptCBC(key: [UInt8], _ data: [UInt8]) -> [UInt8] {
         out.suffix(Int(padding)).allSatisfy({ $0 == padding })
     {
         out.removeLast(Int(padding))
+    }
+    return out
+}
+
+/// Encrypt one sixteen-byte block.
+///
+/// The forward cipher, needed only by `/R 6`'s key derivation. It is the
+/// mirror of the decryption above: substitute, shift, mix, add — with the
+/// mix skipped on the final round, exactly as decryption skips it on its
+/// first.
+func pdfAESEncryptBlock(_ roundKeys: [[UInt8]], _ block: [UInt8]) -> [UInt8] {
+    guard block.count == 16, roundKeys.count == 11 || roundKeys.count == 15 else { return block }
+    let rounds = roundKeys.count - 1
+    var state = block
+    func addRoundKey(_ round: Int) {
+        for index in 0..<16 { state[index] ^= roundKeys[round][index] }
+    }
+
+    addRoundKey(0)
+    for round in 1...rounds {
+        state = state.map { pdfAESSBox[Int($0)] }
+        // ShiftRows: row r rotates *left* by r, the inverse of decryption's.
+        var shifted = state
+        for row in 1..<4 {
+            for column in 0..<4 {
+                shifted[column * 4 + row] = state[((column + row) % 4) * 4 + row]
+            }
+        }
+        state = shifted
+        if round < rounds {
+            var mixed = state
+            for column in 0..<4 {
+                let base = column * 4
+                let a0 = state[base], a1 = state[base + 1]
+                let a2 = state[base + 2], a3 = state[base + 3]
+                mixed[base] =
+                    pdfGaloisMultiply(a0, 2) ^ pdfGaloisMultiply(a1, 3) ^ a2 ^ a3
+                mixed[base + 1] =
+                    a0 ^ pdfGaloisMultiply(a1, 2) ^ pdfGaloisMultiply(a2, 3) ^ a3
+                mixed[base + 2] =
+                    a0 ^ a1 ^ pdfGaloisMultiply(a2, 2) ^ pdfGaloisMultiply(a3, 3)
+                mixed[base + 3] =
+                    pdfGaloisMultiply(a0, 3) ^ a1 ^ a2 ^ pdfGaloisMultiply(a3, 2)
+            }
+            state = mixed
+        }
+        addRoundKey(round)
+    }
+    return state
+}
+
+/// Encrypt in CBC mode with **no padding** and an explicit IV.
+///
+/// Algorithm 2.B uses the cipher as a mixing function over a buffer that is
+/// already a multiple of the block size, so neither padding nor a prepended
+/// IV belongs here. Both would be right for encrypting a document and are
+/// wrong for this.
+func pdfAESEncryptCBCNoPadding(key: [UInt8], iv: [UInt8], _ data: [UInt8]) -> [UInt8] {
+    guard let roundKeys = pdfAESExpandKey(key), iv.count == 16, data.count % 16 == 0 else {
+        return []
+    }
+    var previous = iv
+    var out: [UInt8] = []
+    out.reserveCapacity(data.count)
+    for start in stride(from: 0, to: data.count, by: 16) {
+        var block = Array(data[start..<(start + 16)])
+        for index in 0..<16 { block[index] ^= previous[index] }
+        let encrypted = pdfAESEncryptBlock(roundKeys, block)
+        out.append(contentsOf: encrypted)
+        previous = encrypted
+    }
+    return out
+}
+
+/// Decrypt in CBC mode with an explicit IV and no padding removal.
+///
+/// `/AESV3` stream data still carries its IV in the first sixteen bytes and
+/// is handled by `pdfAESDecryptCBC`; this is for the fixed-IV, unpadded uses
+/// in the `/R 6` handler.
+func pdfAESDecryptCBCNoPadding(key: [UInt8], iv: [UInt8], _ data: [UInt8]) -> [UInt8] {
+    guard let roundKeys = pdfAESExpandKey(key), iv.count == 16, data.count % 16 == 0 else {
+        return []
+    }
+    var previous = iv
+    var out: [UInt8] = []
+    out.reserveCapacity(data.count)
+    for start in stride(from: 0, to: data.count, by: 16) {
+        let block = Array(data[start..<(start + 16)])
+        let decrypted = pdfAESDecryptBlock(roundKeys, block)
+        for index in 0..<16 { out.append(decrypted[index] ^ previous[index]) }
+        previous = block
     }
     return out
 }
