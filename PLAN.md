@@ -4152,3 +4152,37 @@ readings**.
   rather than assumed. The end-to-end suite asserts the whole tally again.
 
   6 unit tests.
+
+- **Wave 108 — feeding the extractor things it had never seen.**
+  Fourteen more corpus documents, one real defect found and fixed, and the
+  end-to-end comparison at **55 of 55**.
+
+  Wave 107's bug survived ninety waves because every probe fed the extractor
+  upright, unscaled, unspaced text. So this wave fed it the rest of the text
+  state and the whole decoding path.
+
+  **Eight documents of text-state arithmetic — all passed on the first run.**
+  Horizontal scaling, rise, character and word spacing, large kerning in both
+  directions, render modes 3 and 7, nested `q`/`Q` with accumulating `cm`, a
+  negative vertical scale, and the `TD`/`T*`/`'` operators that set leading
+  as a side effect. A negative result, and worth having: that arithmetic is
+  now measured rather than assumed.
+
+  **Six documents of fonts and encodings — one failed.** A `/Differences`
+  encoding was **ported and never consulted**: `pdfParseEncodingDifferences`
+  existed and was probed, and the decode path went straight from `ToUnicode`
+  to taking the byte at face value. A font saying code 65 draws `bullet` read
+  as `ABC` where the reference reads `•—“`. That is the seventh connection
+  gap this session, and the first one found in the *decoding* path rather
+  than the pipeline.
+
+  The precedence is now explicit and pinned by test: `ToUnicode` first, the
+  `/Differences` encoding second, the byte itself last. A *named* encoding —
+  `/WinAnsiEncoding` — selects a standard table, which the reference leaves
+  to lopdf and this port still does not implement; noted at the call site
+  rather than silently treated as Latin-1.
+
+  The CMap parser rewritten in wave 97 also ran end to end for the first
+  time: `bfchar`, `bfrange` in both forms, a surrogate pair, a ligature
+  destination, and the whitespace-list collapse wave 96 found — all correct
+  on real documents.

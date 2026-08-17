@@ -958,4 +958,225 @@ b = Builder()
 write("gap-rotated", classic_trailer(b, base_document(b, content=GAP_ROTATED)))
 
 
+# --- text-state arithmetic ------------------------------------------------
+#
+# Wave 107 found a font-size bug that had survived ninety waves because every
+# probe fed the extractor upright, unscaled, unspaced text. These files feed
+# it the rest of the text state: horizontal scaling, rise, character and word
+# spacing, kerning, render modes, nested transforms and negative sizes. Each
+# is arithmetic the extractor does on every run and that nothing had varied.
+
+# Horizontal scaling (`Tz`), which scales advances but not the nominal size.
+ARITH_TZ = (
+    line(b"normal width text", 720)
+    + b"BT /F1 10 Tf 200 Tz 72 700 Td (double width text) Tj ET\n"
+    + b"BT /F1 10 Tf 50 Tz 72 680 Td (half width text) Tj ET\n"
+    + b"BT /F1 10 Tf 100 Tz 72 660 Td (back to normal) Tj ET\n"
+)
+b = Builder()
+write("arith-tz", classic_trailer(b, base_document(b, content=ARITH_TZ)))
+
+# Rise (`Ts`): a superscript and a subscript sharing a line with body text.
+ARITH_TS = (
+    b"BT /F1 10 Tf 72 720 Td (base) Tj 4 Ts (raised) Tj 0 Ts ( level ) Tj"
+    b" -4 Ts (lowered) Tj 0 Ts ( done) Tj ET\n"
+    + line(b"a following line of ordinary text", 700)
+)
+b = Builder()
+write("arith-ts", classic_trailer(b, base_document(b, content=ARITH_TS)))
+
+# Character and word spacing (`Tc`/`Tw`), which widen every glyph and every
+# space — the advance the word joiner measures its gaps against.
+ARITH_SPACING = (
+    line(b"no extra spacing here", 720)
+    + b"BT /F1 10 Tf 2 Tc 72 700 Td (wide character spacing) Tj ET\n"
+    + b"BT /F1 10 Tf 0 Tc 8 Tw 72 680 Td (wide word spacing here) Tj ET\n"
+    + b"BT /F1 10 Tf 0 Tc 0 Tw 72 660 Td (back to normal spacing) Tj ET\n"
+)
+b = Builder()
+write("arith-spacing", classic_trailer(b, base_document(b, content=ARITH_SPACING)))
+
+# Kerning inside a `TJ` array: adjustments large enough to be a space, and
+# small enough not to be.
+ARITH_KERNING = (
+    b"BT /F1 10 Tf 72 720 Td [(tight) -20 (kerning)] TJ ET\n"
+    b"BT /F1 10 Tf 72 700 Td [(wide) -400 (kerning)] TJ ET\n"
+    b"BT /F1 10 Tf 72 680 Td [(back) 200 (wards)] TJ ET\n"
+)
+b = Builder()
+write("arith-kerning", classic_trailer(b, base_document(b, content=ARITH_KERNING)))
+
+# Render modes: 3 is invisible (an OCR layer hides behind a scan), 7 is
+# clip-only. Neither should reach the Markdown; mode 2 should.
+ARITH_RENDER = (
+    line(b"visible text mode zero", 720)
+    + b"BT /F1 10 Tf 3 Tr 72 700 Td (invisible text mode three) Tj ET\n"
+    + b"BT /F1 10 Tf 7 Tr 72 680 Td (clipping text mode seven) Tj ET\n"
+    + b"BT /F1 10 Tf 2 Tr 72 660 Td (fill stroke mode two) Tj ET\n"
+)
+b = Builder()
+write("arith-render", classic_trailer(b, base_document(b, content=ARITH_RENDER)))
+
+# Nested `q`/`Q` with accumulating `cm`, so the transform has to unwind
+# correctly rather than merely be applied.
+ARITH_NESTED = (
+    line(b"outside any transform", 740)
+    + b"q 2 0 0 2 0 0 cm\n" + line(b"doubled once", 350)
+    + b"q 0.5 0 0 0.5 0 0 cm\n" + line(b"back to normal inside", 600)
+    + b"Q\n" + line(b"doubled again", 320) + b"Q\n"
+    + line(b"outside again", 640)
+)
+b = Builder()
+write("arith-nested", classic_trailer(b, base_document(b, content=ARITH_NESTED)))
+
+# A negative vertical scale, which flips the text: the size is a magnitude,
+# so it must not come out negative.
+ARITH_NEGATIVE = (
+    line(b"upright reference line", 720)
+    + b"q 1 0 0 -1 0 792 cm\n" + line(b"flipped vertically", 120) + b"Q\n"
+)
+b = Builder()
+write("arith-negative", classic_trailer(b, base_document(b, content=ARITH_NEGATIVE)))
+
+# `TD`, `T*` and `'` — the line-positioning operators that set leading as a
+# side effect, which a reader that only knows `Td` places wrongly.
+ARITH_LEADING = (
+    b"BT /F1 10 Tf 72 720 TD (first line by TD) Tj\n"
+    b"0 -14 TD (second line, leading now fourteen) Tj\nT* (third line by T star) Tj\n"
+    b"(fourth line by quote) ' ET\n"
+)
+b = Builder()
+write("arith-leading", classic_trailer(b, base_document(b, content=ARITH_LEADING)))
+
+
+# --- fonts and encodings --------------------------------------------------
+#
+# The decoding path: `ToUnicode` CMaps of every shape, `/Differences`
+# encodings, missing widths, and `/ActualText`. Wave 97 rewrote the CMap
+# parser after a differential probe found four defects in it; none of that
+# had ever run end to end on a document.
+
+def cid_document(b, tounicode, content, widths=b"/W [0 [500]]"):
+    """A Type0/Identity-H font whose codes are two bytes wide."""
+    cmap_id = b.stream(b"/Filter/FlateDecode", flate(tounicode))
+    descendant = b.add(
+        b"<</Type/Font/Subtype/CIDFontType2/BaseFont/Test"
+        b"/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>"
+        b"/DW 500 " + widths + b">>"
+    )
+    font_id = b.add(
+        b"<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-H"
+        b"/DescendantFonts[%d 0 R]/ToUnicode %d 0 R>>" % (descendant, cmap_id)
+    )
+    content_id = b.stream(b"/Filter/FlateDecode", flate(content))
+    page_id = b.reserve()
+    pages_id = b.reserve()
+    b.add(
+        b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+        b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+        % (pages_id, font_id, content_id),
+        page_id,
+    )
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+def tounicode_cmap(body):
+    return (
+        b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n"
+        b"1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n"
+        + body + b"endcmap\nend\nend\n"
+    )
+
+
+# `bfchar` mappings, including a ligature destination and a surrogate pair.
+CID_BFCHAR = tounicode_cmap(
+    b"4 beginbfchar\n<0001> <0048>\n<0002> <0065>\n<0003> <006C>\n"
+    b"<0004> <D83CDF1F>\nendbfchar\n"
+)
+b = Builder()
+write(
+    "font-cid-bfchar",
+    classic_trailer(
+        b, cid_document(b, CID_BFCHAR, b"BT /F1 12 Tf 72 720 Td <0001000200030004> Tj ET\n")),
+)
+
+# `bfrange` in both forms: a base that increments, and an explicit array.
+CID_BFRANGE = tounicode_cmap(
+    b"2 beginbfrange\n<0001> <0003> <0041>\n<0010> <0012> [<0058> <0059> <005A>]\n"
+    b"endbfrange\n"
+)
+b = Builder()
+write(
+    "font-cid-bfrange",
+    classic_trailer(
+        b,
+        cid_document(
+            b, CID_BFRANGE, b"BT /F1 12 Tf 72 720 Td <000100020003> Tj ET\n"
+            b"BT /F1 12 Tf 72 700 Td <001000110012> Tj ET\n"),
+    ),
+)
+
+# A CMap that maps one code to a *list* of whitespace alternatives, which the
+# reference collapses to a single character — the wave 96 finding, now on a
+# real document.
+CID_COLLAPSE = tounicode_cmap(
+    b"3 beginbfchar\n<0001> <0041>\n<0002> <00200009>\n<0003> <002D00AD>\nendbfchar\n"
+)
+b = Builder()
+write(
+    "font-cid-collapse",
+    classic_trailer(
+        b, cid_document(b, CID_COLLAPSE, b"BT /F1 12 Tf 72 720 Td <000100020003> Tj ET\n")),
+)
+
+# A simple font with a `/Differences` encoding, so codes name glyphs rather
+# than Latin-1 positions.
+DIFFERENCES_FONT = (
+    b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica"
+    b"/FirstChar 32/LastChar 126/Widths [%s]"
+    b"/Encoding<</Type/Encoding/Differences[65 /bullet /emdash /quotedblleft]>>>>"
+    % b" ".join(b"500" for _ in range(95))
+)
+b = Builder()
+write(
+    "font-differences",
+    classic_trailer(
+        b,
+        base_document(
+            b,
+            content=b"BT /F1 12 Tf 72 720 Td (ABC) Tj ET\n"
+            b"BT /F1 12 Tf 72 700 Td (plain text below) Tj ET\n",
+            font=DIFFERENCES_FONT,
+        ),
+    ),
+)
+
+# A font declaring no `/Widths` at all, so every advance falls back.
+NO_WIDTHS_FONT = b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>"
+b = Builder()
+write(
+    "font-no-widths",
+    classic_trailer(
+        b,
+        base_document(
+            b,
+            content=b"BT /F1 12 Tf 72 720 Td (text with no declared widths) Tj ET\n"
+            b"BT /F1 12 Tf 72 700 Td (a second line to group with) Tj ET\n",
+            font=NO_WIDTHS_FONT,
+        ),
+    ),
+)
+
+# `/ActualText`, which overrides what a marked-content span says it shows —
+# how a producer spells out a ligature or a decorative glyph.
+ACTUAL_TEXT = (
+    b"BT /F1 12 Tf 72 720 Td (before ) Tj ET\n"
+    b"/Span <</ActualText (fi)>> BDC\nBT /F1 12 Tf 130 720 Td (\\256) Tj ET\nEMC\n"
+    b"BT /F1 12 Tf 72 700 Td (an ordinary following line) Tj ET\n"
+)
+b = Builder()
+write("font-actualtext", classic_trailer(b, base_document(b, content=ACTUAL_TEXT)))
+
+
 print("generated %d pdfs in %s" % (len([f for f in os.listdir(OUT) if f.endswith(".pdf")]), OUT))

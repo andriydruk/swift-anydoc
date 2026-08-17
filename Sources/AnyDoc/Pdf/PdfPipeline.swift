@@ -235,6 +235,29 @@ func pdfPageFontCMaps(_ document: inout PdfDocument, _ page: PdfDictionary)
     }
 }
 
+/// The `/Differences` encodings of a page's fonts, by resource name.
+///
+/// A simple font may say that code 65 draws `bullet` rather than `A`.
+/// Without this the byte is taken at face value and the document reads as
+/// whatever the codes happen to spell — `ABC` for `•—“`.
+///
+/// Only a dictionary `/Encoding` carries differences. A *named* one
+/// (`/WinAnsiEncoding`) selects a standard table, which the reference leaves
+/// to lopdf and this port does not implement — noted rather than silently
+/// treated as Latin-1.
+func pdfPageFontEncodings(_ document: inout PdfDocument, _ page: PdfDictionary)
+    -> [String: PdfEncodingDifferences]
+{
+    pdfPageFontProperty(&document, page) { document, font in
+        guard let encoding = document.value(font, "Encoding")?.asDictionary,
+            let differences = document.value(encoding, "Differences")?.asArray
+        else { return nil }
+        let baseFont = document.value(font, "BaseFont")?.asName
+            .map { String(decoding: $0, as: UTF8.self) }
+        return pdfParseEncodingDifferences(differences, baseFontName: baseFont)
+    }
+}
+
 /// The glyph metrics of a page's fonts, by resource name.
 func pdfPageFontMetrics(_ document: inout PdfDocument, _ page: PdfDictionary)
     -> [String: PdfFontWidths]
@@ -257,6 +280,7 @@ func pdfPageFontStyles(_ document: inout PdfDocument, _ page: PdfDictionary)
 func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [PdfTextRun] {
     var cmaps = pdfPageFontCMaps(&document, page)
     var metrics = pdfPageFontMetrics(&document, page)
+    var encodings = pdfPageFontEncodings(&document, page)
     let (operations, formFonts) = pdfPageOperationsWithForms(&document, page)
     // A form's fonts join under the namespaced names its `Tf` operators were
     // rewritten to, so a `/F1` inside a form cannot pick up the page's `/F1`.
@@ -267,13 +291,32 @@ func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [P
             cmaps[name] = parsePdfToUnicode(data)
         }
         if let widths = pdfParseFontWidths(&document, font) { metrics[name] = widths }
+        if let encoding = document.value(font, "Encoding")?.asDictionary,
+            let differences = document.value(encoding, "Differences")?.asArray
+        {
+            let baseFont = document.value(font, "BaseFont")?.asName
+                .map { String(decoding: $0, as: UTF8.self) }
+            encodings[name] = pdfParseEncodingDifferences(differences, baseFontName: baseFont)
+        }
     }
     return pdfExtractTextRuns(operations, metrics: { metrics[$0] }) { fontName, bytes in
-        guard let cmap = cmaps[fontName] else {
-            // With no CMap the bytes are their own code points, which is
-            // right for the ASCII a simple font shows and wrong for
-            // anything else — the reference's font fallbacks, which would
-            // do better here, are unported.
+        guard let cmap = cmaps[fontName], !cmap.isEmpty else {
+            // No usable `ToUnicode`. A `/Differences` encoding is the next
+            // authority: it says what glyph each code draws, which is the
+            // only thing that makes a re-encoded font readable.
+            if let encoding = encodings[fontName], !encoding.map.isEmpty {
+                var out = ""
+                for byte in bytes {
+                    if let scalar = encoding.map[byte] {
+                        out.unicodeScalars.append(scalar)
+                    } else {
+                        out.unicodeScalars.append(Unicode.Scalar(byte))
+                    }
+                }
+                return out
+            }
+            // Failing both, the bytes are their own code points — right for
+            // the ASCII a simple font shows and wrong for anything else.
             return String(decoding: bytes, as: UTF8.self)
         }
         var out = ""
