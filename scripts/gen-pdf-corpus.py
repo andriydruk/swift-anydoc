@@ -1061,14 +1061,19 @@ def _cell_path(x, y, w, h):
             % (x, y, x + w, y, x + w, y + h, x, y + h))
 
 
+# The text is set at **ragged** x positions — each row shifted — so the
+# alignment heuristic cannot grid it and only the filled cells can. A first
+# draft used a tidy 2x3 grid and matched with the substitution removed,
+# because six items are exactly the heuristic's minimum and it found the
+# table from the text alone.
 MD_PATH_TABLE = b"".join(
-    _cell_path(72 + column * 120, 700 - row * 20, 118, 18)
-    for row in range(3)
-    for column in range(2)
+    _cell_path(72 + column * 120, 700 - row * 22, 118, 20)
+    for row in range(4)
+    for column in range(3)
 ) + b"".join(
-    line(b"c%d%d" % (row, column), 706 - row * 20, x=78 + column * 120)
-    for row in range(3)
-    for column in range(2)
+    line(b"c%d%d" % (row, column), 706 - row * 22, x=76 + column * 120 + row * 9)
+    for row in range(4)
+    for column in range(3)
 )
 b = Builder()
 write("path-drawn-table", classic_trailer(b, base_document(b, content=MD_PATH_TABLE)))

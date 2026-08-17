@@ -4495,10 +4495,24 @@ readings**.
 
   So the change stands on its structure matching the reference, not on
   measurement, and that is the weakest kind of evidence this project
-  accepts — recorded here as such rather than written up as a fix. The
-  document that would discriminate needs a table too large or too irregular
-  for the heuristic *and* drawn without `re`; it is worth building when
-  there is time to build it properly.
+  accepts — recorded here as such rather than written up as a fix.
+
+  **A third document was built and also failed to discriminate.** The
+  prediction above was that a table too large or too irregular for the
+  heuristic *and* drawn without `re` would do it, so `path-drawn-table.pdf`
+  became a 3×4 grid of filled paths with the text set at ragged x positions
+  — no two rows sharing a column, the trick that worked in wave 113. It
+  matches with the substitution in place and with it removed. Since
+  `graphics.rectangles` is appended to only from the `re` operator, and this
+  page has none, the rectangle list must be empty and the table is still
+  being found: something other than the rect detector is gridding it, and
+  which thing is not yet known.
+
+  That is where this stands. The fix agrees with the reference structurally
+  and is inert on every input tried. The next step is not a fourth document
+  but a probe — dump our own rect list and table-stage attribution for this
+  page and find out what actually produces the grid, rather than guessing at
+  geometry a fourth time.
 
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
