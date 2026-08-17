@@ -1078,6 +1078,83 @@ MD_PATH_TABLE = b"".join(
 b = Builder()
 write("path-drawn-table", classic_trailer(b, base_document(b, content=MD_PATH_TABLE)))
 
+
+# --- documents for the detector's font verdicts ----------------------------
+#
+# Every document above answers the three usage-based font questions
+# identically — one font, decodable — so none of them tests the layer. These
+# four separate the branches.
+
+def detector_font_document(b, font_body, extra_objects=b"", content=None):
+    """A one-page document whose single /F1 is whatever `font_body` says."""
+    font_id = b.add(font_body)
+    body = content if content is not None else line(b"Sample text on the page.", 700)
+    content_id = b.stream(b"/Filter/FlateDecode", flate(body))
+    page_id = b.reserve()
+    pages_id = b.reserve()
+    b.add(
+        b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+        b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+        % (pages_id, font_id, content_id),
+        page_id,
+    )
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+# 1. Identity-H, no /ToUnicode, and a /W array whose CIDs are low — a real
+#    subset. Nothing can decode this, so it is the OCR case.
+b = Builder()
+_desc = b.add(
+    b"<</Type/Font/Subtype/CIDFontType2/BaseFont/Sub+Test"
+    b"/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>"
+    b"/DW 500/W [1 [500 500 500 500 500]]>>"
+)
+write("detector-identityh-bare", classic_trailer(b, detector_font_document(
+    b,
+    b"<</Type/Font/Subtype/Type0/BaseFont/Sub+Test/Encoding/Identity-H"
+    b"/DescendantFonts[%d 0 R]>>" % _desc,
+)))
+
+# 2. The same font, but with /W CIDs up at Unicode letter values. Chromium
+#    and wkhtmltopdf emit this, and the text extracts correctly with no
+#    /ToUnicode at all — so the fallback finds it decodable.
+b = Builder()
+_desc = b.add(
+    b"<</Type/Font/Subtype/CIDFontType2/BaseFont/Test"
+    b"/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>"
+    b"/DW 500/W [72 [500 500 500 500 500 500 500 500]]>>"
+)
+write("detector-identityh-unicode-w", classic_trailer(b, detector_font_document(
+    b,
+    b"<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-H"
+    b"/DescendantFonts[%d 0 R]>>" % _desc,
+)))
+
+# 3. A Type 3 font with no /ToUnicode: each glyph is a drawing procedure, so
+#    the character codes mean nothing outside the font.
+b = Builder()
+_proc = b.stream(b"", b"10 0 0 0 10 10 d1\n0 0 10 10 re f\n")
+_charprocs = b.add(b"<</square %d 0 R>>" % _proc)
+_encoding = b.add(b"<</Type/Encoding/Differences[97/square]>>")
+write("detector-type3-only", classic_trailer(b, detector_font_document(
+    b,
+    b"<</Type/Font/Subtype/Type3/FontBBox[0 0 10 10]/FontMatrix[0.001 0 0 0.001 0 0]"
+    b"/CharProcs %d 0 R/Encoding %d 0 R/FirstChar 97/LastChar 97/Widths[10]>>"
+    % (_charprocs, _encoding),
+)))
+
+# 4. An undecodable Identity-H font *alongside* a readable one would test the
+#    `and nothing else` clause of the Identity-H verdict — the case a check
+#    that merely looked for a bad font would get wrong. It was built in wave
+#    119 and **withdrawn** in the same wave: the port gets the verdict right,
+#    but its `<0001> Tj` then reaches the decode chain's last resort, which
+#    returns the bytes as their own code points and puts a literal NUL and
+#    SOH into the Markdown where the reference emits nothing. That defect
+#    lights up three suites at once, and carrying a known-broken document
+#    through all of them is worse than fixing the decode ladder first.
+#    Restore this document with that fix — see PLAN.md wave 119.
+
 # A bar chart: filled rectangles with value labels over them, beside prose.
 # The rects read as cell borders and the labels as aligned columns, so
 # without chart masking the whole page grids into a phantom table.

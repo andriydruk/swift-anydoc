@@ -113,6 +113,7 @@ for f in "$corpus"/*.pdf; do
     fi
     "$graphicsprobe" "$f" > "$f.graphics" 2>/dev/null || rm -f "$f.graphics"
     "$graphicsprobe" --underline "$f" > "$f.underline" 2>/dev/null || rm -f "$f.underline"
+    "$graphicsprobe" --pagefonts "$f" > "$f.pagefonts" 2>/dev/null || rm -f "$f.pagefonts"
 done
 
 echo "oracle dumps written: $accepted accepted, $rejected rejected by lopdf"

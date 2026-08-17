@@ -5054,6 +5054,12 @@ fn main() {
         print!("{}", pdf_inspector::tounicode::probe_tounicodetext(&input));
         return;
     }
+    if path == "--pagefonts" {
+        let file = std::env::args().nth(2).expect("usage: --pagefonts <file.pdf>");
+        let bytes = std::fs::read(&file).expect("read");
+        print!("{}", pdf_inspector::detector::probe_pagefonts(&bytes));
+        return;
+    }
     if path == "--contentscan" {
         use std::io::Read;
         let mut input = String::new();
@@ -5350,6 +5356,74 @@ pub fn probe_complexity(input: &str) -> String {
 RUSTEOF
 
 cat >> "$crate/src/detector.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): the usage-based font verdicts, per page.
+///
+/// Reproduces the font half of `analyze_page_content` — the resource chain
+/// walk, the per-stream name resolution with shadowing, and the three
+/// predicates — and prints one line per page:
+///
+///     p <used-font-count> <identity-h-no-tounicode> <only-type3> <decodable>
+pub fn probe_pagefonts(bytes: &[u8]) -> String {
+    use std::collections::{HashMap, HashSet};
+    let doc = match Document::load_mem(bytes) {
+        Ok(d) => d,
+        Err(_) => return String::from("error\n"),
+    };
+    let mut out = String::new();
+    for (_number, page_id) in doc.get_pages() {
+        let mut used_font_ids: HashSet<ObjectId> = HashSet::new();
+        let mut font_map: HashMap<ObjectId, FontInfo> = HashMap::new();
+        let mut all_unique_chars: HashSet<u8> = HashSet::new();
+        let page_resources = doc.get_page_resources(page_id).ok();
+
+        for content_id in doc.get_page_contents(page_id) {
+            if let Ok(Object::Stream(stream)) = doc.get_object(content_id) {
+                let content = match stream.decompressed_content() {
+                    Ok(data) => data,
+                    Err(_) => stream.content.clone(),
+                };
+                let mut page_font_names: HashSet<Vec<u8>> = HashSet::new();
+                scan_content_for_text_operators(
+                    &content,
+                    &mut all_unique_chars,
+                    &mut page_font_names,
+                );
+                if let Some((ref resource_dict, ref resource_ids)) = page_resources {
+                    resolve_with_shadowing(
+                        &doc,
+                        *resource_dict,
+                        resource_ids,
+                        &page_font_names,
+                        &mut used_font_ids,
+                    );
+                }
+            }
+        }
+        if let Some((resource_dict, resource_ids)) = page_resources {
+            if let Some(resources) = resource_dict {
+                collect_fonts_from_resource_dict(&doc, resources, &mut font_map);
+            }
+            for resource_id in resource_ids {
+                if let Ok(resources) = doc.get_dictionary(resource_id) {
+                    collect_fonts_from_resource_dict(&doc, resources, &mut font_map);
+                }
+            }
+        }
+
+        let identity = used_fonts_have_identity_h_no_tounicode(&used_font_ids, &font_map, &doc);
+        let type3 = used_fonts_are_only_type3(&used_font_ids, &font_map);
+        let decodable = used_fonts_have_decodable_text(&used_font_ids, &font_map, &doc);
+        out.push_str(&format!(
+            "p {} {} {} {}\n",
+            used_font_ids.len(),
+            identity as u8,
+            type3 as u8,
+            decodable as u8
+        ));
+    }
+    out
+}
 
 /// Probe (added for swift-anydoc): the byte-level content scanner. Each case
 /// is one line whose `~` stands for a space and `^` for a newline.

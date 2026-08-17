@@ -55,6 +55,8 @@ import Testing
         "gap-tagged.pdf",
         "tagged-table.pdf", "tagged-table-sparse.pdf",
         "rect-guided-calendar.pdf", "two-column-prose.pdf", "path-drawn-table.pdf",
+        "detector-identityh-bare.pdf", "detector-identityh-unicode-w.pdf",
+        "detector-type3-only.pdf",
         "gap-xobject-text.pdf",
         "graphics-clips.pdf",
         "graphics-fills.pdf",

@@ -4545,6 +4545,56 @@ readings**.
   fallbacks, and that the clip list is deduplicated *before* it is counted —
   six copies of one rectangle must not out-vote two genuine fills.
 
+- **Wave 119 — the detector's font half, and a probe built to check it.**
+  `PdfPageAnalysis` gets a producer for its font fields; **68 of 68**
+  byte-identical, 68 of 68 on the new probe.
+
+  This is the port's defence against its own worst failure mode. A page
+  whose only font is Identity-H with no `/ToUnicode` extracts *something* —
+  raw CIDs, well-formed, nonsense — and so does a Type 3 page, where each
+  glyph is a drawing procedure with no character behind it. Telling those
+  apart from real text is what stands between a document being extracted
+  and a document being sent to OCR.
+
+  Ported: the resource-inheritance chain with shadowing, `FontInfo` keyed by
+  **object id** rather than name (two dictionaries may both define `/F1`),
+  `cid_values_look_like_unicode`, the embedded-`cmap` fallback, and the
+  three usage-based predicates. *Usage*-based throughout: the question is
+  which fonts the `Tf` operators actually select, not which the resource
+  dictionary lists. The reference keeps resource-based twins of each check
+  and marks them `#[cfg(test)]`; only the usage-based ones are here.
+
+  **The existing `--detector` probe never touches a document** — it feeds
+  constructed `PageAnalysis` values to `page_ocr_reasons`. So this wave
+  added `--pagefonts` to the vendored oracle: one line per page, the used
+  font count and the three verdicts. It found a defect within a minute of
+  first running. `document.value` *resolves* references, so
+  `descriptor["FontFile2"]?.asReference` — written as `document.value(…)` —
+  was always nil, and every embedded font program looked absent. Two corpus
+  documents that should have read their own `cmap` were being called
+  undecodable. The fix is to read the entry raw, as the reference's `.get()`
+  does.
+
+  Four documents were built for this, because **every other document in the
+  corpus answers `1 0 0 1`** — one font, decodable. Without them the probe
+  would pass on a port that always said so. The suite asserts the verdict
+  *distribution*, not just agreement, for that reason.
+
+  **The fourth was withdrawn in the same wave, and that is the finding worth
+  keeping.** An undecodable Identity-H font beside a readable one tests the
+  `and nothing else` clause — and the port gets that verdict right. But its
+  `<0001> Tj` then reaches the decode chain's last resort, which returns the
+  bytes as their own code points, putting a literal NUL and SOH into the
+  Markdown where the reference emits nothing. The reference's ladder skips
+  unmapped bytes below `0x20`. One document, three suites failing, and the
+  fix is a ladder that has not been read yet — so the document is withdrawn
+  with its reason recorded in the generator, rather than carried broken or
+  hidden behind an exception set. Wave 120 ports the ladder and restores it.
+
+  Still unported from `analyze_page_content`: the XObject recursion, the
+  image analysis, and the path/text operator statistics that feed
+  `has_vector_text`. The font fields are complete; the struct is not.
+
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
   under test is carried by some other path more often than not. The
