@@ -4631,6 +4631,52 @@ readings**.
   and are text to every check that does not look. The port now fails loudly
   where it used to fail silently.
 
+- **Wave 121 — `analyze_page_content` completed, and five documents that
+  finally test it.** **70 of 70** byte-identical, **75 of 75** on the new
+  page-analysis probe with all thirteen fields exercised.
+
+  Wave 119 filled `PdfPageAnalysis`'s font fields and left the rest: image
+  analysis, the Form XObject recursion, and the path/text statistics behind
+  `has_vector_text`. All three are ported, and the struct now carries the
+  reference's full thirteen fields.
+
+  A second oracle probe, `--pageanalysis`, dumps every field per page. It is
+  a far stricter check than `--pagefonts`: a miscounted path operator or a
+  missed nested XObject shows up here and nowhere else.
+
+  **And it immediately showed the image half was tested by nothing.** Of the
+  twelve value fields, only eight ever varied across seventy documents —
+  `hasImages`, `hasTemplateImage`, `totalImageArea`, `imageCount` and
+  `hasVectorText` were constant, because **the corpus contained no images at
+  all**. A whole file, `PdfPageImages.swift`, verified by zero evidence.
+  That is the wave-113 lesson arriving by a different road: not a fixture
+  carried by another path, but a fixture that never existed. Printing the
+  per-field distribution is what caught it, and the probe now reports it
+  every run.
+
+  Five documents close it: a small image, one over the 500,000-pixel
+  threshold, twelve tiles that are a template only in aggregate, an image
+  nested inside a Form XObject that only the recursion finds, and a page of
+  1,200 filled outlines with one text operator. Both rules are measured
+  load-bearing — removing the tiled-scan rule diverges `image-tiled.pdf`,
+  removing the recursion diverges `image-in-form.pdf`.
+
+  **They live in `corpus/detector/`, and the reason is worth recording.**
+  The reference's *own* detector calls an image-backed page scanned and
+  emits no Markdown for it, while this port — having no document-level
+  detector yet — extracts the text that is there. So these documents cannot
+  join the end-to-end corpus without reporting a divergence already known
+  and not yet fixable. A subdirectory the detector probes read and the
+  pipeline suite does not is the honest arrangement: the image fields get
+  exercised, and nothing pretends the pipeline matches. The graphics probe
+  names them in its existing `unwiredGaps` set, with image extraction named
+  as the gap.
+
+  The unit tests were rewritten once. The first draft asserted arithmetic on
+  constants — `threshold >= threshold` — and exercised none of the code.
+  They now build real documents and run the real walker, and flipping the
+  boundary from `>=` to `>` makes one fail.
+
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
   under test is carried by some other path more often than not. The

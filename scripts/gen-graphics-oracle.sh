@@ -5054,6 +5054,12 @@ fn main() {
         print!("{}", pdf_inspector::tounicode::probe_tounicodetext(&input));
         return;
     }
+    if path == "--pageanalysis" {
+        let file = std::env::args().nth(2).expect("usage: --pageanalysis <file.pdf>");
+        let bytes = std::fs::read(&file).expect("read");
+        print!("{}", pdf_inspector::detector::probe_pageanalysis(&bytes));
+        return;
+    }
     if path == "--pagefonts" {
         let file = std::env::args().nth(2).expect("usage: --pagefonts <file.pdf>");
         let bytes = std::fs::read(&file).expect("read");
@@ -5356,6 +5362,39 @@ pub fn probe_complexity(input: &str) -> String {
 RUSTEOF
 
 cat >> "$crate/src/detector.rs" <<'RUSTEOF'
+
+/// Probe (added for swift-anydoc): the whole `PageAnalysis`, per page.
+///
+///     a <text-ops> <images> <template> <unique-chars> <vector> <identity-h>
+///       <type3> <area> <image-count> <alnum> <path-ops> <font-changes>
+///       <decodable>
+pub fn probe_pageanalysis(bytes: &[u8]) -> String {
+    let doc = match Document::load_mem(bytes) {
+        Ok(d) => d,
+        Err(_) => return String::from("error\n"),
+    };
+    let mut out = String::new();
+    for (_number, page_id) in doc.get_pages() {
+        let a = analyze_page_content(&doc, page_id);
+        out.push_str(&format!(
+            "a {} {} {} {} {} {} {} {} {} {} {} {} {}\n",
+            a.text_operator_count,
+            a.has_images as u8,
+            a.has_template_image as u8,
+            a.unique_text_chars,
+            a.has_vector_text as u8,
+            a.has_identity_h_no_tounicode as u8,
+            a.has_only_type3_fonts as u8,
+            a.total_image_area,
+            a.image_count,
+            a.unique_alphanum_chars,
+            a.path_op_count,
+            a.font_change_count,
+            a.has_decodable_text_fonts as u8
+        ));
+    }
+    out
+}
 
 /// Probe (added for swift-anydoc): the usage-based font verdicts, per page.
 ///

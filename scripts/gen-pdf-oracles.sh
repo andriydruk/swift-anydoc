@@ -104,7 +104,10 @@ pdfprobe=$crate/target/release/pdfprobe
 # reads as "the reference refuses this one too".
 accepted=0
 rejected=0
-for f in "$corpus"/*.pdf; do
+# `$corpus/detector/` holds documents only the detector probes read — the
+# end-to-end pipeline cannot match them yet, so they are kept out of its way.
+for f in "$corpus"/*.pdf "$corpus"/detector/*.pdf; do
+    [ -e "$f" ] || continue
     if "$pdfprobe" "$f" > "$f.expected" 2>/dev/null; then
         accepted=$((accepted + 1))
     else
@@ -114,6 +117,7 @@ for f in "$corpus"/*.pdf; do
     "$graphicsprobe" "$f" > "$f.graphics" 2>/dev/null || rm -f "$f.graphics"
     "$graphicsprobe" --underline "$f" > "$f.underline" 2>/dev/null || rm -f "$f.underline"
     "$graphicsprobe" --pagefonts "$f" > "$f.pagefonts" 2>/dev/null || rm -f "$f.pagefonts"
+    "$graphicsprobe" --pageanalysis "$f" > "$f.pageanalysis" 2>/dev/null || rm -f "$f.pageanalysis"
 done
 
 echo "oracle dumps written: $accepted accepted, $rejected rejected by lopdf"

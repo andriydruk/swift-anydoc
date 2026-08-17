@@ -19,8 +19,17 @@ import Testing
     @Test func fontVerdictsMatchTheReference() throws {
         guard let root = ProcessInfo.processInfo.environment["ANYDOC_PAGEFONTS_CORPUS"],
             !root.isEmpty,
-            let names = try? FileManager.default.contentsOfDirectory(atPath: root)
+            let top = try? FileManager.default.contentsOfDirectory(atPath: root)
         else { return }
+        // `detector/` holds documents the end-to-end pipeline cannot match
+        // yet — image-backed pages, which the reference's own detector calls
+        // scanned and renders as nothing. They are the only documents that
+        // exercise the image fields, so this probe reads them and the
+        // pipeline suite does not.
+        let nested =
+            (try? FileManager.default.contentsOfDirectory(atPath: root + "/detector"))?
+            .map { "detector/" + $0 } ?? []
+        let names = top + nested
 
         var compared = 0
         var mismatches: [String] = []

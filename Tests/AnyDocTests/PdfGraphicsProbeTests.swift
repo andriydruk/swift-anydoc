@@ -39,7 +39,19 @@ import Testing
     ///   text at all. This port applies the fallback once, in the extraction
     ///   both of its own paths share — so its items carry text where the
     ///   reference's dump is empty, and its Markdown still matches.
-    static let unwiredGaps: Set<String> = ["font-embedded-cmap.pdf", "font-opentype-cmap.pdf"]
+    /// - The five `detector/` documents: every one draws an XObject image,
+    ///   and the reference's item stream carries an `[Image: …]` entry for
+    ///   each. Image extraction is genuinely unported here, so this port
+    ///   reports no such item. Unlike the two above, this **is** a gap
+    ///   rather than a disagreement between the reference's own paths —
+    ///   named here because these documents exist for `--pageanalysis`,
+    ///   which they match exactly, and closing the gap belongs to the wave
+    ///   that ports image extraction.
+    static let unwiredGaps: Set<String> = [
+        "font-embedded-cmap.pdf", "font-opentype-cmap.pdf",
+        "image-small.pdf", "image-template.pdf", "image-tiled.pdf",
+        "image-in-form.pdf", "vector-text.pdf",
+    ]
 
     /// Format a float the way the probe does, so the two dumps compare as
     /// text rather than through a tolerance nobody chose deliberately.

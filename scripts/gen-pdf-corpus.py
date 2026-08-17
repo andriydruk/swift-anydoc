@@ -220,6 +220,53 @@ def write(name, data):
     open(os.path.join(OUT, name + ".pdf"), "wb").write(data)
 
 
+# Documents the *detector* probes read but the end-to-end pipeline cannot yet
+# match. An image-backed page is the clearest case: the reference's detector
+# calls it scanned and emits no Markdown at all, while this port — which has
+# no document-level detector — extracts whatever text is there. Keeping them
+# in a subdirectory lets `--pageanalysis` and `--pagefonts` exercise the
+# image and vector-text fields without the end-to-end suite reporting a
+# divergence it already knows about and cannot fix yet.
+DETECTOR_OUT = os.path.join(OUT, "detector")
+os.makedirs(DETECTOR_OUT, exist_ok=True)
+
+
+def write_detector(name, data):
+    open(os.path.join(DETECTOR_OUT, name + ".pdf"), "wb").write(data)
+
+
+def image_xobject(b, width, height):
+    """A minimal image XObject. The detector reads only /Width and /Height,
+    so the sample data is deliberately far too short for the dimensions —
+    nothing decodes it."""
+    return b.stream(
+        b"/Type/XObject/Subtype/Image/Width %d/Height %d"
+        b"/ColorSpace/DeviceGray/BitsPerComponent 8" % (width, height),
+        b"\x00" * 16,
+    )
+
+
+def image_page(b, xobjects, content_extra=b"", text=b"Page with images."):
+    """One page whose /XObject dictionary holds `xobjects` (name -> id)."""
+    entries = b"".join(b"/%s %d 0 R" % (n, i) for n, i in xobjects)
+    draws = b"".join(
+        b"q 100 0 0 80 %d %d cm /%s Do Q\n" % (72 + (k % 4) * 110, 500 - (k // 4) * 90, n)
+        for k, (n, _) in enumerate(xobjects)
+    )
+    font = b.add(SIMPLE_FONT)
+    content = b.stream(b"", line(text, 700) + draws + content_extra)
+    page = b.reserve()
+    pages = b.reserve()
+    b.add(
+        b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+        b"/Resources<</Font<</F1 %d 0 R>>/XObject<<%s>>>>/Contents %d 0 R>>"
+        % (pages, font, entries, content),
+        page,
+    )
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page, pages)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages)
+
+
 def annotated_document(b):
     """A page carrying /Link annotations and an AcroForm, so the annotation
     layer has something to find. Nothing here is drawn by the content stream:
@@ -1841,3 +1888,63 @@ write("font-opentype-cmap", classic_trailer(b, opentype_font_document(b)))
 
 
 print("generated %d pdfs in %s" % (len([f for f in os.listdir(OUT) if f.endswith(".pdf")]), OUT))
+
+
+# --- detector-only documents ------------------------------------------------
+#
+# The whole image half of `analyze_page_content` was unexercised until these:
+# every other corpus document reports `hasImages=0 area=0 imgCount=0
+# template=0`, so `PdfPageImages.swift` was verified by nothing at all.
+
+# One small image: under the 500,000-pixel template threshold.
+b = Builder()
+write_detector("image-small", classic_trailer(
+    b, image_page(b, [(b"Im0", image_xobject(b, 100, 100))])))
+
+# One large image: 800,000 pixels, over the threshold on its own.
+b = Builder()
+write_detector("image-template", classic_trailer(
+    b, image_page(b, [(b"Im0", image_xobject(b, 1000, 800))])))
+
+# Twelve tiles of 200,000 pixels each. No single one is a template; 2.4M
+# together is four times the threshold, which is the tiled-scan rule — a
+# JBIG2 scanner emits pages exactly like this.
+b = Builder()
+write_detector("image-tiled", classic_trailer(b, image_page(
+    b, [(b"Im%d" % k, image_xobject(b, 500, 400)) for k in range(12)])))
+
+# An image nested inside a Form XObject, which only the recursion finds.
+b = Builder()
+_inner = image_xobject(b, 900, 700)
+_form = b.stream(
+    b"/Type/XObject/Subtype/Form/BBox[0 0 200 200]"
+    b"/Resources<</XObject<</Inner %d 0 R>>>>" % _inner,
+    b"q 200 0 0 200 0 0 cm /Inner Do Q\n",
+)
+b_font = b.add(SIMPLE_FONT)
+_content = b.stream(b"", line(b"Image inside a form.", 700) + b"q 1 0 0 1 72 300 cm /Fm0 Do Q\n")
+_page = b.reserve()
+_pages = b.reserve()
+b.add(
+    b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+    b"/Resources<</Font<</F1 %d 0 R>>/XObject<</Fm0 %d 0 R>>>>/Contents %d 0 R>>"
+    % (_pages, b_font, _form, _content),
+    _page,
+)
+b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % _page, _pages)
+write_detector("image-in-form", classic_trailer(
+    b, b.add(b"<</Type/Catalog/Pages %d 0 R>>" % _pages)))
+
+# Text drawn as filled outlines: thousands of path operators, one text
+# operator, and almost no distinct letters. This is the `has_vector_text`
+# case — a page that *looks* like text and has no text layer to extract.
+_outlines = b"".join(
+    b"%d %d m %d %d l %d %d l h f\n"
+    % (72 + (k % 40) * 12, 700 - (k // 40) * 14,
+       78 + (k % 40) * 12, 700 - (k // 40) * 14,
+       78 + (k % 40) * 12, 710 - (k // 40) * 14)
+    for k in range(1200)
+)
+b = Builder()
+write_detector("vector-text", classic_trailer(b, base_document(
+    b, content=_outlines + b"BT /F1 10 Tf 72 100 Td (.) Tj ET\n")))

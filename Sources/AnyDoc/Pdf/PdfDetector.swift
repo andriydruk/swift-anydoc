@@ -138,6 +138,19 @@ struct PdfPageAnalysis {
     /// Every font on the page is Type 3, which draws each glyph as a custom
     /// procedure rather than referencing a character.
     var hasOnlyType3Fonts = false
+    /// Pixels of image on the page, summed over every XObject image — the
+    /// tiled-scan signal, since a page of JBIG2 strips has no single image
+    /// large enough to look like a template but plenty in total.
+    var totalImageArea: UInt64 = 0
+    var imageCount: UInt32 = 0
+    /// Distinct ASCII letters and digits among the raw bytes drawn. A CID
+    /// font produces almost none of these while extracting perfectly, which
+    /// is why `hasDecodableTextFonts` exists to overrule it.
+    var uniqueAlphanumericCharacters: UInt32 = 0
+    var pathOperatorCount: UInt32 = 0
+    var fontChangeCount: UInt32 = 0
+    /// At least one used font can produce Unicode.
+    var hasDecodableTextFonts = false
 }
 
 /// Why a page needs OCR, in priority order.
