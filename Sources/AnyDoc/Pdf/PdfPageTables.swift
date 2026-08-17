@@ -20,9 +20,8 @@
 /// **This is the single-band, chart-free case.** The reference additionally
 /// splits a page into side-by-side bands and retries merged, and masks chart
 /// regions from every detector. Those are noted at the branches below.
-/// Stage 3 is also absent — `try_build_rect_guided_table` is unported — so a
-/// page whose rects cluster without gridding yields no table where the
-/// reference finds one.
+/// Stage 3 arrived in wave 114, along with the heuristic's missing third
+/// branch — see the comment on it below.
 
 /// What a page's table detection produced.
 struct PdfPageTableResult {
@@ -56,8 +55,16 @@ func pdfDetectPageTables(
             markdown: pdfTableToMarkdown(table), chartOrder: nil)
     }
 
+    // The reference keeps *two* sets. `table_items` is what the prose must
+    // not repeat; `rect_claimed` is what a later detector must not re-read.
+    // They hold the same indices for stages 0 to 2 and diverge at stage 3,
+    // where a hint region blocks every item inside it while only the items
+    // the table actually used are withheld from the text.
+    var blocked: Set<Int> = []
+
     func claim(_ table: PdfTable) {
         result.claimed.formUnion(table.itemIndices)
+        blocked.formUnion(table.itemIndices)
         result.tables.append(positioned(table))
     }
 
@@ -82,21 +89,60 @@ func pdfDetectPageTables(
         items: items,
         rects: rects.map { (x: $0.x, y: $0.y, width: $0.width, height: $0.height) })
     for table in rectDetection.tables {
-        if !result.claimed.isEmpty && table.itemIndices.contains(where: result.claimed.contains) {
-            continue
-        }
+        if !blocked.isEmpty && table.itemIndices.contains(where: blocked.contains) { continue }
         claim(table)
     }
     let hints = rectDetection.hints
 
     // 2. Line-based, only when the rects found nothing at all. A page with
     //    both borders and rules is read by its borders.
-    if result.claimed.isEmpty {
+    if blocked.isEmpty {
         for table in pdfDetectTablesFromLines(items: items, lines: lines) { claim(table) }
     }
 
-    // 3. Rect-guided construction over the hint regions would run here.
-    //    Unported, so a hint region reaches the heuristic below unbuilt.
+    /// The items inside a hint's vertical span, and where they came from.
+    /// `padding` is the reference's 15pt, which lets a caption or a stray
+    /// baseline just outside the boxes still count as part of the region.
+    func inside(_ hint: PdfRectHintRegion, horizontally: Bool) -> ([PdfLayoutItem], [Int]) {
+        let padding: Float = 15
+        var subset: [PdfLayoutItem] = []
+        var map: [Int] = []
+        for (index, item) in items.enumerated() {
+            guard item.y >= hint.yBottom - padding, item.y <= hint.yTop + padding else { continue }
+            if horizontally {
+                guard item.x >= hint.xLeft - padding, item.x <= hint.xRight + padding else {
+                    continue
+                }
+            }
+            subset.append(item)
+            map.append(index)
+        }
+        return (subset, map)
+    }
+
+    // 3. Rect-guided construction, for a cluster of boxes that did not grid —
+    //    a calendar, most often. This is the only stage that reads the hint's
+    //    x bounds as well as its y span.
+    if blocked.isEmpty && !hints.isEmpty {
+        for hint in hints where !hint.clusterRects.isEmpty {
+            let (subset, map) = inside(hint, horizontally: true)
+            guard
+                let table = pdfBuildRectGuidedTable(
+                    items: subset, clusterRects: hint.clusterRects)
+            else { continue }
+            var translated = table
+            translated.itemIndices = table.itemIndices.compactMap {
+                $0 < map.count ? map[$0] : nil
+            }
+            result.claimed.formUnion(translated.itemIndices)
+            result.tables.append(positioned(translated))
+            // The **whole region** is withheld from the heuristic, not only
+            // the cells the table used: what is left inside a calendar is
+            // the days it could not place, and re-reading them as a second
+            // table would emit the same grid twice.
+            blocked.formUnion(map)
+        }
+    }
 
     // 4. Heuristic, on whatever is still unclaimed. Six items is the floor:
     //    fewer cannot describe a grid.
@@ -111,33 +157,43 @@ func pdfDetectPageTables(
         }
     }
 
-    if result.claimed.isEmpty && hints.isEmpty {
+    /// Everything no earlier stage blocked, and where it came from.
+    func unblocked() -> ([PdfLayoutItem], [Int]) {
+        var subset: [PdfLayoutItem] = []
+        var map: [Int] = []
+        for (index, item) in items.enumerated() where !blocked.contains(index) {
+            subset.append(item)
+            map.append(index)
+        }
+        return (subset, map)
+    }
+
+    if blocked.isEmpty && hints.isEmpty {
         runHeuristic(items, map: Array(items.indices), minimumItems: 6)
-    } else if result.claimed.isEmpty {
+    } else if blocked.isEmpty {
         // With hints present the page is searched band by band instead:
         // inside each hint's vertical span, then everything outside them
         // all. A hint marks where a table probably is, so its rows are not
         // averaged in with the prose above and below.
-        let padding: Float = 15
-        var insideAny: Set<Int> = []
+        //
+        // The span is vertical **only** here, where stage 3 above also
+        // bounded it horizontally — a borderless table may extend past the
+        // boxes that hinted at it.
         for hint in hints {
-            var subset: [PdfLayoutItem] = []
-            var map: [Int] = []
-            for (index, item) in items.enumerated()
-            where item.y >= hint.yBottom - padding && item.y <= hint.yTop + padding {
-                subset.append(item)
-                map.append(index)
-            }
+            let (subset, map) = inside(hint, horizontally: false)
             runHeuristic(subset, map: map, minimumItems: 6)
-            insideAny.formUnion(map)
+            blocked.formUnion(map)
         }
-        var outside: [PdfLayoutItem] = []
-        var outsideMap: [Int] = []
-        for (index, item) in items.enumerated() where !insideAny.contains(index) {
-            outside.append(item)
-            outsideMap.append(index)
-        }
+        let (outside, outsideMap) = unblocked()
         runHeuristic(outside, map: outsideMap, minimumItems: 6)
+    } else {
+        // Something above found a table. The rest of the page is still
+        // searched — a bordered table and a borderless one can share a page,
+        // and stopping here loses the second. This branch was absent until
+        // wave 114 and is the reason stage 3 needed it: stage 3 always
+        // leaves the page blocked.
+        let (subset, map) = unblocked()
+        runHeuristic(subset, map: map, minimumItems: 6)
     }
 
     return result

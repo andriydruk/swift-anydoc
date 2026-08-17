@@ -991,6 +991,43 @@ write("tagged-table", classic_trailer(b, tagged_table_document(b)))
 b = Builder()
 write("tagged-table-sparse", classic_trailer(b, tagged_table_document(b, sparse=True)))
 
+
+# A calendar: seven columns of day boxes, ragged at both ends — the first week
+# starts on a Wednesday and the last stops on a Tuesday — so the rect grid
+# detector declines and leaves a *hint* instead. That hint is what stage 3,
+# `try_build_rect_guided_table`, is for. The day numbers of each week are drawn
+# as **one** text run, which is also what `split_merged_numbers` exists to undo.
+#
+# The geometry is tuned to the three conditions a large-cluster hint needs, all
+# of which the first attempt missed: boxes within **3pt** of each other so they
+# cluster at all, at least **30** of them, and a bounding box no wider than
+# **400pt**. Seven 50pt columns over six weeks is 350 × 240 and 34 boxes.
+CAL_X0, CAL_COLUMN, CAL_Y0, CAL_ROW = 72, 50, 640, 40
+_cal_boxes = []
+_cal_text = []
+_day = 1
+for _week in range(6):
+    _first = 3 if _week == 0 else 0
+    _last = 2 if _week == 5 else 6
+    _run = []
+    for _column in range(_first, _last + 1):
+        # Wednesday of week 3 is a holiday and draws no box at all, which is
+        # the gap the boundary interpolation has to put back.
+        if not (_week == 3 and _column == 3):
+            _cal_boxes.append(
+                b"%d %d %d %d re S\n"
+                % (CAL_X0 + _column * CAL_COLUMN, CAL_Y0 - _week * CAL_ROW,
+                   CAL_COLUMN - 1, CAL_ROW - 1))
+        _run.append(b"%d" % _day)
+        _day += 1
+    _cal_text.append(
+        line(b" ".join(_run), CAL_Y0 - _week * CAL_ROW + CAL_ROW - 12,
+             x=CAL_X0 + _first * CAL_COLUMN + 3))
+
+MD_CALENDAR = b"".join(_cal_boxes) + b"".join(_cal_text)
+b = Builder()
+write("rect-guided-calendar", classic_trailer(b, base_document(b, content=MD_CALENDAR)))
+
 # A bar chart: filled rectangles with value labels over them, beside prose.
 # The rects read as cell borders and the labels as aligned columns, so
 # without chart masking the whole page grids into a phantom table.

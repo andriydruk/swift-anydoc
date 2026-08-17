@@ -4368,3 +4368,47 @@ readings**.
   feature neither exercises. It has to be re-derived from the code, and the
   cost of not doing it is a finished component sitting unreachable for
   seven waves.
+
+- **Wave 114 — stage 3, and the branch that stage 3 needed.**
+  `try_build_rect_guided_table` ported and wired; **63 of 63**
+  byte-identical.
+
+  The rect *grid* detector wants rows and columns it can read off directly.
+  A calendar gives it neither: ragged first and last weeks, holidays that
+  draw no box, a legend off to the side. So it declines, leaves a **hint**,
+  and the layout falls through to the alignment heuristic, which reads a
+  calendar as prose. Stage 3 takes the weaker signal the rects still carry
+  — their x positions — as column boundaries, derives rows from the text,
+  interpolates the columns the missing boxes would have supplied, and
+  splits a week drawn as one text run back into one item per day.
+
+  **Reading the call site found a second gap.** The reference's heuristic
+  has three branches: no claims and no hints, no claims with hints, and
+  *claims found* — run the heuristic on whatever is left. This port had
+  only the first two, so a bordered table and a borderless one on one page
+  lost the second. Stage 3 makes that branch mandatory rather than merely
+  correct: stage 3 always leaves the page claimed, so without the third
+  branch it would silence the heuristic entirely.
+
+  It also forced the two claim-sets apart. The reference keeps
+  `table_items` (what the prose must not repeat) and `rect_claimed` (what a
+  later detector must not re-read); they hold the same indices for stages 0
+  to 2, which is why one set had sufficed, and diverge at stage 3, where a
+  hint region blocks **every** item inside it while only the items the
+  table used are withheld from the text.
+
+  **Two attempts at the corpus document failed before one worked**, and the
+  failures were the useful part. A large-cluster hint has three conditions
+  the reference never states together: boxes within **3pt** of each other
+  so they cluster at all, at least **30** of them, and a bounding box no
+  wider than **400pt**. The first calendar missed all three — 6pt gaps, 27
+  boxes, 462pt wide — and the reference emitted prose for it, which read
+  exactly like a correct port of a stage that had not run. Only probing
+  `--recttables` and finding `hints 0` distinguished "the stage declined"
+  from "the stage was never reached".
+
+  Verification is layered because one calendar cannot separate the column
+  floor from the fill floor from the tilde cleanup: the corpus proves the
+  wiring (dropping stage 3 costs `rect-guided-calendar.pdf` its
+  byte-identical status, and the ratchet reports it), and the reference's
+  own eight unit tests are ported case for case to pin the rest.
