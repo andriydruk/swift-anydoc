@@ -5131,6 +5131,45 @@ readings**.
   surviving the decode, and this stops a whole document of them being
   returned as a success.
 
+- **Wave 134 — `/CIDToGIDMap`: ported, measured, and deliberately left
+  unwired.** **87 of 87** byte-identical.
+
+  A name-inventory sweep — the complement of the orphan sweep, looking for
+  reference functions with no Swift counterpart *at all* — turned up 241
+  candidates, concentrated in `tounicode.rs`. Most are renames; one was
+  real. `/CIDToGIDMap` was handled nowhere in this port.
+
+  The specification is unambiguous about what it means: a `CIDFontType2`
+  addresses glyphs by CID, and a subsetting producer may renumber them, so
+  the map must be applied before consulting the embedded `cmap`. Wiring it
+  that way **made the port diverge from the reference**, which is the only
+  specification that counts here.
+
+  Getting to a clean answer took removing a confound. The first document
+  drew CIDs 1–6, which under an Identity reading leaves a one-character
+  first line — and the reference drops that line while this port keeps it,
+  a *second* difference muddling the first. Redrawing the document with the
+  same content stream as `font-embedded-cmap.pdf` made the pair differ in
+  exactly one thing: `/CIDToGIDMap /Identity` against a stream permuting
+  CIDs 1–6 onto GIDs 3–8. **Both convert to `Hi!` and `Tex`.** The reference
+  does not apply the map.
+
+  It does contain the repair, in `build_fallback_cmap_for_type0`, whose
+  entry conditions the document meets — so the repair is presumably inert
+  there too, most likely because `build_cmap_from_truetype` returns a map
+  keyed by character code rather than glyph id. That is written down as a
+  hypothesis rather than a finding, and named as the first thing to check.
+
+  The code is kept unwired with the evidence in its header, because the
+  measurement is worth more than the implementation: the paired documents
+  pin what the reference *does*, so a future wave starts from that instead
+  of from the specification's plain reading.
+
+  Also noted in passing, unresolved: the reference drops a lone
+  one-character line where this port keeps it. That is a real difference in
+  line filtering, found by accident, and it has no corpus document of its
+  own yet.
+
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
   under test is carried by some other path more often than not. The

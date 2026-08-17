@@ -2420,3 +2420,52 @@ b.add(
 b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % _page, _pages)
 write("garbled-text-document", classic_trailer(
     b, b.add(b"<</Type/Catalog/Pages %d 0 R>>" % _pages)))
+
+
+# The same embedded font, but with an explicit **/CIDToGIDMap stream** that
+# permutes the mapping instead of `/Identity`. A subsetting producer does
+# exactly this: it renumbers the glyphs it kept and supplies the table.
+#
+# The content stream writes CIDs 1..6; the map sends them to GIDs 3..8, which
+# is where the font's cmap actually has "Hi!Tex". Read as Identity — the
+# assumption this port made until wave 134 — the codes address glyphs 1..6,
+# and the text comes back wrong rather than missing.
+def cid_to_gid_document(b):
+    font = truetype_font({0x48: 3, 0x69: 4, 0x21: 5, 0x54: 6, 0x65: 7, 0x78: 8}, 10)
+    program = b.stream(b"/Length1 %d" % len(font), font)
+    descriptor = b.add(
+        b"<</Type/FontDescriptor/FontName/Test/Flags 4/ItalicAngle 0/Ascent 800"
+        b"/Descent -200/CapHeight 700/StemV 80/FontBBox[0 0 1000 1000]"
+        b"/FontFile2 %d 0 R>>" % program
+    )
+    # CID 0 -> GID 0, then CIDs 1..6 -> GIDs 3..8.
+    table = b"\x00\x00" + b"".join(struct.pack(">H", 3 + k) for k in range(6))
+    map_id = b.stream(b"", table)
+    descendant = b.add(
+        b"<</Type/Font/Subtype/CIDFontType2/BaseFont/Test"
+        b"/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>"
+        b"/FontDescriptor %d 0 R/DW 500/CIDToGIDMap %d 0 R>>" % (descriptor, map_id)
+    )
+    font_id = b.add(
+        b"<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-H"
+        b"/DescendantFonts[%d 0 R]>>" % descendant
+    )
+    content_id = b.stream(
+        b"/Filter/FlateDecode",
+        flate(b"BT /F1 24 Tf 72 700 Td <000300040005> Tj ET\n"
+              b"BT /F1 12 Tf 72 660 Td <000600070008> Tj ET\n"),
+    )
+    page_id = b.reserve()
+    pages_id = b.reserve()
+    b.add(
+        b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+        b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+        % (pages_id, font_id, content_id),
+        page_id,
+    )
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+b = Builder()
+write("font-cid-to-gid", classic_trailer(b, cid_to_gid_document(b)))

@@ -390,6 +390,8 @@ func pdfPageFontPrograms(_ document: inout PdfDocument, _ page: PdfDictionary)
             document.value(descriptor, "FontFile2")?.asStream
             ?? document.value(descriptor, "FontFile3")?.asStream
         guard let program, let data = document.decodedStream(program) else { return nil }
+        // `/CIDToGIDMap` is **deliberately not applied here** — see
+        // `PdfCidToGid.swift` for what measuring it showed.
         return pdfParseTrueTypeCMap(data)
     }
 }

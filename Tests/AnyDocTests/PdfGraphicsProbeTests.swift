@@ -48,8 +48,12 @@ import Testing
     ///   `--detectdoc`,
     ///   which they match exactly, and closing the gap belongs to the wave
     ///   that ports image extraction.
+    /// - `font-cid-to-gid.pdf`: the same case as the two above. It is the
+    ///   matched twin of `font-embedded-cmap.pdf`, differing only in its
+    ///   `/CIDToGIDMap`, so it reaches the probe through the same
+    ///   fallback-less path.
     static let unwiredGaps: Set<String> = [
-        "font-embedded-cmap.pdf", "font-opentype-cmap.pdf",
+        "font-embedded-cmap.pdf", "font-opentype-cmap.pdf", "font-cid-to-gid.pdf",
 
     ]
 
