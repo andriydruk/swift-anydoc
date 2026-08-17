@@ -1071,7 +1071,7 @@ MD_PATH_TABLE = b"".join(
     for row in range(4)
     for column in range(3)
 ) + b"".join(
-    line(b"c%d%d" % (row, column), 706 - row * 22, x=76 + column * 120 + row * 9)
+    line(b"c%d%d" % (row, column), 706 - row * 22, x=76 + column * 120 + row * 26)
     for row in range(4)
     for column in range(3)
 )

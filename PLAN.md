@@ -4514,6 +4514,37 @@ readings**.
   page and find out what actually produces the grid, rather than guessing at
   geometry a fourth time.
 
+- **Wave 118 — the probe, and the answer.**
+  `pdfSelectedRectangles` proven load-bearing; **65 of 65** byte-identical,
+  and **64 of 65** with it removed.
+
+  The probe wave 117 asked for took ten minutes and settled a question two
+  waves of geometry-guessing had not. For `path-drawn-table.pdf` it printed
+  `re=0 filled=12 clip=0 selected=12` — so the substitution was working all
+  along, exactly as designed. What it also printed was `heuristic alone: 1`.
+  Both routes found the same grid, so removing the substitution changed
+  nothing about the output.
+
+  The ragged x offsets meant to defeat the heuristic were **9pt against
+  120pt columns** — well inside its alignment tolerance, so the columns
+  still lined up. At 26pt they do not, and the document separates cleanly:
+  the rect route finds the table, the heuristic finds nothing, and dropping
+  the substitution costs the file its byte-identical status.
+
+  Worth naming as a method, because three waves went the other way: when a
+  fixture will not discriminate, **measure the intermediate values** rather
+  than vary the input again. Waves 116 and 117 each built a document on a
+  hypothesis about why the last one failed, and each hypothesis was wrong in
+  a way the document could not reveal. A twenty-line throwaway test that
+  printed the four counts and the three stage outcomes answered it at once —
+  and the answer, that the fix worked and the *fixture* was blunt, was not
+  on either wave's list of guesses.
+
+  The unit tests pin what one document cannot: `re` winning outright, fills
+  at exactly 3× the clips and one short of it, the four-clip floor, both
+  fallbacks, and that the clip list is deduplicated *before* it is counted —
+  six copies of one rectangle must not out-vote two genuine fills.
+
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
   under test is carried by some other path more often than not. The
