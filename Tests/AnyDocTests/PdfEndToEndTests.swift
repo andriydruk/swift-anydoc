@@ -45,6 +45,7 @@ import Testing
         "font-cid-bfrange.pdf",
         "font-cid-collapse.pdf",
         "font-differences.pdf",
+        "font-embedded-cmap.pdf",
         "font-no-widths.pdf",
         "gap-chart.pdf",
         "gap-newspaper.pdf",

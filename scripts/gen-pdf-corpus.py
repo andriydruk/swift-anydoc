@@ -1297,4 +1297,106 @@ write("encrypted-rc4-r2", encrypted_document(2, 5))
 write("encrypted-rc4-r3", encrypted_document(3, 16))
 
 
+# --- embedded font programs -----------------------------------------------
+#
+# A producer that subsets a font often omits /ToUnicode, on the grounds that
+# the font itself already says which character each glyph draws. Reading it
+# needs a TrueType parser — which the reference gets from `ttf-parser` and
+# this port has to write out, so the comparison is the only thing keeping
+# the two honest.
+
+def truetype_font(mapping, num_glyphs):
+    """A minimal TrueType font carrying a format-4 `cmap` and nothing else
+    of substance. Enough tables for a parser to accept it; no outlines."""
+    def be16(v):
+        return struct.pack(">H", v & 0xFFFF)
+
+    def be32(v):
+        return struct.pack(">I", v & 0xFFFFFFFF)
+
+    codes = sorted(mapping)
+    segments = []
+    start = previous = codes[0]
+    for code in codes[1:]:
+        if code == previous + 1 and mapping[code] - code == mapping[start] - start:
+            previous = code
+            continue
+        segments.append((start, previous))
+        start = previous = code
+    segments.append((start, previous))
+    segments.append((0xFFFF, 0xFFFF))
+
+    body = b"".join(be16(end) for _, end in segments) + be16(0)
+    body += b"".join(be16(begin) for begin, _ in segments)
+    for begin, _ in segments:
+        body += be16(1 if begin == 0xFFFF else (mapping[begin] - begin) & 0xFFFF)
+    body += b"".join(be16(0) for _ in segments)
+    subtable = (be16(4) + be16(14 + len(body)) + be16(0) + be16(len(segments) * 2)
+                + be16(0) + be16(0) + be16(0) + body)
+    cmap = be16(0) + be16(1) + be16(3) + be16(1) + be32(12) + subtable
+
+    head = (be32(0x00010000) + be32(0x00010000) + be32(0) + be32(0x5F0F3CF5)
+            + be16(0) + be16(1000) + b"\0" * 16 + be16(0) + be16(0) + be16(1000)
+            + be16(1000) + be16(0) + be16(0) + be16(2) + be16(0) + be16(0))
+    hhea = (be32(0x00010000) + be16(800) + be16(0xFF38) + be16(0) + be16(1000)
+            + b"\0" * 22 + be16(num_glyphs))
+    maxp = be32(0x00010000) + be16(num_glyphs) + b"\0" * 26
+    hmtx = b"".join(be16(500) + be16(0) for _ in range(num_glyphs))
+    loca = b"".join(be16(0) for _ in range(num_glyphs + 1))
+
+    tables = {b"cmap": cmap, b"glyf": b"", b"head": head, b"hhea": hhea,
+              b"hmtx": hmtx, b"loca": loca, b"maxp": maxp}
+    tags = sorted(tables)
+    offset = 12 + 16 * len(tags)
+    directory = b""
+    payload = b""
+    for tag in tags:
+        data = tables[tag]
+        directory += tag + be32(0) + be32(offset) + be32(len(data))
+        padded = data + b"\0" * ((4 - len(data) % 4) % 4)
+        payload += padded
+        offset += len(padded)
+    return be32(0x00010000) + be16(len(tags)) + be16(0) + be16(0) + be16(0) + directory + payload
+
+
+def embedded_font_document(b):
+    """A Type0 font with an embedded program and **no** /ToUnicode, so the
+    font's own cmap is the only route to the text."""
+    font = truetype_font({0x48: 3, 0x69: 4, 0x21: 5, 0x54: 6, 0x65: 7, 0x78: 8}, 10)
+    program = b.stream(b"/Length1 %d" % len(font), font)
+    descriptor = b.add(
+        b"<</Type/FontDescriptor/FontName/Test/Flags 4/ItalicAngle 0/Ascent 800"
+        b"/Descent -200/CapHeight 700/StemV 80/FontBBox[0 0 1000 1000]"
+        b"/FontFile2 %d 0 R>>" % program
+    )
+    descendant = b.add(
+        b"<</Type/Font/Subtype/CIDFontType2/BaseFont/Test"
+        b"/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>"
+        b"/FontDescriptor %d 0 R/DW 500/CIDToGIDMap/Identity>>" % descriptor
+    )
+    font_id = b.add(
+        b"<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-H"
+        b"/DescendantFonts[%d 0 R]>>" % descendant
+    )
+    content_id = b.stream(
+        b"/Filter/FlateDecode",
+        flate(b"BT /F1 24 Tf 72 700 Td <000300040005> Tj ET\n"
+              b"BT /F1 12 Tf 72 660 Td <000600070008> Tj ET\n"),
+    )
+    page_id = b.reserve()
+    pages_id = b.reserve()
+    b.add(
+        b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+        b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+        % (pages_id, font_id, content_id),
+        page_id,
+    )
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+b = Builder()
+write("font-embedded-cmap", classic_trailer(b, embedded_font_document(b)))
+
+
 print("generated %d pdfs in %s" % (len([f for f in os.listdir(OUT) if f.endswith(".pdf")]), OUT))

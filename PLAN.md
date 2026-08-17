@@ -4220,3 +4220,43 @@ readings**.
   that is a difference in what the two model, not in what they parsed — the
   stream lengths either side agree byte for byte — and it is corrected in the
   comparison rather than papered over.
+
+- **Wave 110 — the dependency audit, and reading embedded fonts.**
+  `PdfTrueType.swift`: the sfnt table directory and the `cmap` table's four
+  common subtable formats. The end-to-end comparison reaches **58 of 58**.
+
+  Wave 109 raised the point this wave acts on: **anything the reference gets
+  from a dependency is invisible to a differential port.** The diff can only
+  compare what both sides compute, so a capability the reference delegates
+  never shows up as a divergence — it shows up as a document nobody thought
+  to write. So the dependencies were enumerated: `lopdf` (object layer and
+  decryption — reimplemented, compared by the corpus), `unicode-normalization`
+  (NFKC — ported, 1.1M codepoints probed), `regex` (classification patterns —
+  ported, 22k strings probed), `log`/`once_cell`/`thiserror`/`pyo3`
+  (infrastructure and bindings, nothing to port), and **`ttf-parser`**, which
+  was the one real hole.
+
+  A producer that subsets a font often omits `/ToUnicode`, on the grounds
+  that the font already says which character each glyph draws. Such a
+  document extracted as raw glyph ids — the corpus file now proves it, since
+  before this wave it produced `"\0\u{03}\0\u{04}\0\u{05}"` where the
+  reference reads `Hi!`. Confident, well-shaped nonsense, on a shape common
+  in the wild.
+
+  Formats 0, 4, 6 and 12 are read; anything else is ignored rather than
+  guessed at, since a misread mapping yields plausible wrong characters.
+  Format 4's `idRangeOffset` is a byte distance *from the slot that holds
+  it*, which is the part everyone gets wrong and which the unit tests pin
+  directly. `/FontFile3` holds CFF, whose charset needs its own parser and
+  is not implemented.
+
+  **One difference that is the reference's, not this port's.** Its
+  `--underline` probe extracts at a layer with no font-program fallback and
+  reports *no text at all* for this file, while its Markdown path recovers
+  it. The two disagree with each other, so no single port can match both.
+  This port applies the fallback once, in the extraction both its paths
+  share; the Markdown is byte-identical and the item-level dump is not. That
+  is recorded by name with the reason rather than excused.
+
+  7 unit tests, against `cmap` tables built byte by byte from the
+  specification's layouts.

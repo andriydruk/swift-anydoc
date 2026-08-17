@@ -25,10 +25,21 @@ import Testing
     /// Corpus files whose divergence is a stage this port has not wired
     /// yet, listed by name so the exclusion shrinks as the gaps close.
     /// `PdfEndToEndTests` tracks the same files, so nothing goes unmeasured.
-    /// Empty: every corpus file now agrees. Kept as the place to name a
-    /// file whose divergence is a stage that is knowingly unported, so an
-    /// exclusion always has to be written down rather than assumed.
-    static let unwiredGaps: Set<String> = []
+    /// Files whose *item-level* dump cannot agree, with the reason.
+    ///
+    /// These are not port defects: the Markdown for every one of them is
+    /// byte-identical, and `PdfEndToEndTests` proves it. They are places
+    /// where the reference's own two extraction paths disagree with each
+    /// other, so no single port can match both.
+    ///
+    /// - `font-embedded-cmap.pdf`: the reference recovers text from an
+    ///   embedded font's `cmap` only in the path that builds per-document
+    ///   font tables, which its Markdown uses. The `--underline` probe
+    ///   extracts at a lower layer that has no such fallback and reports no
+    ///   text at all. This port applies the fallback once, in the extraction
+    ///   both of its own paths share — so its items carry text where the
+    ///   reference's dump is empty, and its Markdown still matches.
+    static let unwiredGaps: Set<String> = ["font-embedded-cmap.pdf"]
 
     /// Format a float the way the probe does, so the two dumps compare as
     /// text rather than through a tolerance nobody chose deliberately.

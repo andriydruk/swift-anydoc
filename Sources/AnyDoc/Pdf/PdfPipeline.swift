@@ -235,6 +235,38 @@ func pdfPageFontCMaps(_ document: inout PdfDocument, _ page: PdfDictionary)
     }
 }
 
+/// The embedded font programs of a page's fonts, parsed for their own
+/// character mapping, by resource name.
+///
+/// A producer that subsets a font often omits `/ToUnicode`, on the grounds
+/// that the font already says which character each glyph draws. Without
+/// reading the font such a document extracts as raw glyph ids — confident,
+/// well-shaped nonsense. This is the authority that recovers it, and the
+/// reference gets the same thing from `ttf-parser`.
+///
+/// Only `/FontFile2` (TrueType) is read. `/FontFile3` holds CFF, whose
+/// charset would need its own parser and is not implemented.
+func pdfPageFontPrograms(_ document: inout PdfDocument, _ page: PdfDictionary)
+    -> [String: PdfTrueTypeCMap]
+{
+    pdfPageFontProperty(&document, page) { document, font in
+        // The descriptor hangs off a descendant for a Type0 font, and off
+        // the font itself for a simple one.
+        var descriptor = document.value(font, "FontDescriptor")?.asDictionary
+        if descriptor == nil, let descendants = document.value(font, "DescendantFonts")?.asArray,
+            let first = descendants.first,
+            let descendant = document.resolve(first).asDictionary
+        {
+            descriptor = document.value(descendant, "FontDescriptor")?.asDictionary
+        }
+        guard let descriptor,
+            let program = document.value(descriptor, "FontFile2")?.asStream,
+            let data = document.decodedStream(program)
+        else { return nil }
+        return pdfParseTrueTypeCMap(data)
+    }
+}
+
 /// The `/Differences` encodings of a page's fonts, by resource name.
 ///
 /// A simple font may say that code 65 draws `bullet` rather than `A`.
@@ -281,6 +313,7 @@ func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [P
     var cmaps = pdfPageFontCMaps(&document, page)
     var metrics = pdfPageFontMetrics(&document, page)
     var encodings = pdfPageFontEncodings(&document, page)
+    let programs = pdfPageFontPrograms(&document, page)
     let (operations, formFonts) = pdfPageOperationsWithForms(&document, page)
     // A form's fonts join under the namespaced names its `Tf` operators were
     // rewritten to, so a `/F1` inside a form cannot pick up the page's `/F1`.
@@ -315,8 +348,24 @@ func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [P
                 }
                 return out
             }
-            // Failing both, the bytes are their own code points — right for
-            // the ASCII a simple font shows and wrong for anything else.
+            // Then the embedded font program's own `cmap`, which is what
+            // recovers a subset font that carries no `ToUnicode`. Its keys
+            // are glyph ids, and an Identity encoding makes the two-byte
+            // code the glyph id.
+            if let program = programs[fontName], !program.isEmpty {
+                var out = ""
+                var index = 0
+                while index + 1 < bytes.count {
+                    let glyph = UInt16(bytes[index]) << 8 | UInt16(bytes[index + 1])
+                    if let scalar = program.glyphToCharacter[glyph] {
+                        out.unicodeScalars.append(scalar)
+                    }
+                    index += 2
+                }
+                if !out.isEmpty { return out }
+            }
+            // Failing all three, the bytes are their own code points —
+            // right for the ASCII a simple font shows and wrong otherwise.
             return String(decoding: bytes, as: UTF8.self)
         }
         var out = ""
