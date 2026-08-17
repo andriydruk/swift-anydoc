@@ -43,7 +43,7 @@ struct PdfPageTableResult {
 func pdfDetectPageTables(
     items: [PdfLayoutItem], rects: [PdfRect], lines: [PdfLineSegment], baseSize: Float,
     structTables: [PdfStructTable] = [], page: Int = 1,
-    chartRegions: [PdfImageRegion] = []
+    chartRegions: [PdfImageRegion] = [], chartProseColumns: Bool = false
 ) -> PdfPageTableResult {
     var result = PdfPageTableResult()
     if items.isEmpty { return result }
@@ -55,7 +55,11 @@ func pdfDetectPageTables(
     for band in bands where !band.items.isEmpty {
         let found = pdfDetectTablesInBand(
             items: band.items, rects: band.rects, lines: band.lines, baseSize: baseSize,
-            structTables: structTables, page: page, chartRegions: chartRegions)
+            structTables: structTables, page: page, chartRegions: chartRegions,
+            // A candidate is only rejected as parallel prose when the page
+            // was *not* split into bands: banding already separates two
+            // prose columns, so a table found inside one band is a table.
+            rejectParallelProse: chartProseColumns && bands.count <= 1)
         result.tables.append(contentsOf: found.tables)
         // A band's indices are its own; the page wants page indices.
         result.claimed.formUnion(found.claimed.compactMap {
@@ -94,7 +98,7 @@ func pdfDetectPageTables(
 private func pdfDetectTablesInBand(
     items: [PdfLayoutItem], rects: [PdfRect], lines: [PdfLineSegment], baseSize: Float,
     structTables: [PdfStructTable], page: Int,
-    chartRegions: [PdfImageRegion] = []
+    chartRegions: [PdfImageRegion] = [], rejectParallelProse: Bool = false
 ) -> PdfPageTableResult {
     var result = PdfPageTableResult()
     if items.isEmpty { return result }
@@ -213,6 +217,12 @@ private func pdfDetectTablesInBand(
     func runHeuristic(_ subset: [PdfLayoutItem], map: [Int], minimumItems: Int) {
         guard subset.count >= minimumItems else { return }
         for table in pdfDetectTables(subset, baseFontSize: baseSize) {
+            // On a chart page with two prose columns, a candidate whose cells
+            // are sentences continuing across its own rows is those columns
+            // projected onto a grid. Rejecting the *candidate* rather than
+            // disabling body-font detection keeps the real tables that share
+            // a page with a figure.
+            if rejectParallelProse && pdfIsParallelProseTable(table) { continue }
             var translated = table
             translated.itemIndices = table.itemIndices.compactMap {
                 $0 < map.count ? map[$0] : nil

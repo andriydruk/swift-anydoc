@@ -4866,6 +4866,42 @@ readings**.
   of it.** Every wave that measured an intermediate value found its fixture
   inert; every wave that only compared final output nearly shipped one.
 
+- **Wave 127 — the parallel-prose rejection.** **79 of 79** byte-identical,
+  1685 tests; orphans down from 28 to 23.
+
+  A chart page often sets its commentary in two columns beside the figure.
+  Projected onto a grid those columns look exactly like a two-column table,
+  and gridding them interleaves two independent arguments line by line —
+  worse than either column alone.
+
+  `is_parallel_prose_table` is ported and wired: on a page with one chart
+  region spanning a two-column prose split, a heuristic candidate whose
+  cells are parallel prose is **rejected individually**. That narrowness is
+  the design. Disabling body-font detection for the whole page would be
+  simpler and would throw away every real table that shares a page with a
+  figure.
+
+  The decisive signal is **cross-row continuation** — a cell ending
+  mid-sentence and continuing in the cell directly below, in the same
+  column. A lowercase cell alone proves nothing, since headerless tables use
+  sentence fragments as values constantly; a sentence physically broken
+  across two grid rows is what independent columns produce and a table does
+  not. Two ported orphans supply the rest: `pdfChartPageProseColumnSplit`
+  finds the gutter in the **chart-free** items (the figure's own labels fill
+  it otherwise), and `pdfChartSpansProseSplit` requires the chart to cross
+  it, since a split the figure does not span is an ordinary gutter.
+
+  **No corpus document reaches this, and that is stated rather than
+  papered over.** The precondition is a single chart region spanning a
+  prose split *plus* a candidate satisfying seven interacting conditions;
+  after three drafts for the chart document in wave 126, building it is
+  honestly its own wave. The predicate is unit-tested instead, which is
+  where all the judgement lives: a positive case, and six negatives each
+  removing exactly one signal — the compact header, the fully populated
+  grid, the self-contained cells, the width, the short values, the row
+  count. A condition dropped from the port fails a named test rather than
+  quietly widening the rejection, which would delete real tables.
+
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
   under test is carried by some other path more often than not. The

@@ -174,11 +174,26 @@ func pdfConvert(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOptio
             rects: pageRects.map { (x: $0.x, y: $0.y, width: $0.width, height: $0.height) }
         ).map { PdfImageRegion(x0: $0.left, y0: $0.bottom, x1: $0.right, y1: $0.top) }
 
+        // Two prose columns beside a single chart. The split is taken from
+        // the chart-free items — the figure's own labels fill the gutter and
+        // would hide it — and is believed only when the chart actually spans
+        // it, since a split the figure does not cross is an ordinary gutter
+        // and not a chart-prose layout.
+        var chartProseColumns = false
+        if chartRegions.count == 1 {
+            let chartFree = pdfItemsOutsideChartRegions(items, chartRegions)
+            if let splitX = pdfChartPageProseColumnSplit(chartFree),
+                pdfChartSpansProseSplit(chartRegions[0], splitX: splitX)
+            {
+                chartProseColumns = true
+            }
+        }
+
         let pageBaseSize = pdfFontStatsFromItems(items).mostCommonSize
         let detected = pdfDetectPageTables(
             items: items, rects: pageRects, lines: graphics.lines,
             baseSize: pageBaseSize, structTables: structTables, page: number,
-            chartRegions: chartRegions)
+            chartRegions: chartRegions, chartProseColumns: chartProseColumns)
         if !detected.tables.isEmpty { pageTables[number] = detected.tables }
         let textItems = items.enumerated()
             .filter { !detected.claimed.contains($0.offset) }.map(\.element)
