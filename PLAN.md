@@ -5273,6 +5273,42 @@ readings**.
   rotation was unported. It caught the day that stopped being true, which is
   the entire purpose of leaving a placeholder inside a comparison rather
   than omitting the field.
+
+- **Wave 138 — six candidates checked, none a gap, three now covered.**
+  **92 of 92** byte-identical.
+
+  Working further down wave 136's candidate list. Every one turned out to
+  be a rename or already-correct behaviour:
+
+  - **Content-stream comments**, including a `%` line carrying `BT`/`ET` and
+    parentheses — stripped identically on both sides.
+  - **`/CropBox`** — see below.
+  - **`effective_width`** — ported as `pdfEffectiveItemWidth`, and already
+    used by column detection where the reference uses it.
+  - **Inline images** (`BI … ID <binary> EI`) with a payload full of bytes
+    that tokenise as operators. Both parsers skip to `EI` and read the text
+    after it correctly.
+
+  **The `/CropBox` check is the one worth recording, because I got it wrong
+  first.** A truncated `head -4` of the reference's output showed two lines
+  where there were three, which read as "the reference drops text outside
+  the crop box" — a plausible, tidy conclusion, and false. Reading the
+  reference's actual rule showed why: it clips only when the off-box
+  material is *coherent prose* — ten or more items, mostly long words, not
+  straddling an on-page line — so a single stray line stays. The full output
+  confirmed both sides keep all three lines. Ten minutes, and no code
+  written on the strength of a misread.
+
+  The three documents are now permanent corpus entries. None was a gap, but
+  none had **coverage** either: comment stripping, `/CropBox` handling and
+  inline images all work today and nothing would have noticed if a later
+  wave broke them. That is the wave's actual product — verification turned
+  into regression tests rather than discarded.
+
+  Six candidates checked across waves 136–138 with one real gap found
+  (wave 137's rotation). The candidate list is mostly renames and
+  unreachable code, and hand-probing it has a low yield — worth knowing
+  before spending more waves on it.
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
   under test is carried by some other path more often than not. The

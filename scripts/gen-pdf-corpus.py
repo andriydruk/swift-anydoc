@@ -2553,3 +2553,59 @@ _rotated_lines = b"".join(
 )
 b = Builder()
 write("rotated-text-page", classic_trailer(b, base_document(b, content=_rotated_lines)))
+
+
+# --- features verified in wave 138 -------------------------------------------
+#
+# None of these was a gap. They are here because none had coverage either: the
+# port handles all three today, and nothing would have noticed if a later wave
+# broke them.
+
+# Comments inside a content stream, including one carrying text that would
+# tokenise as operators — `BT`, `ET`, parentheses — if it were not stripped.
+_commented = (
+    b"% a leading comment with (parentheses) and BT ET inside\n"
+    + line(b"Text after a comment.", 700)
+    + b"BT /F1 12 Tf 72 680 Td % comment between operands\n(More text.) Tj ET\n"
+    + b"% trailing comment\n"
+)
+b = Builder()
+write("content-comments", classic_trailer(b, base_document(b, content=_commented)))
+
+
+# A /CropBox much smaller than the /MediaBox, with text inside and outside it.
+# Both sides keep all of it: the reference clips only when the off-box material
+# is *coherent prose* — ten or more items, mostly long words, not straddling an
+# on-page line — so a stray line stays. Reading a truncated `head -4` of the
+# reference's output suggested otherwise for about ten minutes.
+def crop_box_document(b):
+    font = b.add(SIMPLE_FONT)
+    content = b.stream(b"", (
+        line(b"Inside the crop box.", 700)
+        + line(b"Also inside the crop.", 680)
+        + line(b"Far outside the crop box.", 200)))
+    page = b.reserve()
+    pages = b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]/CropBox[50 650 400 750]"
+          b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+          % (pages, font, content), page)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page, pages)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages)
+
+
+b = Builder()
+write("crop-box", classic_trailer(b, crop_box_document(b)))
+
+
+# An inline image — `BI ... ID <binary> EI`. The payload is deliberately full
+# of bytes that tokenise as operators, so a parser that does not skip to `EI`
+# reads them as instructions and corrupts everything after.
+_inline_payload = b"BT (fake) Tj ET \\ ( ) q Q re f " + bytes(range(32)) + b"\xff\xfe\x00"
+_inline = (
+    line(b"Before the inline image.", 700)
+    + b"q 100 0 0 50 72 600 cm\nBI /W 8 /H 4 /CS /G /BPC 8 /F /AHx ID "
+    + _inline_payload + b" EI Q\n"
+    + line(b"After the inline image.", 560)
+)
+b = Builder()
+write("inline-image", classic_trailer(b, base_document(b, content=_inline)))
