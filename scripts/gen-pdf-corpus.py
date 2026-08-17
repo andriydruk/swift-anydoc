@@ -2015,3 +2015,44 @@ b.add(b"<</Type/Pages/Kids[%s]/Count 5>>"
       % b" ".join(b"%d 0 R" % k for k in _kids), _pages)
 write("ratio-exactly-threshold", classic_trailer(
     b, b.add(b"<</Type/Catalog/Pages %d 0 R>>" % _pages)))
+
+
+# A bar chart: filled rectangles in a row, with value labels above them and
+# category labels below. Every table detector reads the bars as cell borders
+# and the labels as aligned columns, so without chart masking the figure is
+# gridded into a phantom table. `detect_chart_regions` finds the bar cluster
+# and its items are withheld from every detector — but **not** from the text,
+# since deleting a chart's labels would lose the figure's content entirely.
+#
+# The geometry sits in a narrow window that a first attempt missed entirely.
+# Clustering expands each rectangle by a 3pt tolerance, so two bars group only
+# when their gap is under **6pt**; the bar-family test then demands a gap of
+# at least **half the bar's breadth**. Together those bound the breadth under
+# roughly 12pt. Forty-point bars on a sixty-point pitch — the obvious way to
+# draw a chart — cluster into nothing at all, and the first draft of this
+# document reported zero chart regions.
+_bars = b"".join(
+    b"%d %d 10 %d re f\n" % (100 + _k * 15, 300, 40 + _k * 18)
+    for _k in range(8)
+)
+# Two *aligned* rows of data labels **inside** the bar region. Values stacked
+# above bars of varying height sit at varying y and never form a row, so the
+# heuristic ignores them and the masking has nothing to prevent — which is how
+# the second draft of this document still tested nothing.
+_values = b"".join(
+    line(b"%d" % (10 + _k * 7), 320, x=98 + _k * 15, size=6) for _k in range(8)
+) + b"".join(
+    line(b"%d" % (99 - _k * 5), 340, x=98 + _k * 15, size=6) for _k in range(8)
+) + b"".join(
+    line(b"%d" % (40 + _k * 3), 360, x=98 + _k * 15, size=6) for _k in range(8)
+)
+_labels = b"".join(
+    line(b"Q%d" % (_k + 1), 288, x=98 + _k * 15, size=6) for _k in range(8)
+)
+MD_BAR_CHART = (
+    line(b"Quarterly revenue by segment.", 700)
+    + _bars + _values + _labels
+    + line(b"Figures are in millions of dollars.", 250)
+)
+b = Builder()
+write("chart-bars", classic_trailer(b, base_document(b, content=MD_BAR_CHART)))

@@ -4831,6 +4831,41 @@ readings**.
   placeholder existed either, which is why nothing showed. The image regions
   are collected alongside, for the chart masking that is still to come.
 
+- **Wave 126 — chart masking, and three drafts of one document.**
+  **79 of 79** byte-identical; `pdfDetectChartRegions` finally has a caller.
+
+  A bar chart drawn as filled rectangles is indistinguishable from a grid of
+  cell backgrounds, and its data labels are indistinguishable from aligned
+  columns. Left alone, a figure becomes a phantom table. The regions are now
+  detected per page and their items **pre-blocked** in every detector — and
+  deliberately *not* claimed, because withholding them from the text as well
+  would delete the chart's labels from the document. Blocked, not claimed,
+  is the whole distinction, and it is the reference's.
+
+  **The corpus document took three attempts, and the first two proved
+  nothing.**
+
+  Draft one drew the obvious chart: 40pt bars on a 60pt pitch. It reported
+  **zero** chart regions. Clustering expands each rectangle by a 3pt
+  tolerance, so two bars group only when their gap is under 6pt, while the
+  bar-family test demands a gap of at least half the bar's breadth. Together
+  those bound the breadth under about 12pt — the obvious chart is outside
+  the window entirely. This is the calendar of wave 114 again, and it was
+  found the same way: by measuring the intermediate value rather than the
+  output.
+
+  Draft two clustered correctly and *still* changed nothing, because value
+  labels stacked above bars of varying height sit at varying y and never
+  form a row. The heuristic ignored them, so the masking had nothing to
+  prevent. Draft three puts three aligned label rows **inside** the region,
+  and the difference is stark: without masking the port emits
+  `|40 43 46|49 52 55|58 61|`, a table invented out of a picture.
+
+  The pattern across waves 113 to 126 is now unambiguous enough to state
+  plainly: **a fixture built to look like the case under test is not a test
+  of it.** Every wave that measured an intermediate value found its fixture
+  inert; every wave that only compared final output nearly shipped one.
+
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
   under test is carried by some other path more often than not. The

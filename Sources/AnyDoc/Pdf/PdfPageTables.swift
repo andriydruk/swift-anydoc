@@ -42,7 +42,8 @@ struct PdfPageTableResult {
 ///     measures its candidates against.
 func pdfDetectPageTables(
     items: [PdfLayoutItem], rects: [PdfRect], lines: [PdfLineSegment], baseSize: Float,
-    structTables: [PdfStructTable] = [], page: Int = 1
+    structTables: [PdfStructTable] = [], page: Int = 1,
+    chartRegions: [PdfImageRegion] = []
 ) -> PdfPageTableResult {
     var result = PdfPageTableResult()
     if items.isEmpty { return result }
@@ -54,7 +55,7 @@ func pdfDetectPageTables(
     for band in bands where !band.items.isEmpty {
         let found = pdfDetectTablesInBand(
             items: band.items, rects: band.rects, lines: band.lines, baseSize: baseSize,
-            structTables: structTables, page: page)
+            structTables: structTables, page: page, chartRegions: chartRegions)
         result.tables.append(contentsOf: found.tables)
         // A band's indices are its own; the page wants page indices.
         result.claimed.formUnion(found.claimed.compactMap {
@@ -92,7 +93,8 @@ func pdfDetectPageTables(
 /// The four-stage cascade, on one band's worth of a page.
 private func pdfDetectTablesInBand(
     items: [PdfLayoutItem], rects: [PdfRect], lines: [PdfLineSegment], baseSize: Float,
-    structTables: [PdfStructTable], page: Int
+    structTables: [PdfStructTable], page: Int,
+    chartRegions: [PdfImageRegion] = []
 ) -> PdfPageTableResult {
     var result = PdfPageTableResult()
     if items.isEmpty { return result }
@@ -111,6 +113,18 @@ private func pdfDetectTablesInBand(
     // where a hint region blocks every item inside it while only the items
     // the table actually used are withheld from the text.
     var blocked: Set<Int> = []
+
+    // A bar chart's axis labels and data values sit in a tidy grid, and every
+    // detector below reads them as one. They are **pre-blocked** so no
+    // strategy can grid them — but deliberately *not* claimed, because
+    // withholding them from the text as well would delete the chart's labels
+    // from the document. Blocked, not claimed, is the whole distinction.
+    if !chartRegions.isEmpty {
+        for (index, item) in items.enumerated()
+        where pdfItemIsInChartRegion(item, chartRegions) {
+            blocked.insert(index)
+        }
+    }
 
     func claim(_ table: PdfTable) {
         result.claimed.formUnion(table.itemIndices)

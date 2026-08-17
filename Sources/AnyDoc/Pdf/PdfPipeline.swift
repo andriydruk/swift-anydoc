@@ -164,10 +164,21 @@ func pdfConvert(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOptio
         // document yet at this point — so the page's own is used, which is
         // a divergence noted in PLAN.md and revisited when the analysis
         // moves ahead of the page loop.
+        // A bar chart drawn as filled rectangles reads to every table
+        // detector as a grid of cells, and its axis labels read as aligned
+        // text — so a chart becomes a phantom table unless its region is
+        // masked first. The detector's corner tuples become regions here so
+        // the membership test cannot be handed extents by mistake.
+        let chartRegions = pdfDetectChartRegions(
+            items: items,
+            rects: pageRects.map { (x: $0.x, y: $0.y, width: $0.width, height: $0.height) }
+        ).map { PdfImageRegion(x0: $0.left, y0: $0.bottom, x1: $0.right, y1: $0.top) }
+
         let pageBaseSize = pdfFontStatsFromItems(items).mostCommonSize
         let detected = pdfDetectPageTables(
             items: items, rects: pageRects, lines: graphics.lines,
-            baseSize: pageBaseSize, structTables: structTables, page: number)
+            baseSize: pageBaseSize, structTables: structTables, page: number,
+            chartRegions: chartRegions)
         if !detected.tables.isEmpty { pageTables[number] = detected.tables }
         let textItems = items.enumerated()
             .filter { !detected.claimed.contains($0.offset) }.map(\.element)
