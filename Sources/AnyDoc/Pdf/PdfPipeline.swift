@@ -60,6 +60,14 @@ func pdfMarkdown(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOpti
         let (pageOperations, formFonts) = pdfPageOperationsWithForms(&document, page)
         for (name, font) in formFonts { styles[name] = pdfFontStyle(&document, font) }
         let graphics = pdfExtractGraphics(pageOperations)
+        // The single rectangle list the detectors consume. A page with no
+        // `re` at all still has structure — drawn as clip regions, or as
+        // filled cell backgrounds — and `pdfSelectedRectangles` is what
+        // picks between them. The reference substitutes inside its
+        // extractor, so everything downstream of it already sees the chosen
+        // list; this port kept them apart and never chose, which meant a
+        // clip-drawn table reached the detectors as no rectangles at all.
+        let pageRects = pdfSelectedRectangles(graphics)
 
         // Letter-spaced runs are repaired before grouping, and the
         // threshold that repair measures becomes the page's join threshold —
@@ -90,7 +98,7 @@ func pdfMarkdown(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOpti
         // them, so the flags are cleared wherever a plausible table claims
         // the item.
         pdfSuppressTableUnderlines(
-            &items, rects: graphics.rectangles, lines: graphics.lines)
+            &items, rects: pageRects, lines: graphics.lines)
 
         // Form-field values join *after* the passes above, which is the
         // reference's order — they are not text the page drew, so merging
@@ -113,7 +121,7 @@ func pdfMarkdown(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOpti
         // moves ahead of the page loop.
         let pageBaseSize = pdfFontStatsFromItems(items).mostCommonSize
         let detected = pdfDetectPageTables(
-            items: items, rects: graphics.rectangles, lines: graphics.lines,
+            items: items, rects: pageRects, lines: graphics.lines,
             baseSize: pageBaseSize, structTables: structTables, page: number)
         if !detected.tables.isEmpty { pageTables[number] = detected.tables }
         let textItems = items.enumerated()

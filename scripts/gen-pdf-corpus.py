@@ -1046,6 +1046,33 @@ MD_TWO_COLUMNS = b"".join(
 b = Builder()
 write("two-column-prose", classic_trailer(b, base_document(b, content=MD_TWO_COLUMNS)))
 
+
+# A table whose cells are drawn as filled **paths** — `m`/`l`/`h`/`f`, with no
+# `re` operator anywhere. The page therefore contributes nothing to the `re`
+# rectangle list, and a detector fed that list directly sees no table at all.
+# The reference substitutes its fill rectangles for the empty list inside the
+# extractor, which is what `pdfSelectedRectangles` reproduces.
+#
+# A first draft drew the cells as `re W n` clip regions instead, and proved
+# nothing: `re` is recorded unconditionally, painted or clipped, so the
+# rectangle list was never empty and the substitution never ran.
+def _cell_path(x, y, w, h):
+    return (b"%d %d m %d %d l %d %d l %d %d l h f\n"
+            % (x, y, x + w, y, x + w, y + h, x, y + h))
+
+
+MD_PATH_TABLE = b"".join(
+    _cell_path(72 + column * 120, 700 - row * 20, 118, 18)
+    for row in range(3)
+    for column in range(2)
+) + b"".join(
+    line(b"c%d%d" % (row, column), 706 - row * 20, x=78 + column * 120)
+    for row in range(3)
+    for column in range(2)
+)
+b = Builder()
+write("path-drawn-table", classic_trailer(b, base_document(b, content=MD_PATH_TABLE)))
+
 # A bar chart: filled rectangles with value labels over them, beside prose.
 # The rects read as cell borders and the labels as aligned columns, so
 # without chart masking the whole page grids into a phantom table.

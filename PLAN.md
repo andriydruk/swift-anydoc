@@ -4459,3 +4459,50 @@ readings**.
   evidence that just proved to be page layout. The test now pins the gate
   and shows it is what decides, rather than the candidate being
   unfindable.
+
+- **Wave 116 — looking for connection gaps on purpose.**
+  `scripts/find-orphans.py`, and what it found; **65 of 65**
+  byte-identical.
+
+  Nine connection gaps had been found by wave 115, every one by accident.
+  Three in a row came from reading a *call site*. So this wave stopped
+  waiting for the next accident and swept for the class directly: every
+  top-level `pdf*` function with no caller anywhere in `Sources/`.
+
+  **441 functions, 34 with no caller.** Most are honest — they wait on a
+  consumer that is genuinely unported (chart regions, the detector's
+  document half, OCR reasons). Two were not.
+
+  `pdfMergedRetrySkipsBodyFont` had been ported, and wave 115 wrote the
+  same rule out inline without noticing. One wave is all it took to
+  duplicate a function this port already had; a sweep that runs in a
+  second would have caught it before the commit.
+
+  `pdfSelectedRectangles` is the substantive one. The reference chooses
+  between `re` rectangles, clip regions and filled paths **inside its
+  extractor**, so everything downstream already sees one chosen list. This
+  port kept the three lists apart and never chose: the pipeline passed
+  `graphics.rectangles` straight to every detector.
+
+  **The fix is wired, and I could not make it change any output.** Two
+  corpus documents tried and failed. A clip-drawn table (`re W n` per
+  cell) proved nothing because `re` is recorded unconditionally, painted
+  or clipped, so the list is never empty and the substitution never runs.
+  A path-drawn table (`m`/`l`/`h`/`f`, no `re` anywhere) does empty the
+  list — and still matched, because six cells in a 2×3 grid are exactly
+  the heuristic detector's minimum, so it finds the table from text
+  alignment with no rectangles at all.
+
+  So the change stands on its structure matching the reference, not on
+  measurement, and that is the weakest kind of evidence this project
+  accepts — recorded here as such rather than written up as a fix. The
+  document that would discriminate needs a table too large or too irregular
+  for the heuristic *and* drawn without `re`; it is worth building when
+  there is time to build it properly.
+
+  The composition trap appeared for the third session running, and the
+  pattern is now unmistakable: a fixture built to *look like* the case
+  under test is carried by some other path more often than not. The
+  discipline that catches it is cheap — disable the thing under test and
+  re-measure — and it is the only reason waves 113 to 115 have honest
+  numbers.

@@ -68,11 +68,16 @@ func pdfDetectPageTables(
     // Only the heuristic runs: the geometric detectors already saw every
     // rectangle and line their band contained.
     if bands.count > 1 && result.tables.isEmpty {
-        // `merged_retry_skips_body_font`: with columns detected on the page,
-        // body-size text is not allowed to found a table on the retry. The
-        // reference's second argument is whether the page has chart regions,
-        // which are unported, so this is its no-chart branch.
-        let skipBodyFont = pdfDetectColumns(items, pageHasTable: false).count >= 2
+        // With columns detected on the page, body-size text is not allowed
+        // to found a table on the retry — that is exactly the evidence which
+        // just proved to be page layout. The second argument is whether the
+        // page has chart regions, which are unported.
+        //
+        // Wave 115 wrote this rule out inline without noticing it was
+        // already ported; wave 116's orphan sweep found the duplicate.
+        let skipBodyFont = pdfMergedRetrySkipsBodyFont(
+            detectedColumns: pdfDetectColumns(items, pageHasTable: false).count >= 2,
+            hasChartRegions: false)
         for table in pdfDetectTables(items, baseFontSize: baseSize, skipBodyFont: skipBodyFont) {
             result.claimed.formUnion(table.itemIndices)
             result.tables.append(
