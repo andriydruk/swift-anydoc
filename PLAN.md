@@ -4934,6 +4934,15 @@ readings**.
   guess — which is the difference between a wave that can be finished
   confidently and one that cannot.
 
+  **Scoped for whoever picks it up.** The merge is larger than it looks:
+  `pdfLineText` and `pdfNeedsSpace` have ten-plus call sites across seven
+  files — the writer, the wrapped-bold pass, isolated lines, visual style,
+  the Markdown assembler — and not one of them carries a letter-spacing
+  threshold today. The threshold exists at grouping time
+  (`pdfGroupPageIntoLines(adaptiveThreshold:)`), so the work is to thread it
+  from there to the assembler rather than to invent it. That is a wave with
+  room to measure, on the hottest path in the port.
+
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
   under test is carried by some other path more often than not. The
