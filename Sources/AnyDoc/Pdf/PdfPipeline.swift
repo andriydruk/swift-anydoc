@@ -337,6 +337,16 @@ func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [P
     var metrics = pdfPageFontMetrics(&document, page)
     var encodings = pdfPageFontEncodings(&document, page)
     let programs = pdfPageFontPrograms(&document, page)
+    // The single-byte fallback is chosen per font by name: Windows-1252 is
+    // right for most documents and exactly wrong for TeX and symbol fonts,
+    // whose glyphs sit in the same byte range.
+    var cp1252 = pdfPageFontProperty(&document, page) { document, font in
+        let baseFont = document.value(font, "BaseFont")?.asName
+            .map { String(decoding: $0, as: UTF8.self) }
+        let isCid = document.value(font, "Subtype")?.asName
+            .map { String(decoding: $0, as: UTF8.self) } == "Type0"
+        return pdfShouldUseCp1252(baseFontName: baseFont, isType0CidFont: isCid)
+    }
     let (operations, formFonts) = pdfPageOperationsWithForms(&document, page)
     // A form's fonts join under the namespaced names its `Tf` operators were
     // rewritten to, so a `/F1` inside a form cannot pick up the page's `/F1`.
@@ -347,6 +357,11 @@ func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [P
             cmaps[name] = parsePdfToUnicode(data)
         }
         if let widths = pdfParseFontWidths(&document, font) { metrics[name] = widths }
+        cp1252[name] = pdfShouldUseCp1252(
+            baseFontName: document.value(font, "BaseFont")?.asName
+                .map { String(decoding: $0, as: UTF8.self) },
+            isType0CidFont: document.value(font, "Subtype")?.asName
+                .map { String(decoding: $0, as: UTF8.self) } == "Type0")
         if let encoding = document.value(font, "Encoding")?.asDictionary,
             let differences = document.value(encoding, "Differences")?.asArray
         {
@@ -360,14 +375,17 @@ func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [P
             // No usable `ToUnicode`. A `/Differences` encoding is the next
             // authority: it says what glyph each code draws, which is the
             // only thing that makes a re-encoded font readable.
+            let useCp1252 = cp1252[fontName] ?? true
             if let encoding = encodings[fontName], !encoding.map.isEmpty {
                 var out = ""
                 for byte in bytes {
                     if let scalar = encoding.map[byte] {
                         out.unicodeScalars.append(scalar)
-                    } else {
-                        out.unicodeScalars.append(Unicode.Scalar(byte))
+                    } else if byte >= 0x20 {
+                        out.unicodeScalars.append(pdfDecodeSingleByte(byte, useCp1252: useCp1252))
                     }
+                    // Below 0x20 the byte is dropped, not rendered. See the
+                    // last resort below for why.
                 }
                 return out
             }
@@ -387,9 +405,24 @@ func pdfPageTextRuns(_ document: inout PdfDocument, _ page: PdfDictionary) -> [P
                 }
                 if !out.isEmpty { return out }
             }
-            // Failing all three, the bytes are their own code points —
-            // right for the ASCII a simple font shows and wrong otherwise.
-            return String(decoding: bytes, as: UTF8.self)
+            // Failing all three, each byte is read on its own through the
+            // Windows-1252 or Latin-1 table — **and a byte below 0x20 is
+            // dropped entirely**.
+            //
+            // That last rule is the difference between failing loudly and
+            // failing invisibly. An undecodable CID font's codes are not
+            // characters, and rendering them puts literal NULs and control
+            // codes into the Markdown, which no reader sees and every
+            // downstream check treats as text. The reference drops them:
+            // `<0001>` yields nothing at all, `<00410042>` yields `AB`.
+            // Measured against it byte by byte, and it is not specific to
+            // CID fonts — a simple font drawing `41 00 42 02` gives `AB`
+            // there too.
+            var out = String.UnicodeScalarView()
+            for byte in bytes where byte >= 0x20 {
+                out.append(pdfDecodeSingleByte(byte, useCp1252: useCp1252))
+            }
+            return String(out)
         }
         var out = ""
         let width = cmap.codeByteLength

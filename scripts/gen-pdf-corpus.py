@@ -1144,16 +1144,49 @@ write("detector-type3-only", classic_trailer(b, detector_font_document(
     % (_charprocs, _encoding),
 )))
 
-# 4. An undecodable Identity-H font *alongside* a readable one would test the
-#    `and nothing else` clause of the Identity-H verdict — the case a check
-#    that merely looked for a bad font would get wrong. It was built in wave
-#    119 and **withdrawn** in the same wave: the port gets the verdict right,
-#    but its `<0001> Tj` then reaches the decode chain's last resort, which
-#    returns the bytes as their own code points and puts a literal NUL and
-#    SOH into the Markdown where the reference emits nothing. That defect
-#    lights up three suites at once, and carrying a known-broken document
-#    through all of them is worse than fixing the decode ladder first.
-#    Restore this document with that fix — see PLAN.md wave 119.
+# 4. An undecodable Identity-H font *alongside* a readable one: the `and
+#    nothing else` clause of the Identity-H verdict, which a check that
+#    merely looked for a bad font would get wrong.
+#
+#    Withdrawn in wave 119 and restored in wave 120. Its `<0001> Tj` used to
+#    reach the decode chain's last resort, which rendered the bytes as their
+#    own code points and put a literal NUL and SOH into the Markdown. The
+#    reference drops every byte below 0x20, so the run yields nothing at all
+#    — which is also what makes this document a regression test for that.
+b = Builder()
+_desc = b.add(
+    b"<</Type/Font/Subtype/CIDFontType2/BaseFont/Sub+Test"
+    b"/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>"
+    b"/DW 500/W [1 [500 500 500]]>>"
+)
+_bad = b.add(
+    b"<</Type/Font/Subtype/Type0/BaseFont/Sub+Test/Encoding/Identity-H"
+    b"/DescendantFonts[%d 0 R]>>" % _desc
+)
+_good = b.add(SIMPLE_FONT)
+_content = b.stream(b"/Filter/FlateDecode", flate(
+    line(b"Readable text here.", 700) + b"BT /F2 10 Tf 72 680 Td <0001> Tj ET\n"))
+_page = b.reserve()
+_pages = b.reserve()
+b.add(
+    b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+    b"/Resources<</Font<</F1 %d 0 R/F2 %d 0 R>>>>/Contents %d 0 R>>"
+    % (_pages, _good, _bad, _content),
+    _page,
+)
+b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % _page, _pages)
+write("detector-mixed-fonts", classic_trailer(
+    b, b.add(b"<</Type/Catalog/Pages %d 0 R>>" % _pages)))
+
+# 5. Control bytes through an ordinary simple font, to pin that the drop rule
+#    is **not** specific to CID fonts. `41 00 42 02` reads as `AB` on both
+#    sides; a fix scoped to Type0 would leave this one wrong.
+b = Builder()
+write("decode-control-bytes", classic_trailer(b, detector_font_document(
+    b, SIMPLE_FONT,
+    content=line(b"Before the control bytes.", 700)
+        + b"BT /F1 10 Tf 72 680 Td <41004202> Tj ET\n",
+)))
 
 # A bar chart: filled rectangles with value labels over them, beside prose.
 # The rects read as cell borders and the labels as aligned columns, so

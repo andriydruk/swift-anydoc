@@ -4595,6 +4595,42 @@ readings**.
   image analysis, and the path/text operator statistics that feed
   `has_vector_text`. The font fields are complete; the struct is not.
 
+- **Wave 120 — the decode ladder's last rung, and the eleventh gap.**
+  Control bytes dropped rather than rendered; **70 of 70** byte-identical,
+  and the document wave 119 withdrew is back.
+
+  Wave 119 left a specific debt: an undecodable font's `<0001> Tj` reached
+  the decode chain's last resort, which returned the bytes as their own code
+  points and wrote a literal NUL and SOH into the Markdown. The rule that
+  fixes it is one line — **a byte below `0x20` is dropped, not rendered** —
+  and finding it took measurement rather than reading.
+
+  Reading was tried first and failed. Tracing `[0x00, 0x01]` down the
+  reference's ladder, *every* branch either skips or renders those bytes, so
+  the code said the reference should print them too. It does not. Four
+  one-line experiments settled it: `<0001>` yields nothing, `<4142>` yields
+  `AB`, `<00410042>` yields `AB`, `<0041>` yields `A`. Byte-wise, controls
+  dropped. A fifth experiment asked whether the rule is CID-specific — a
+  *simple* font drawing `41 00 42 02` also gives `AB` — which is the
+  difference between a fix that works and one scoped to the case that
+  happened to expose it. `decode-control-bytes.pdf` exists to hold that
+  answer.
+
+  Wiring it closed the **eleventh connection gap**. `pdfDecodeSingleByteRun`
+  and `pdfShouldUseCp1252` were ported waves ago and had no caller: the
+  pipeline's last resort was `String(decoding: bytes, as: UTF8.self)`,
+  which is neither the Windows-1252 nor the Latin-1 reading the reference
+  uses. Both were on wave 116's orphan list, in plain sight, unread.
+
+  The rule is load-bearing on both restored documents — removing it diverges
+  two files — and the unit tests pin the boundary at `0x20` itself, since a
+  space is text and an off-by-one there would silently join every word.
+
+  What this is really defending is the failure mode PLAN.md §2 names first:
+  confident nonsense. Control codes in the output are invisible to a reader
+  and are text to every check that does not look. The port now fails loudly
+  where it used to fail silently.
+
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
   under test is carried by some other path more often than not. The
