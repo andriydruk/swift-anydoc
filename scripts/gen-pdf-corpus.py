@@ -2378,3 +2378,45 @@ b.add(
 b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % _page, _pages)
 write("decode-texcm-symbols", classic_trailer(
     b, b.add(b"<</Type/Catalog/Pages %d 0 R>>" % _pages)))
+
+
+# A document whose fonts defeat the decode ladder without defeating it
+# *loudly*: the /ToUnicode map sends every letter to a symbol, so the text
+# extracts as a well-formed stream of punctuation that means nothing. The
+# detector calls the page text-based — there is plenty of text — and only the
+# garbage test at the end catches it.
+#
+# `is_garbage_text` wants at least fifty counted characters with fewer than
+# half alphanumeric, so the page has to be long enough to trip it.
+_garbage_pairs = b"".join(
+    b"<%02X> <%04X>\n" % (0x41 + _k, 0x2200 + _k) for _k in range(26)
+)
+_garbage_cmap = (
+    b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap\n"
+    b"1 begincodespacerange <00> <ff> endcodespacerange\n"
+    b"26 beginbfchar\n" + _garbage_pairs + b"endbfchar\n"
+    b"endcmap CMapName currentdict /CMap defineresource pop end end\n"
+)
+b = Builder()
+_cmap_id = b.stream(b"", _garbage_cmap)
+_font = b.add(
+    b"<</Type/Font/Subtype/TrueType/BaseFont/Garbled/FirstChar 65/LastChar 90"
+    b"/Widths[%s]/ToUnicode %d 0 R>>"
+    % (b" ".join(b"600" for _ in range(26)), _cmap_id)
+)
+_garbage_text = b"".join(
+    line(bytes([0x41 + (_k * 5 + _j) % 26 for _j in range(12)]), 700 - _k * 16)
+    for _k in range(8)
+)
+_content = b.stream(b"", _garbage_text)
+_page = b.reserve()
+_pages = b.reserve()
+b.add(
+    b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+    b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+    % (_pages, _font, _content),
+    _page,
+)
+b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % _page, _pages)
+write("garbled-text-document", classic_trailer(
+    b, b.add(b"<</Type/Catalog/Pages %d 0 R>>" % _pages)))

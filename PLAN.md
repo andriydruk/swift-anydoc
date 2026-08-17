@@ -5101,6 +5101,36 @@ readings**.
   the Windows-1252 reading at all, since a symbol font has real glyphs in
   that range.
 
+- **Wave 133 — the last guard against confident nonsense.** **86 of 86**
+  byte-identical.
+
+  Found by the same trick as wave 132: reading the reference's *tail*. After
+  `process_document` builds its Markdown it asks one more question — is this
+  garbage? — and a **text-based** document that fails it returns no Markdown
+  at all, with every page flagged for OCR.
+
+  This port returned the garbage. The corpus document makes it vivid: a
+  `/ToUnicode` map sending every letter to a mathematical symbol extracts as
+  `∀∁∂∃∄∅∆∇∈∉∊∋ ∅∆∇∈∉∊∋∌∍∎∏∐ …` — well-formed Markdown, correctly spaced,
+  and meaningless. The detector cannot catch it: there is plenty of text and
+  the detector never reads what it says. Only the finished output shows it.
+
+  86 of 86 with the gate, 85 of 86 without, and the failing file is exactly
+  that document.
+
+  **It creates a real difference in the public API, and the difference is
+  information.** `AnyDoc.inspectPdf` runs the detector before any glyph is
+  decoded, so it calls this document text-based and flags nothing;
+  `markdownInspectingPdf` extracts, sees the rubbish, and flags the page as
+  `suspected_garbled_text`. Wave 124 added a test asserting the two agree —
+  true on the document it used — and wave 133 adds one naming the case where
+  they cannot, with the doc comment on `inspectPdf` saying so outright.
+
+  Three waves now on the same theme, and they compose: wave 120 stopped
+  control bytes reaching the output, wave 132 stopped symbols and C1 codes
+  surviving the decode, and this stops a whole document of them being
+  returned as a success.
+
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
   under test is carried by some other path more often than not. The

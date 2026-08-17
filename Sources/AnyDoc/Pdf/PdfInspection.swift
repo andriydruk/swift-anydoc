@@ -53,6 +53,13 @@ extension AnyDoc {
     /// names and reads image dimensions from dictionaries, without decoding
     /// glyphs or pixels. The reference runs exactly this before deciding
     /// whether extraction is worth attempting.
+    ///
+    /// **This is the detector's view, taken before any text is decoded**, so
+    /// it cannot see a document whose text extracts to rubbish — that is
+    /// only knowable after extraction, and `markdownInspectingPdf` reports
+    /// it. A document of undecodable fonts is `textBased` here and flagged
+    /// for OCR there, and the difference is information rather than
+    /// disagreement.
     public static func inspectPdf(_ bytes: [UInt8]) throws -> PdfInspection {
         var document = try PdfDocument(bytes: bytes)
         return pdfInspection(pdfDetectDocumentType(&document))

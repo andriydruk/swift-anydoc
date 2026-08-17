@@ -229,9 +229,28 @@ func pdfConvert(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOptio
     let tableOnlyPages = Set(pageTables.keys.filter { !pagesWithText.contains($0) })
     pdfMergeContinuationTables(&pageTables, tableOnlyPages: tableOnlyPages)
 
-    let markdown = pdfWriteMarkdown(
+    var markdown = pdfWriteMarkdown(
         analysis, options: options, pageTables: pageTables, structRoles: structRoles)
-    return (markdown, detection)
+
+    // **The last guard against confident nonsense.** A document the detector
+    // called text-based can still extract to rubbish: fonts that defeated
+    // every rung of the decode ladder yield a stream of symbols that is
+    // well-formed Markdown and means nothing. The reference throws that
+    // away rather than return it, and flags every page for OCR.
+    //
+    // Returning nothing is the honest answer. Returning the rubbish would
+    // look like a successful conversion to every caller that does not read
+    // it — which is the whole failure this project names first.
+    var result = detection
+    if result.pdfType == .textBased && pdfIsGarbageText(markdown) {
+        markdown = ""
+        if result.pageCount > 0 { result.pagesNeedingOcr = Array(1...result.pageCount) }
+        result.ocrRecommended = true
+        for page in result.pagesNeedingOcr where result.ocrReasonsByPage[page] == nil {
+            result.ocrReasonsByPage[page] = [PdfOcrReason.suspectedGarbledText]
+        }
+    }
+    return (markdown, result)
 }
 
 /// The pages of a document, in tree order.
