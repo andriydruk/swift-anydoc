@@ -4720,6 +4720,39 @@ readings**.
   *document* level, so one page can supply the template and another the
   text. They do not have to hold together, as the code first suggested.
 
+- **Wave 123 — the detector reaches the pipeline.** **78 of 78**
+  byte-identical, up from 70, and the `detector/` subdirectory is gone.
+
+  Wave 122 ported the classifier; this wires it in. `pdfMarkdown` now
+  detects first, and a **scanned or image-based document returns nothing at
+  all** rather than the stray caption extraction would scrape off it. That
+  fragment is the worse outcome: emitting nothing says the document needs
+  OCR, emitting three words says here is your document.
+
+  The measurable result is that wave 121's compromise dissolved. Eight
+  documents had been quarantined in `corpus/detector/` because the
+  reference's own detector called them scanned while this port extracted
+  their text — a divergence known and unfixable at the time. With the
+  detector wired, all eight match, so the subdirectory, the split in
+  `gen-pdf-oracles.sh` and the two-directory scan in three probe suites all
+  came back out. The five image documents are load-bearing: disabling the
+  short-circuit diverges exactly those five.
+
+  Two things were investigated and left alone deliberately. `mixed` still
+  extracts normally — the reference's invisible-text retry, which unlocks
+  OCR layers behind scanned images when the first attempt yields garbage,
+  needs an extraction variant this port does not have and is its own wave.
+  And `ratio-exactly-threshold.pdf` renders as a bare newline on **both**
+  sides despite the detector seeing three pages of prose; the two agree
+  exactly, so the fixture is sound and the cause is somewhere in the writer,
+  noted rather than chased.
+
+  One test expectation was wrong about the reference rather than the port:
+  an image page with **no text operator at all** is `scanned`, not
+  `imageBased`. The two differ by precisely that, and the corpus's
+  `image-small.pdf` sits in the other class only because it carries a
+  caption.
+
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
   under test is carried by some other path more often than not. The

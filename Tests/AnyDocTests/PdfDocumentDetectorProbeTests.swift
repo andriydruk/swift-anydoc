@@ -30,18 +30,15 @@ import Testing
     @Test func documentClassificationMatchesTheReference() throws {
         guard let root = ProcessInfo.processInfo.environment["ANYDOC_DETECTDOC_CORPUS"],
             !root.isEmpty,
-            let top = try? FileManager.default.contentsOfDirectory(atPath: root)
+            let names = try? FileManager.default.contentsOfDirectory(atPath: root)
         else { return }
-        let nested =
-            (try? FileManager.default.contentsOfDirectory(atPath: root + "/detector"))?
-            .map { "detector/" + $0 } ?? []
 
         var compared = 0
         var mismatches: [String] = []
         var kinds: Set<String> = []
         var reasons: Set<String> = []
 
-        for name in (top + nested).sorted() where name.hasSuffix(".pdf") {
+        for name in names.sorted() where name.hasSuffix(".pdf") {
             let path = root + "/" + name
             guard let expected = try? String(contentsOfFile: path + ".detectdoc", encoding: .utf8),
                 let data = FileManager.default.contents(atPath: path)

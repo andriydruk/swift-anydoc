@@ -220,19 +220,12 @@ def write(name, data):
     open(os.path.join(OUT, name + ".pdf"), "wb").write(data)
 
 
-# Documents the *detector* probes read but the end-to-end pipeline cannot yet
-# match. An image-backed page is the clearest case: the reference's detector
-# calls it scanned and emits no Markdown at all, while this port — which has
-# no document-level detector — extracts whatever text is there. Keeping them
-# in a subdirectory lets `--pageanalysis` and `--pagefonts` exercise the
-# image and vector-text fields without the end-to-end suite reporting a
-# divergence it already knows about and cannot fix yet.
-DETECTOR_OUT = os.path.join(OUT, "detector")
-os.makedirs(DETECTOR_OUT, exist_ok=True)
-
-
-def write_detector(name, data):
-    open(os.path.join(DETECTOR_OUT, name + ".pdf"), "wb").write(data)
+# The documents below were written to a `detector/` subdirectory in wave 121,
+# because the reference's detector calls an image-backed page scanned and
+# emits no Markdown while this port — then having no detector — extracted
+# whatever text was there. Wave 123 wired the detector into the pipeline and
+# all eight began matching, so the subdirectory is gone and they are ordinary
+# corpus documents again.
 
 
 def image_xobject(b, width, height):
@@ -1898,19 +1891,19 @@ print("generated %d pdfs in %s" % (len([f for f in os.listdir(OUT) if f.endswith
 
 # One small image: under the 500,000-pixel template threshold.
 b = Builder()
-write_detector("image-small", classic_trailer(
+write("image-small", classic_trailer(
     b, image_page(b, [(b"Im0", image_xobject(b, 100, 100))])))
 
 # One large image: 800,000 pixels, over the threshold on its own.
 b = Builder()
-write_detector("image-template", classic_trailer(
+write("image-template", classic_trailer(
     b, image_page(b, [(b"Im0", image_xobject(b, 1000, 800))])))
 
 # Twelve tiles of 200,000 pixels each. No single one is a template; 2.4M
 # together is four times the threshold, which is the tiled-scan rule — a
 # JBIG2 scanner emits pages exactly like this.
 b = Builder()
-write_detector("image-tiled", classic_trailer(b, image_page(
+write("image-tiled", classic_trailer(b, image_page(
     b, [(b"Im%d" % k, image_xobject(b, 500, 400)) for k in range(12)])))
 
 # An image nested inside a Form XObject, which only the recursion finds.
@@ -1932,7 +1925,7 @@ b.add(
     _page,
 )
 b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % _page, _pages)
-write_detector("image-in-form", classic_trailer(
+write("image-in-form", classic_trailer(
     b, b.add(b"<</Type/Catalog/Pages %d 0 R>>" % _pages)))
 
 # Text drawn as filled outlines: thousands of path operators, one text
@@ -1946,7 +1939,7 @@ _outlines = b"".join(
     for k in range(1200)
 )
 b = Builder()
-write_detector("vector-text", classic_trailer(b, base_document(
+write("vector-text", classic_trailer(b, base_document(
     b, content=_outlines + b"BT /F1 10 Tf 72 100 Td (.) Tj ET\n")))
 
 # A two-page document: an image-only first page and a text second page.
@@ -1974,7 +1967,7 @@ b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
       b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
       % (_pages, _font, _c2), _p2)
 b.add(b"<</Type/Pages/Kids[%d 0 R %d 0 R]/Count 2>>" % (_p1, _p2), _pages)
-write_detector("mixed-image-and-text", classic_trailer(
+write("mixed-image-and-text", classic_trailer(
     b, b.add(b"<</Type/Catalog/Pages %d 0 R>>" % _pages)))
 
 # A page that draws nothing at all: no text, no images, no paths. The only
@@ -1987,7 +1980,7 @@ _page = b.reserve()
 b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
       b"/Resources<<>>/Contents %d 0 R>>" % (_pages, _empty), _page)
 b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % _page, _pages)
-write_detector("empty-page", classic_trailer(
+write("empty-page", classic_trailer(
     b, b.add(b"<</Type/Catalog/Pages %d 0 R>>" % _pages)))
 
 # Five pages, three of them text: a ratio of exactly 0.60, which is the
@@ -2020,5 +2013,5 @@ for _k in range(5):
     _kids.append(_pg)
 b.add(b"<</Type/Pages/Kids[%s]/Count 5>>"
       % b" ".join(b"%d 0 R" % k for k in _kids), _pages)
-write_detector("ratio-exactly-threshold", classic_trailer(
+write("ratio-exactly-threshold", classic_trailer(
     b, b.add(b"<</Type/Catalog/Pages %d 0 R>>" % _pages)))

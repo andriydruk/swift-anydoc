@@ -28,6 +28,19 @@ func pdfMarkdown(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOpti
     throws -> String
 {
     var document = try PdfDocument(bytes: bytes)
+
+    // **Detection comes first, and can end the job.** A scanned or
+    // image-based document has no text layer worth extracting, and the
+    // reference returns no Markdown at all for one rather than the stray
+    // caption or page number that extraction would scrape off it. Emitting
+    // that fragment is worse than emitting nothing: it looks like a
+    // successful conversion of a document that was never converted.
+    //
+    // A *mixed* document still extracts — its text pages are real — and a
+    // text-based one is the ordinary path.
+    let detection = pdfDetectDocumentType(&document)
+    if detection.pdfType == .scanned || detection.pdfType == .imageBased { return "" }
+
     var lines: [PdfTextLine] = []
     var pageTables: [Int: [PdfPositionedMarkdown]] = [:]
 

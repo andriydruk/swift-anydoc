@@ -104,10 +104,7 @@ pdfprobe=$crate/target/release/pdfprobe
 # reads as "the reference refuses this one too".
 accepted=0
 rejected=0
-# `$corpus/detector/` holds documents only the detector probes read — the
-# end-to-end pipeline cannot match them yet, so they are kept out of its way.
-for f in "$corpus"/*.pdf "$corpus"/detector/*.pdf; do
-    [ -e "$f" ] || continue
+for f in "$corpus"/*.pdf; do
     if "$pdfprobe" "$f" > "$f.expected" 2>/dev/null; then
         accepted=$((accepted + 1))
     else
