@@ -111,6 +111,16 @@ func pdfConvert(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOptio
         // fragments a PDF draws them as.
         var items = pdfLayoutItems(pdfPageTextRuns(&document, page))
 
+        // The **items** were squared up by `pdfPageTextRuns`, where the
+        // reference does it too. The page's graphics have to follow them, or
+        // the rules and boxes stay in the old frame while the text moves.
+        var pageGraphicsRects = pageRects
+        var pageGraphicsLines = graphics.lines
+        if pdfPageTextIsRotated(items) {
+            pdfCorrectRotatedRects(&pageGraphicsRects)
+            pdfCorrectRotatedLines(&pageGraphicsLines)
+        }
+
         // Images come out of the stream **before** any layout runs. They are
         // placeholders, not prose: left in, they merge with neighbouring
         // text, take part in table detection and land in the Markdown as a
@@ -143,7 +153,7 @@ func pdfConvert(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOptio
         // them, so the flags are cleared wherever a plausible table claims
         // the item.
         pdfSuppressTableUnderlines(
-            &items, rects: pageRects, lines: graphics.lines)
+            &items, rects: pageGraphicsRects, lines: pageGraphicsLines)
 
         // Form-field values join *after* the passes above, which is the
         // reference's order — they are not text the page drew, so merging
@@ -171,7 +181,9 @@ func pdfConvert(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOptio
         // the membership test cannot be handed extents by mistake.
         let chartRegions = pdfDetectChartRegions(
             items: items,
-            rects: pageRects.map { (x: $0.x, y: $0.y, width: $0.width, height: $0.height) }
+            rects: pageGraphicsRects.map {
+                (x: $0.x, y: $0.y, width: $0.width, height: $0.height)
+            }
         ).map { PdfImageRegion(x0: $0.left, y0: $0.bottom, x1: $0.right, y1: $0.top) }
 
         // Two prose columns beside a single chart. The split is taken from
@@ -191,7 +203,7 @@ func pdfConvert(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOptio
 
         let pageBaseSize = pdfFontStatsFromItems(items).mostCommonSize
         let detected = pdfDetectPageTables(
-            items: items, rects: pageRects, lines: graphics.lines,
+            items: items, rects: pageGraphicsRects, lines: pageGraphicsLines,
             baseSize: pageBaseSize, structTables: structTables, page: number,
             chartRegions: chartRegions, chartProseColumns: chartProseColumns)
         if !detected.tables.isEmpty { pageTables[number] = detected.tables }
@@ -531,12 +543,15 @@ func pdfPageTextRuns(
         return pdfNormaliseCp1252Controls(out, useCp1252: useCp1252)
     }
 
-    return pdfExtractTextRuns(
+    var runs = pdfExtractTextRuns(
         operations, includeInvisible: includeInvisible, imageNames: imageNames,
         metrics: { metrics[$0] }
     ) { fontName, bytes in
         finish(pdfDecodeRun(fontName, bytes), fontName)
     }
+    // A sideways page is squared up here, before any consumer sees it.
+    if pdfRunsAreRotated(runs) { pdfCorrectRotatedRuns(&runs) }
+    return runs
 
     func pdfDecodeRun(_ fontName: String, _ bytes: [UInt8]) -> String {
         guard let cmap = cmaps[fontName], !cmap.isEmpty else {

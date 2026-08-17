@@ -5240,6 +5240,39 @@ readings**.
   API surface**, and building it would be a separate project rather than
   the next few waves of this one.
 
+- **Wave 137 — pages whose text is drawn sideways.** **89 of 89**
+  byte-identical.
+
+  The first real gap off wave 136's candidate list. A landscape table, a
+  rotated scan, a sideways appendix: the text matrix turns 90° and each line
+  runs *up* the page. Every layout stage below assumes text runs left to
+  right, so reading it uncorrected returns the lines in column order.
+
+  Ported: the per-run rotation vote — the combined matrix's x-axis pointing
+  down rather than across — and the axis swap for items, rectangles and
+  segments. It is a **vote, not a per-item test**: one rotated caption on an
+  upright page is a caption, and a page counts as rotated only at about two
+  thirds.
+
+  The detail that mattered most is the smallest. Rotated text loses its
+  width, because the advance is measured along an axis that now points down
+  and scales to nothing — so the reference *estimates* it from the character
+  count. Without that the word joiner has no gap to reason about and runs
+  the page's lines together with **no spaces at all**, which is exactly what
+  this port did: same order as the reference, no separators.
+
+  **The probes then caught a design error.** The correction was first
+  applied in the pipeline, and end-to-end stayed at 89 of 89 — but the
+  graphics dump still said `rotated=false` and the underline dump still
+  showed zero-width items, because both read a lower layer. The reference
+  corrects *inside extraction*, so every consumer sees squared-up
+  coordinates; moving it there fixed both. The end-to-end comparison could
+  not have found this, for the second wave running.
+
+  The graphics probe had been emitting a hardcoded `rotated=false` since
+  rotation was unported. It caught the day that stopped being true, which is
+  the entire purpose of leaving a placeholder inside a comparison rather
+  than omitting the field.
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
   under test is carried by some other path more often than not. The

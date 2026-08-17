@@ -41,6 +41,9 @@ struct PdfLayoutItem {
     /// not extracted — so it stands in for the reference's `ItemType::Image`
     /// until they are.
     var isImage = false
+    /// Drawn sideways — see `PdfRotatedPage.swift`. Carried per item because
+    /// a page is judged rotated by a vote across all of them.
+    var isRotated = false
     /// The marked-content id this item was drawn under, which is what links
     /// it to a node of the structure tree.
     ///
@@ -88,6 +91,7 @@ func pdfLayoutItems(_ runs: [PdfTextRun]) -> [PdfLayoutItem] {
             fontName: run.fontName, mcid: run.mcid)
         item.isImage = run.isImage
         item.height = run.height
+        item.isRotated = run.isRotated
         return item
     }
 }

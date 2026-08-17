@@ -93,7 +93,12 @@ import Testing
                 // The probe reports rotation, which this port does not
                 // implement; the corpus is all upright, so it is asserted
                 // rather than reproduced.
-                ours.append("#PAGE \(index + 1) rotated=false")
+                // The reference reports whether it squared up a sideways
+                // page. This was hardcoded `false` while rotation was
+                // unported, and the probe caught the day it stopped being
+                // true — which is what a placeholder in a comparison is for.
+                let rotated = pdfRunsAreRotated(pdfPageTextRuns(&document, page))
+                ours.append("#PAGE \(index + 1) rotated=\(rotated)")
                 for rectangle in pdfSelectedRectangles(graphics) {
                     ours.append(
                         "rect \(format(rectangle.x)) \(format(rectangle.y)) "

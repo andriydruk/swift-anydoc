@@ -32,6 +32,11 @@ struct PdfTextRun {
     /// The image's height. Text runs leave this zero; only an image needs a
     /// box rather than a baseline.
     var height: Float = 0
+    /// Whether this run was drawn sideways — the text matrix's x-axis points
+    /// mostly *down* the page rather than across it. Counted per run so the
+    /// page can be judged as a whole; one rotated caption on an upright page
+    /// is not a rotated page.
+    var isRotated = false
 }
 
 /// A 2-D affine transform as PDF writes it: [a b c d e f].
@@ -139,17 +144,19 @@ func pdfExtractTextRuns(
             // The advance is a text-space distance, so it scales the same
             // way the text matrix scales x.
             let deviceScale = (textMatrix.a * ctm.a + textMatrix.b * ctm.c).magnitude
-            runs.append(
-                PdfTextRun(
-                    text: text, x: placed.e, y: placed.f,
-                    // The effective size is the nominal size under the
-                    // combined transform's scale — see
-                    // `pdfEffectiveFontSize`, which is *not* simply the
-                    // vertical component.
-                    fontSize: pdfEffectiveFontSize(fontSize, placed),
-                    width: advance * deviceScale,
-                    fontName: fontName, renderingMode: renderingMode,
-                    mcid: currentMcid()))
+            var emitted = PdfTextRun(
+                text: text, x: placed.e, y: placed.f,
+                // The effective size is the nominal size under the
+                // combined transform's scale — see `pdfEffectiveFontSize`,
+                // which is *not* simply the vertical component.
+                fontSize: pdfEffectiveFontSize(fontSize, placed),
+                width: advance * deviceScale,
+                fontName: fontName, renderingMode: renderingMode,
+                mcid: currentMcid())
+            // The vote: the combined matrix's x-axis points across the page
+            // for upright text and down it for sideways text.
+            emitted.isRotated = placed.a.magnitude < placed.b.magnitude
+            runs.append(emitted)
         }
         textMatrix.e += advance * textMatrix.a
         textMatrix.f += advance * textMatrix.b

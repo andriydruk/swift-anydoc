@@ -2540,3 +2540,16 @@ def post_font_document(b):
 
 b = Builder()
 write("font-post-names", classic_trailer(b, post_font_document(b)))
+
+
+# A page whose text is drawn rotated 90° counter-clockwise: the text matrix is
+# [0 1 -1 0 x y], so each line runs up the page. A landscape table, a rotated
+# scan or a sideways appendix arrives like this, and reading it without
+# swapping the axes returns the lines in column order.
+_rotated_lines = b"".join(
+    b"BT /F1 12 Tf 0 1 -1 0 %d %d Tm (Rotated line %d of the sideways page.) Tj ET\n"
+    % (300 - _k * 18, 100, _k)
+    for _k in range(6)
+)
+b = Builder()
+write("rotated-text-page", classic_trailer(b, base_document(b, content=_rotated_lines)))
