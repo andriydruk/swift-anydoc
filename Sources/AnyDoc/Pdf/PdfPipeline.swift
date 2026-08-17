@@ -427,6 +427,9 @@ func pdfPageTextRuns(
     // The single-byte fallback is chosen per font by name: Windows-1252 is
     // right for most documents and exactly wrong for TeX and symbol fonts,
     // whose glyphs sit in the same byte range.
+    var baseFontNames = pdfPageFontProperty(&document, page) { document, font in
+        document.value(font, "BaseFont")?.asName.map { String(decoding: $0, as: UTF8.self) }
+    }
     var cp1252 = pdfPageFontProperty(&document, page) { document, font in
         let baseFont = document.value(font, "BaseFont")?.asName
             .map { String(decoding: $0, as: UTF8.self) }
@@ -444,6 +447,8 @@ func pdfPageTextRuns(
             cmaps[name] = parsePdfToUnicode(data)
         }
         if let widths = pdfParseFontWidths(&document, font) { metrics[name] = widths }
+        baseFontNames[name] = document.value(font, "BaseFont")?.asName
+            .map { String(decoding: $0, as: UTF8.self) }
         cp1252[name] = pdfShouldUseCp1252(
             baseFontName: document.value(font, "BaseFont")?.asName
                 .map { String(decoding: $0, as: UTF8.self) },
@@ -490,10 +495,29 @@ func pdfPageTextRuns(
     }
     for resources in pdfPageResourceChain(&document, page) { collectImageNames(resources) }
 
+    /// The three passes the reference applies to **every** decoded string,
+    /// whichever rung of the ladder produced it.
+    ///
+    /// They were ported and left unwired, so until now a curly quote from a
+    /// `/ToUnicode` map arrived as a C1 control character and a Symbol
+    /// font's bullets stayed in the private-use area. The order is the
+    /// reference's: strip the private-use offset, undo the TeX misnaming,
+    /// then re-read anything still sitting in C1.
+    func finish(_ text: String, _ fontName: String) -> String {
+        let useCp1252 = cp1252[fontName] ?? true
+        var out = pdfCleanSymbolPua(text)
+        out = pdfRemapTexCmMathSymbols(out, baseFontName: baseFontNames[fontName] ?? nil)
+        return pdfNormaliseCp1252Controls(out, useCp1252: useCp1252)
+    }
+
     return pdfExtractTextRuns(
         operations, includeInvisible: includeInvisible, imageNames: imageNames,
         metrics: { metrics[$0] }
     ) { fontName, bytes in
+        finish(pdfDecodeRun(fontName, bytes), fontName)
+    }
+
+    func pdfDecodeRun(_ fontName: String, _ bytes: [UInt8]) -> String {
         guard let cmap = cmaps[fontName], !cmap.isEmpty else {
             // No usable `ToUnicode`. A `/Differences` encoding is the next
             // authority: it says what glyph each code draws, which is the

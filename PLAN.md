@@ -5066,6 +5066,41 @@ readings**.
   measurement redirected the wave rather than filling it. Checking coverage
   before porting tests was five minutes well spent.
 
+- **Wave 132 — the three passes every decoded string was skipping.**
+  **85 of 85** byte-identical.
+
+  The reference ends `extract_text_from_operand` with three post-passes
+  applied to *every* result, whichever rung of the decode ladder produced
+  it. This port applied **none** of them. Two were ported and unwired —
+  found by the orphan sweep — and the third was never ported at all.
+
+  What that cost, in the order the reference applies them:
+
+  - **`clean_symbol_pua`.** Symbol and Wingdings `/ToUnicode` maps point
+    into the private-use area at `F0xx`. Without the pass a bullet stayed an
+    unrenderable private-use codepoint; the corpus document extracted as
+    nothing at all.
+  - **`remap_texcm_math_symbols`**, the one not ported. IntechOpen and
+    sibling academic pipelines name Computer Modern symbol glyphs after
+    Latin lookalikes — `equal` as `/onequarter` — and the generated
+    `/ToUnicode` propagates the wrong names faithfully. `=+(` extracted as
+    `¼þð`.
+  - **`normalize_cp1252_controls`.** A producer writing Windows-1252 bytes
+    into a `/ToUnicode` map puts smart punctuation in the C1 block, so a
+    right single quote arrived as U+0092 — an invisible control character in
+    the output. This is the one that matters most: Word and its imitators do
+    it constantly.
+
+  Three documents, one per pass, each load-bearing on its own: removing all
+  three diverges exactly those three files and nothing else.
+
+  The unit tests pin the **narrowness** as hard as the behaviour, because
+  two of the three are corrections for specific producer bugs. The TeX remap
+  fires only on `TeXCMMathsSymbols` — every other document writing a
+  fraction must keep it — and the C1 re-reading only where the font takes
+  the Windows-1252 reading at all, since a symbol font has real glyphs in
+  that range.
+
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
   under test is carried by some other path more often than not. The

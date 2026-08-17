@@ -228,3 +228,36 @@ func pdfChooseBestCmapDecode(primary: String, remapped: String) -> String {
     if remapped.isEmpty { return primary }
     return pdfScoreText(remapped) > pdfScoreText(primary) + 3 ? remapped : primary
 }
+
+/// Undo a known producer bug in `TeXCMMathsSymbols` subset fonts.
+///
+/// IntechOpen and sibling academic pipelines emit Computer Modern symbol
+/// glyphs under the names of Latin lookalikes — `equal` as `/onequarter`,
+/// `plus` as `/thorn` — and the generated `/ToUnicode` faithfully propagates
+/// the wrong names. The text then extracts as `¼` where the page shows `=`.
+///
+/// Keyed on the base font name, so it can only fire on text decoded through
+/// that font. A blanket substitution would corrupt every document that
+/// legitimately writes a fraction.
+func pdfRemapTexCmMathSymbols(_ text: String, baseFontName: String?) -> String {
+    guard let baseFontName else { return text }
+    // `rsplit_once`, so the *last* `+` separates the subset tag.
+    var name = baseFontName
+    if let plus = baseFontName.lastIndex(of: "+") {
+        name = String(baseFontName[baseFontName.index(after: plus)...])
+    }
+    guard name.asciiLowercased() == "texcmmathssymbols" else { return text }
+
+    var scalars = String.UnicodeScalarView()
+    for scalar in text.unicodeScalars {
+        switch scalar {
+        case "¼": scalars.append("=")
+        case "½": scalars.append("-")
+        case "þ": scalars.append("+")
+        case "ð": scalars.append("(")
+        case "Þ": scalars.append(")")
+        default: scalars.append(scalar)
+        }
+    }
+    return String(scalars)
+}

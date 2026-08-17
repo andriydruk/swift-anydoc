@@ -58,6 +58,8 @@ import Testing
         "detector-identityh-bare.pdf", "detector-identityh-unicode-w.pdf",
         "detector-type3-only.pdf", "detector-mixed-fonts.pdf",
         "decode-control-bytes.pdf", "chart-bars.pdf", "letterspaced-heading.pdf", "encrypted-aes-256.pdf", "table-continuation.pdf",
+        "decode-c1-controls.pdf", "decode-symbol-pua.pdf",
+        "decode-texcm-symbols.pdf",
         "image-small.pdf", "image-template.pdf", "image-tiled.pdf",
         "image-in-form.pdf", "vector-text.pdf", "empty-page.pdf",
         "mixed-image-and-text.pdf", "ratio-exactly-threshold.pdf",

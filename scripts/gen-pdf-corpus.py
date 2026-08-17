@@ -2286,3 +2286,95 @@ _p2 = continuation_table_page(b, _pages, _font, 4, 10)
 b.add(b"<</Type/Pages/Kids[%d 0 R %d 0 R]/Count 2>>" % (_p1, _p2), _pages)
 write("table-continuation", classic_trailer(
     b, b.add(b"<</Type/Catalog/Pages %d 0 R>>" % _pages)))
+
+
+# --- decode post-passes ------------------------------------------------------
+#
+# Three passes the reference applies to every decoded string, whichever rung
+# of the ladder produced it. Each needs its own document: they fire on
+# different evidence and none of the corpus reached any of them.
+
+# 1. A /ToUnicode map that lands in the C1 block. Word and its imitators emit
+#    curly quotes this way, so `0x92` decodes to U+0092 — a control character
+#    — where Windows-1252 says U+2019. Without the pass the Markdown carries
+#    an invisible control where the page shows an apostrophe.
+_c1_cmap = (
+    b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap\n"
+    b"1 begincodespacerange <00> <ff> endcodespacerange\n"
+    b"3 beginbfchar\n<41> <0041>\n<42> <0092>\n<43> <0043>\nendbfchar\n"
+    b"endcmap CMapName currentdict /CMap defineresource pop end end\n"
+)
+b = Builder()
+_cmap_id = b.stream(b"", _c1_cmap)
+_font = b.add(
+    b"<</Type/Font/Subtype/TrueType/BaseFont/Arial/FirstChar 65/LastChar 67"
+    b"/Widths[600 600 600]/ToUnicode %d 0 R>>" % _cmap_id
+)
+_content = b.stream(b"", b"BT /F1 12 Tf 72 700 Td (ABC) Tj ET\n")
+_page = b.reserve()
+_pages = b.reserve()
+b.add(
+    b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+    b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+    % (_pages, _font, _content),
+    _page,
+)
+b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % _page, _pages)
+write("decode-c1-controls", classic_trailer(
+    b, b.add(b"<</Type/Catalog/Pages %d 0 R>>" % _pages)))
+
+# 2. A Symbol font whose /ToUnicode points into the private-use area at
+#    F0xx — which is where Symbol and Wingdings maps live. F0A7 is a bullet
+#    and F041 is just 'A' with the offset still attached.
+_pua_cmap = (
+    b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap\n"
+    b"1 begincodespacerange <00> <ff> endcodespacerange\n"
+    b"3 beginbfchar\n<41> <F041>\n<42> <F0A7>\n<43> <F0FC>\nendbfchar\n"
+    b"endcmap CMapName currentdict /CMap defineresource pop end end\n"
+)
+b = Builder()
+_cmap_id = b.stream(b"", _pua_cmap)
+_font = b.add(
+    b"<</Type/Font/Subtype/TrueType/BaseFont/SymbolMT/FirstChar 65/LastChar 67"
+    b"/Widths[600 600 600]/ToUnicode %d 0 R>>" % _cmap_id
+)
+_content = b.stream(b"", b"BT /F1 12 Tf 72 700 Td (ABC) Tj ET\n")
+_page = b.reserve()
+_pages = b.reserve()
+b.add(
+    b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+    b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+    % (_pages, _font, _content),
+    _page,
+)
+b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % _page, _pages)
+write("decode-symbol-pua", classic_trailer(
+    b, b.add(b"<</Type/Catalog/Pages %d 0 R>>" % _pages)))
+
+# 3. A TeXCMMathsSymbols subset: the producer names the equals glyph
+#    `onequarter`, so a faithful /ToUnicode says U+00BC and the text extracts
+#    as `¼` where the page shows `=`.
+_tex_cmap = (
+    b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap\n"
+    b"1 begincodespacerange <00> <ff> endcodespacerange\n"
+    b"3 beginbfchar\n<41> <00BC>\n<42> <00FE>\n<43> <00F0>\nendbfchar\n"
+    b"endcmap CMapName currentdict /CMap defineresource pop end end\n"
+)
+b = Builder()
+_cmap_id = b.stream(b"", _tex_cmap)
+_font = b.add(
+    b"<</Type/Font/Subtype/Type1/BaseFont/ABCDEF+TeXCMMathsSymbols"
+    b"/FirstChar 65/LastChar 67/Widths[600 600 600]/ToUnicode %d 0 R>>" % _cmap_id
+)
+_content = b.stream(b"", b"BT /F1 12 Tf 72 700 Td (ABC) Tj ET\n")
+_page = b.reserve()
+_pages = b.reserve()
+b.add(
+    b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+    b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+    % (_pages, _font, _content),
+    _page,
+)
+b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % _page, _pages)
+write("decode-texcm-symbols", classic_trailer(
+    b, b.add(b"<</Type/Catalog/Pages %d 0 R>>" % _pages)))
