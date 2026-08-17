@@ -2469,3 +2469,74 @@ def cid_to_gid_document(b):
 
 b = Builder()
 write("font-cid-to-gid", classic_trailer(b, cid_to_gid_document(b)))
+
+
+# A font whose glyph names are the **only** route to its text: no
+# /ToUnicode, and a `post` 2.0 table with no `cmap` at all. A subset or
+# converted font arrives like this, and the names go through the Adobe
+# glyph list to recover the characters.
+def truetype_font_with_post(names, num_glyphs):
+    """A TrueType font carrying a `post` 2.0 table naming its glyphs and
+    **no** cmap at all — the only route to the text is the glyph names."""
+    def be16(v): return struct.pack(">H", v & 0xFFFF)
+    def be32(v): return struct.pack(">I", v & 0xFFFFFFFF)
+
+    # post format 2.0
+    index = b""
+    strings = b""
+    custom = 0
+    for gid in range(num_glyphs):
+        if gid in names:
+            index += be16(258 + custom)
+            n = names[gid].encode()
+            strings += bytes([len(n)]) + n
+            custom += 1
+        else:
+            index += be16(0)  # .notdef
+    post = (be32(0x00020000) + be32(0) + be16(0) + be16(0) + be32(0)
+            + be32(0) * 4 + be16(num_glyphs) + index + strings)
+
+    head = (be32(0x00010000) + be32(0) + be32(0) + be32(0x5F0F3CF5) + be16(0)
+            + be16(1000) + b"\x00" * 16 + be16(0) + be16(0) + be16(0) + be16(0)
+            + be16(0) + be16(0) + be16(0) + be16(0) + be16(0))
+    maxp = be32(0x00010000) + be16(num_glyphs) + b"\x00" * 26
+    hhea = be32(0x00010000) + b"\x00" * 30 + be16(num_glyphs)
+
+    tables = [(b"head", head), (b"hhea", hhea), (b"maxp", maxp), (b"post", post)]
+    tables.sort()
+    offset = 12 + 16 * len(tables)
+    directory = be32(0x00010000) + be16(len(tables)) + be16(0) + be16(0) + be16(0)
+    body = b""
+    for tag, data in tables:
+        padded = data + b"\x00" * ((4 - len(data) % 4) % 4)
+        directory += tag + be32(0) + be32(offset) + be32(len(data))
+        body += padded
+        offset += len(padded)
+    return directory + body
+
+
+def post_font_document(b):
+    font = truetype_font_with_post({3: "H", 4: "i", 5: "exclam", 6: "T"}, 8)
+    program = b.stream(b"/Length1 %d" % len(font), font)
+    descriptor = b.add(
+        b"<</Type/FontDescriptor/FontName/PostTest/Flags 4/ItalicAngle 0/Ascent 800"
+        b"/Descent -200/CapHeight 700/StemV 80/FontBBox[0 0 1000 1000]"
+        b"/FontFile2 %d 0 R>>" % program)
+    descendant = b.add(
+        b"<</Type/Font/Subtype/CIDFontType2/BaseFont/PostTest"
+        b"/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>"
+        b"/FontDescriptor %d 0 R/DW 500/CIDToGIDMap/Identity>>" % descriptor)
+    font_id = b.add(
+        b"<</Type/Font/Subtype/Type0/BaseFont/PostTest/Encoding/Identity-H"
+        b"/DescendantFonts[%d 0 R]>>" % descendant)
+    content_id = b.stream(b"", b"BT /F1 18 Tf 72 700 Td <0003000400050006> Tj ET\n")
+    page_id = b.reserve(); pages_id = b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+          b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+          % (pages_id, font_id, content_id), page_id)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+b = Builder()
+write("font-post-names", classic_trailer(b, post_font_document(b)))

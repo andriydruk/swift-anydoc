@@ -59,7 +59,7 @@ import Testing
         "detector-type3-only.pdf", "detector-mixed-fonts.pdf",
         "decode-control-bytes.pdf", "chart-bars.pdf", "letterspaced-heading.pdf", "encrypted-aes-256.pdf", "table-continuation.pdf",
         "decode-c1-controls.pdf", "decode-symbol-pua.pdf",
-        "decode-texcm-symbols.pdf", "garbled-text-document.pdf", "font-cid-to-gid.pdf",
+        "decode-texcm-symbols.pdf", "garbled-text-document.pdf", "font-cid-to-gid.pdf", "font-post-names.pdf",
         "image-small.pdf", "image-template.pdf", "image-tiled.pdf",
         "image-in-form.pdf", "vector-text.pdf", "empty-page.pdf",
         "mixed-image-and-text.pdf", "ratio-exactly-threshold.pdf",

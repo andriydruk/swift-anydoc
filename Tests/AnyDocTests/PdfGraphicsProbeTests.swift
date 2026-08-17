@@ -54,6 +54,7 @@ import Testing
     ///   fallback-less path.
     static let unwiredGaps: Set<String> = [
         "font-embedded-cmap.pdf", "font-opentype-cmap.pdf", "font-cid-to-gid.pdf",
+        "font-post-names.pdf",
 
     ]
 

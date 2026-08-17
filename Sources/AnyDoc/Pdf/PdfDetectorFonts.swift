@@ -181,8 +181,28 @@ func pdfEmbeddedFontHasCmap(_ document: inout PdfDocument, _ fontFile: PdfObject
     guard let stream = document.object(fontFile).asStream,
         let data = document.decodedStream(stream)
     else { return false }
-    guard let cmap = pdfParseTrueTypeCMap(data) else { return false }
-    return !cmap.isEmpty
+    // **The `cmap` table specifically**, not `pdfParseTrueTypeCMap`, which
+    // falls back to the `post` table's glyph names. The reference draws the
+    // same line: its detector asks `face.tables().cmap` while its extractor
+    // is free to recover text however it can.
+    //
+    // The distinction is not pedantic. A font readable only through glyph
+    // names is still one the *detector* should call undecodable, because
+    // that verdict feeds the OCR recommendation — and wiring the fallback
+    // in here silently flipped four probes while the Markdown went on
+    // matching.
+    guard let table = pdfTrueTypeTables(data)["cmap"] else { return false }
+    var result = PdfTrueTypeCMap()
+    guard let subtableCount = pdfReadCMapSubtableCount(data, table.lowerBound) else {
+        return false
+    }
+    for index in 0..<subtableCount {
+        let record = table.lowerBound + 4 + index * 8
+        guard let offset = pdfReadCMapSubtableOffset(data, record) else { break }
+        pdfParseCMapSubtable(data, table.lowerBound + offset, into: &result)
+        if !result.isEmpty { return true }
+    }
+    return false
 }
 
 /// Whether an Identity-H font can be decoded despite having no `/ToUnicode`.

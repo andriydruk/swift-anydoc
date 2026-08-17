@@ -80,7 +80,10 @@ func pdfTrueTypeTables(_ data: [UInt8]) -> [String: Range<Int>] {
 /// font's byte codes come through Macintosh Roman; a CID font's glyph ids
 /// come through Windows.
 func pdfParseTrueTypeCMap(_ data: [UInt8]) -> PdfTrueTypeCMap? {
-    guard let table = pdfTrueTypeTables(data)["cmap"] else { return nil }
+    guard let table = pdfTrueTypeTables(data)["cmap"] else {
+        // No `cmap` at all — the glyph names are the only thing left.
+        return pdfTrueTypeCMapFromGlyphNames(data)
+    }
     let base = table.lowerBound
     guard let subtableCount = pdfReadUInt16(data, base + 2), subtableCount <= 128 else {
         return nil
@@ -107,11 +110,16 @@ func pdfParseTrueTypeCMap(_ data: [UInt8]) -> PdfTrueTypeCMap? {
             best = (score, base + Int(offset))
         }
     }
-    guard let chosen = best else { return nil }
+    guard let chosen = best else { return pdfTrueTypeCMapFromGlyphNames(data) }
 
     var result = PdfTrueTypeCMap()
     pdfParseCMapSubtable(data, chosen.offset, into: &result)
-    return result.isEmpty ? nil : result
+    // A `cmap` that decoded nothing is no better than an absent one: a
+    // subset or symbol font often carries a table this parser cannot use,
+    // and its `post` names are then the only route to the text. The
+    // reference falls back at exactly this point, and only here — a real
+    // character mapping is always the better authority.
+    return result.isEmpty ? pdfTrueTypeCMapFromGlyphNames(data) : result
 }
 
 /// Parse one `cmap` subtable into the mapping.
@@ -205,4 +213,36 @@ func pdfParseCMapSubtable(_ data: [UInt8], _ offset: Int, into result: inout Pdf
     default:
         break
     }
+}
+
+/// How many `cmap` subtables a font declares, bounded against a corrupt
+/// count. Exposed so the detector can walk them without going through
+/// `pdfParseTrueTypeCMap`, which falls back to glyph names.
+func pdfReadCMapSubtableCount(_ data: [UInt8], _ base: Int) -> Int? {
+    guard offsetIsSane(base + 2, data), let count = readBigEndian16(data, base + 2),
+        count <= 128
+    else { return nil }
+    return Int(count)
+}
+
+/// One `cmap` record's offset, relative to the table.
+func pdfReadCMapSubtableOffset(_ data: [UInt8], _ record: Int) -> Int? {
+    guard offsetIsSane(record + 4, data), let offset = readBigEndian32(data, record + 4)
+    else { return nil }
+    return Int(offset)
+}
+
+private func offsetIsSane(_ offset: Int, _ data: [UInt8]) -> Bool {
+    offset >= 0 && offset < data.count
+}
+
+private func readBigEndian16(_ data: [UInt8], _ offset: Int) -> UInt16? {
+    guard offset >= 0, offset + 1 < data.count else { return nil }
+    return UInt16(data[offset]) << 8 | UInt16(data[offset + 1])
+}
+
+private func readBigEndian32(_ data: [UInt8], _ offset: Int) -> UInt32? {
+    guard offset >= 0, offset + 3 < data.count else { return nil }
+    return UInt32(data[offset]) << 24 | UInt32(data[offset + 1]) << 16
+        | UInt32(data[offset + 2]) << 8 | UInt32(data[offset + 3])
 }

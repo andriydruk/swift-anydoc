@@ -5165,10 +5165,45 @@ readings**.
   pin what the reference *does*, so a future wave starts from that instead
   of from the specification's plain reading.
 
-  Also noted in passing, unresolved: the reference drops a lone
-  one-character line where this port keeps it. That is a real difference in
-  line filtering, found by accident, and it has no corpus document of its
-  own yet.
+  Also noted in passing: the reference appeared to drop a lone
+  one-character line where this port kept it. **Wave 135 measured that and
+  it is false** — see below. The note is left here with its correction
+  rather than deleted, because a wrong observation recorded confidently is
+  exactly what wave 113's sweep was for.
+
+- **Wave 135 — glyph names as a last resort, and a correction.**
+  **88 of 88** byte-identical.
+
+  First, the correction. Wave 134 recorded that the reference drops a lone
+  one-character line. Four documents settled it: a lone letter is **kept**
+  by both sides at any size, a lone digit is dropped by both as a page
+  number, and the whole corpus shows zero divergences on the point. The
+  observation was wrong — it came from a transient state of a document
+  since redrawn — and the note now carries its own correction rather than
+  being quietly deleted.
+
+  Then the wave proper. `build_cmap_from_glyph_names` was on wave 134's
+  name-inventory list, and this time the measurement came *first*: a font
+  with a `post` table, no `cmap` and no `/ToUnicode` converts to `Hi!T` in
+  the reference and to nothing here. A real gap, confirmed before a line
+  was written.
+
+  The `post` table is ported, including the **standard Macintosh glyph
+  order** its format indexes into. That table is not optional decoration:
+  most Latin fonts name their glyphs entirely from it and store no strings
+  at all, so without it a `post` table is an array of numbers meaning
+  nothing.
+
+  **The interesting part was a mistake the probes caught.** Wiring the
+  fallback into `pdfParseTrueTypeCMap` changed the answer for *two*
+  consumers, and only one should have moved. The extractor may recover text
+  however it can; the **detector** must keep asking about the `cmap` table
+  specifically, because its verdict feeds the OCR recommendation — a font
+  readable only through glyph names is still one the detector calls
+  undecodable. The Markdown went on matching while `--pagefonts`,
+  `--pageanalysis` and `--detectdoc` all flipped. Three probes built in
+  waves 119–122 caught a regression the end-to-end comparison could not see,
+  which is the clearest argument yet for having built them.
 
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
