@@ -3203,3 +3203,39 @@ def gid_rescued_document(b):
 
 b = Builder()
 write("gid-tounicode-rescue", classic_trailer(b, gid_rescued_document(b)))
+
+
+# --- link annotations, which change nothing ----------------------------------
+
+# A `/Link` annotation with a URI action, over the text and away from it.
+#
+# **Both produce exactly the text without the link.** The reference extracts
+# link annotations into items, filters them by clip box, and routes them in
+# the writer into a `links` vector that is *never read* — `include_links` is
+# true by default and still nothing reaches the output. So a port that never
+# extracts links at all agrees with it.
+#
+# These exist to keep that agreement honest. `pdfPageLinks` is a complete
+# port with no caller, which looks exactly like a connection gap; without
+# these documents a later wave would wire it up and change output the
+# reference does not change.
+def link_annotation_document(b, rect):
+    font = b.add(SIMPLE_FONT)
+    body = b"".join(line(b"This is an ordinary paragraph line of body text here.", 700 - i * 16)
+                    for i in range(8))
+    body += line(b"Visit our website for details.", 700 - 8 * 16)
+    content_id = b.stream(b"/Filter/FlateDecode", flate(body))
+    annot_id = b.add(b"<</Type/Annot/Subtype/Link/Rect[" + rect +
+                     b"]/A<</Type/Action/S/URI/URI(https://example.com/docs)>>>>")
+    page_id, pages_id = b.reserve(), b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+          b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R/Annots[%d 0 R]>>"
+          % (pages_id, font, content_id, annot_id), page_id)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+b = Builder()
+write("link-over-text", classic_trailer(b, link_annotation_document(b, b"72 570 300 586")))
+b = Builder()
+write("link-apart", classic_trailer(b, link_annotation_document(b, b"72 300 300 316")))

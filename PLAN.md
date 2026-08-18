@@ -5728,3 +5728,39 @@ readings**.
   This also closed `gidB-tounicode` from wave 147, which was recorded there
   as a separate gap and turns out to be the same one. `gid-tounicode-rescue`
   is now in the corpus.
+
+- **Wave 150 — six orphans, none of them gaps.** **124 of 124**
+  byte-identical.
+
+  With the font family closed, the wave went back to the orphan list. Every
+  candidate examined turned out to be *correctly* uncalled, and each for a
+  different reason worth recording — an orphan list that never shrinks is
+  read as unfinished work, and this one is mostly finished work that looks
+  unfinished.
+
+  - **`pdfPageLinks`.** The most convincing false gap of the session. A
+    complete port of `extract_page_links`, with no caller, while the
+    reference calls its version at extraction and `include_links` is **true**
+    by default. It still changes nothing: the writer routes link items into a
+    `links` vector it never reads. Measured four ways — link over the text,
+    beside it, a `/Dest` link with no URI, a non-link annotation — all four
+    identical to the same document without the annotation.
+  - **`pdfDetectVectorGridTablesFromLines`.** Reachable in the reference only
+    from `detect_vector_grid_in_region_mem`, a public region API this port
+    does not expose. The wired `pdfDetectTablesFromLines` is the one the
+    Markdown path uses; these are two functions, not one ported twice.
+  - **`pdfIsCodeLike` and `pdfMarkdownFromLines`.** Both live inside
+    `to_markdown(text: &str)` — a plain-text-to-Markdown API. `detect_code`
+    is true by default and never runs on a PDF, because the PDF path uses the
+    items writer instead.
+  - **`pdfPageFontVerdicts`.** A duplicate by design. The detector computes
+    the same verdicts inside `pdfAnalyzePageContent`; this is the standalone
+    form the `--pagefonts` probe compares against, and it agrees on all 124.
+  - **`pdfBuildBlocks` and `pdfFlattenStructElements`.** Zero live callers in
+    the reference either.
+
+  `link-over-text.pdf` and `link-apart.pdf` are now in the corpus for the
+  same reason `gid-two-page.pdf` is: `pdfPageLinks` looks exactly like a
+  connection gap, and without these a later wave would wire it up and change
+  output the reference does not change. **A fixture that pins an absence is
+  worth as much as one that pins a behaviour.**
