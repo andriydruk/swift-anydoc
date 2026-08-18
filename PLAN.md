@@ -5541,3 +5541,38 @@ readings**.
   `pdfPageFontCMaps` became genuinely dead in the refactor and is deleted
   rather than left to pad the orphan list. Orphans 20 → 20, with different
   names on the list.
+
+- **Wave 145 — silence is not an answer.** **106 of 106** byte-identical.
+
+  The wave set out to port the two remaining fallback builders and found a
+  larger bug on the way to them.
+
+  **A CMap that decodes to nothing must hand the string on.** The reference's
+  decoder returns `None` when every candidate comes out empty, which sends
+  the bytes to the authorities below — the `/Differences` encoding, the
+  embedded font program, the single-byte last resort. This port returned the
+  empty string and stopped. Any document whose `/ToUnicode` fails to cover
+  the codes its content stream draws lost text that was recoverable, and the
+  narrower the CMap the worse it got. `cid-japan1-fallback.pdf`,
+  `cid-identity-ordering.pdf` and `cid-unijis.pdf` are the cases; all three
+  now match.
+
+  This was visible in wave 144 and passed over. The note there said the
+  reference "returns None in cases where ours returns an empty string" and
+  chose to preserve existing behaviour because the corpus stayed green. The
+  corpus stayed green because it held no document with a CMap too narrow for
+  its own content. **A deliberate deferral is only as good as the reason
+  attached to it, and "the tests still pass" was not a reason.**
+
+  **The CJK fallbacks are measured and deliberately not ported.**
+  `build_cmap_from_builtin_cmap` reads `.bcmap` files from disk — 1.6 MB of
+  them, found through a path baked in at compile time. Two things decided it.
+  A document with `Ordering (Japan1)` and Identity-H produced *identical*
+  output on both sides, so the branch does not fire where it looks like it
+  should. And a document with a predefined `90ms-RKSJ-H` encoding makes the
+  reference emit **two U+FFFD replacement characters and nothing else** —
+  reproducing that means parsing predefined CMap names and taking on the data
+  dependency in exchange for garbage. Both documents are described in
+  `gen-pdf-corpus.py` and neither is generated: the corpus is a set of files
+  that must all match, and the end-to-end suite fails on any divergence
+  rather than tallying it.

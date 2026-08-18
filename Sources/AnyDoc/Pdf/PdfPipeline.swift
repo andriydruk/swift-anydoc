@@ -590,65 +590,17 @@ func pdfPageTextRuns(
 
     func pdfDecodeRun(_ fontName: String, _ bytes: [UInt8]) -> String {
         guard let entry = entries[fontName], !entry.primary.isEmpty else {
-            // No usable `ToUnicode`. A `/Differences` encoding is the next
-            // authority: it says what glyph each code draws, which is the
-            // only thing that makes a re-encoded font readable.
-            let useCp1252 = cp1252[fontName] ?? true
-            if let encoding = encodings[fontName], !encoding.map.isEmpty {
-                var out = ""
-                for byte in bytes {
-                    if let scalar = encoding.map[byte] {
-                        out.unicodeScalars.append(scalar)
-                    } else if byte >= 0x20 {
-                        out.unicodeScalars.append(pdfDecodeSingleByte(byte, useCp1252: useCp1252))
-                    }
-                    // Below 0x20 the byte is dropped, not rendered. See the
-                    // last resort below for why.
-                }
-                return out
-            }
-            // Then the embedded font program's own `cmap`, which is what
-            // recovers a subset font that carries no `ToUnicode`. Its keys
-            // are glyph ids, and an Identity encoding makes the two-byte
-            // code the glyph id.
-            if let program = programs[fontName], !program.isEmpty {
-                var out = ""
-                var index = 0
-                while index + 1 < bytes.count {
-                    let glyph = UInt16(bytes[index]) << 8 | UInt16(bytes[index + 1])
-                    if let scalar = program.glyphToCharacter[glyph] {
-                        out.unicodeScalars.append(scalar)
-                    }
-                    index += 2
-                }
-                if !out.isEmpty { return out }
-            }
-            // Failing all three, each byte is read on its own through the
-            // Windows-1252 or Latin-1 table — **and a byte below 0x20 is
-            // dropped entirely**.
-            //
-            // That last rule is the difference between failing loudly and
-            // failing invisibly. An undecodable CID font's codes are not
-            // characters, and rendering them puts literal NULs and control
-            // codes into the Markdown, which no reader sees and every
-            // downstream check treats as text. The reference drops them:
-            // `<0001>` yields nothing at all, `<00410042>` yields `AB`.
-            // Measured against it byte by byte, and it is not specific to
-            // CID fonts — a simple font drawing `41 00 42 02` gives `AB`
-            // there too.
-            var out = String.UnicodeScalarView()
-            for byte in bytes where byte >= 0x20 {
-                out.append(pdfDecodeSingleByte(byte, useCp1252: useCp1252))
-            }
-            return String(out)
+            return pdfDecodeWithoutCMap(fontName, bytes)
         }
+
         let decodedPrimary = pdfDecodeThroughCMap(entry.primary, bytes)
         let key = toUnicodeRefs[fontName] ?? 0
 
         guard let remapped = entry.remapped else {
             // No remapped candidate. The fallback still gets a hearing, but
-            // only against a primary that decoded something.
-            guard !decodedPrimary.isEmpty else { return decodedPrimary }
+            // only against a primary that decoded something; a primary that
+            // decoded nothing hands the string to the ladder.
+            guard !decodedPrimary.isEmpty else { return pdfDecodeWithoutCMap(fontName, bytes) }
             if let fallback = entry.fallback {
                 let decodedFallback = pdfDecodeThroughCMap(fallback, bytes)
                 if pdfPrefersFallback(decodedFallback, over: decodedPrimary, byteCount: bytes.count)
@@ -686,7 +638,71 @@ func pdfPageTextRuns(
                 decoded = decodedFallback
             }
         }
-        return decoded
+        return decoded.isEmpty ? pdfDecodeWithoutCMap(fontName, bytes) : decoded
+    }
+
+    /// The rest of the ladder, for a font with no usable `ToUnicode` — and
+    /// for one whose CMaps decoded to nothing.
+    ///
+    /// **That second case is the reference's shape and it is easy to miss.**
+    /// Its decoder returns `None` when every CMap candidate comes out empty,
+    /// which sends the caller on to the authorities below rather than
+    /// accepting the silence. Returning the empty string instead loses text
+    /// that the `/Differences` encoding or the embedded font program would
+    /// have recovered — a page that extracts as nothing where the reference
+    /// reads it.
+    func pdfDecodeWithoutCMap(_ fontName: String, _ bytes: [UInt8]) -> String {
+        // No usable `ToUnicode`. A `/Differences` encoding is the next
+        // authority: it says what glyph each code draws, which is the
+        // only thing that makes a re-encoded font readable.
+        let useCp1252 = cp1252[fontName] ?? true
+        if let encoding = encodings[fontName], !encoding.map.isEmpty {
+            var out = ""
+            for byte in bytes {
+                if let scalar = encoding.map[byte] {
+                    out.unicodeScalars.append(scalar)
+                } else if byte >= 0x20 {
+                    out.unicodeScalars.append(pdfDecodeSingleByte(byte, useCp1252: useCp1252))
+                }
+                // Below 0x20 the byte is dropped, not rendered. See the
+                // last resort below for why.
+            }
+            return out
+        }
+        // Then the embedded font program's own `cmap`, which is what
+        // recovers a subset font that carries no `ToUnicode`. Its keys
+        // are glyph ids, and an Identity encoding makes the two-byte
+        // code the glyph id.
+        if let program = programs[fontName], !program.isEmpty {
+            var out = ""
+            var index = 0
+            while index + 1 < bytes.count {
+                let glyph = UInt16(bytes[index]) << 8 | UInt16(bytes[index + 1])
+                if let scalar = program.glyphToCharacter[glyph] {
+                    out.unicodeScalars.append(scalar)
+                }
+                index += 2
+            }
+            if !out.isEmpty { return out }
+        }
+        // Failing all three, each byte is read on its own through the
+        // Windows-1252 or Latin-1 table — **and a byte below 0x20 is
+        // dropped entirely**.
+        //
+        // That last rule is the difference between failing loudly and
+        // failing invisibly. An undecodable CID font's codes are not
+        // characters, and rendering them puts literal NULs and control
+        // codes into the Markdown, which no reader sees and every
+        // downstream check treats as text. The reference drops them:
+        // `<0001>` yields nothing at all, `<00410042>` yields `AB`.
+        // Measured against it byte by byte, and it is not specific to
+        // CID fonts — a simple font drawing `41 00 42 02` gives `AB`
+        // there too.
+        var out = String.UnicodeScalarView()
+        for byte in bytes where byte >= 0x20 {
+            out.append(pdfDecodeSingleByte(byte, useCp1252: useCp1252))
+        }
+        return String(out)
     }
 }
 

@@ -2951,3 +2951,56 @@ b = Builder()
 write("cid-truetype-promoted", classic_trailer(b, cid_truetype_document(b, True)))
 b = Builder()
 write("cid-truetype-absent", classic_trailer(b, cid_truetype_document(b, False)))
+
+
+# --- CID fonts whose CMap covers none of the codes drawn -------------------
+
+# A `/ToUnicode` that maps one CID, on a page that draws four others. The
+# CMap decodes to nothing, and what happens next is the point: the reference
+# hands the string to the rest of its ladder rather than accepting the
+# silence, so the bytes come back through the single-byte last resort as
+# `"#$%`. A reader that returns the empty string here loses text that a
+# `/Differences` encoding or an embedded font program would have recovered.
+CID_SPARSE_CMAP = tounicode_cmap(b"1 beginbfchar\n<0001> <0020>\nendbfchar\n")
+
+
+def cid_ordering_document(b, ordering, encoding=b"Identity-H", codes=b"0022002300240025",
+                          tounicode=True):
+    extra = b""
+    if tounicode:
+        cmap_id = b.stream(b"/Filter/FlateDecode", flate(CID_SPARSE_CMAP))
+        extra = b"/ToUnicode %d 0 R" % cmap_id
+    descendant = b.add(
+        b"<</Type/Font/Subtype/CIDFontType0/BaseFont/KozMin"
+        b"/CIDSystemInfo<</Registry(Adobe)/Ordering(" + ordering + b")/Supplement 6>>"
+        b"/DW 1000>>")
+    font_id = b.add(
+        b"<</Type/Font/Subtype/Type0/BaseFont/KozMin/Encoding/" + encoding +
+        b"/DescendantFonts[%d 0 R]" % descendant + extra + b">>")
+    content_id = b.stream(
+        b"/Filter/FlateDecode", flate(b"BT /F1 24 Tf 72 700 Td <" + codes + b"> Tj ET\n"))
+    page_id, pages_id = b.reserve(), b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+          b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+          % (pages_id, font_id, content_id), page_id)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+b = Builder()
+write("cid-japan1-fallback", classic_trailer(b, cid_ordering_document(b, b"Japan1")))
+b = Builder()
+write("cid-identity-ordering", classic_trailer(b, cid_ordering_document(b, b"Identity")))
+b = Builder()
+write("cid-unijis", classic_trailer(
+    b, cid_ordering_document(b, b"Japan1", encoding=b"UniJIS-UCS2-H", codes=b"30423044")))
+
+# A predefined CMap such as `90ms-RKSJ-H` is **not** generated here, and the
+# omission is deliberate. The reference reads those bytes as two-byte codes
+# and emits U+FFFD for every code it cannot map, so its entire output for such
+# a file is a pair of replacement characters; this port reads the bytes singly
+# and answers `AB`. Matching it means parsing predefined CMap names and
+# shipping the 1.6 MB of `.bcmap` tables the reference loads from disk. That
+# is a data dependency worth deciding on deliberately rather than acquiring in
+# order to reproduce two replacement characters. Measured in wave 145 and
+# recorded in PLAN.md; the corpus stays a set of files that must all match.
