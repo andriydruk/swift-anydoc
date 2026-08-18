@@ -5471,3 +5471,35 @@ readings**.
   being ported on the strength of this wave's success. The `fallback`
   candidate in `extractor/fonts.rs` is out for the same reason: not measured
   yet.
+
+- **Wave 143 — the table that was not inert.** **101 of 101**
+  byte-identical.
+
+  Wave 142 deferred the `/CIDToGIDMap` branch of `try_remap_subset_cmap` on
+  the strength of wave 134's recorded hypothesis: that the repair was inert
+  because `build_cmap_from_truetype` hands back a code-keyed map. Measured
+  directly, that hypothesis is **wrong for this path** — and right to have
+  been written down as unverified rather than acted on.
+
+  It was about a different path. Wave 134 applied the table to the embedded
+  font program's own `cmap` (`pdfApplyCidToGidMap`, still unwired). This
+  branch re-keys the `/ToUnicode` instead. Two repairs sharing a table and a
+  name, and the note conflating them nearly cost a real feature.
+
+  **The fixture is the wave.** A `/CIDToGIDMap` that ascends would leave both
+  repairs agreeing — the explicit table and the sequential guess would give
+  the same answer, and no output could say which ran. So the table reverses:
+  CID 1 draws glyph 103, CID 2 glyph 102, and so on. The reference reads
+  `PLEH` where the sequential remap reads `HELP`, and the pair
+  `cid-to-gid-repair.pdf` / `cid-to-gid-absent.pdf` differs in that table
+  alone. Before wave 142 both documents extracted as empty on both sides,
+  so this divergence *could not have been seen* — closing one gap is what
+  made the next one measurable.
+
+  The ordering is the substance: an explicit table is **authority** and the
+  sequential renumbering is a **guess**, so the table is tried first and the
+  guess only runs when there is no table or it maps nothing. Both still
+  arrive as scored candidates rather than replacements.
+
+  `pdfCidToGidMap` was already ported and orphaned, and needed no changes —
+  the parser was right, nothing had ever called it. Orphans 22 → 20.

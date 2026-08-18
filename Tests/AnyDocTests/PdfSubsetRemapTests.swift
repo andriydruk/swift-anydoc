@@ -87,6 +87,43 @@ private func toUnicodeCMap(_ body: String) -> PdfToUnicodeCMap {
         #expect(empty.maxSourceCid == nil)
     }
 
+    /// The explicit table re-keys the map exactly: array index is the CID,
+    /// its entry the glyph whose text that CID takes.
+    @Test func anExplicitCidToGidTableReKeysTheMap() throws {
+        let cmap = toUnicodeCMap(
+            """
+            4 beginbfchar
+            <0064> <0048>
+            <0065> <0045>
+            <0066> <004C>
+            <0067> <0050>
+            endbfchar
+            """)
+        // CID 0 -> glyph 0 (unmapped), 1 -> 103, 2 -> 102, 3 -> 101, 4 -> 100.
+        let rekeyed = try #require(cmap.rekeyedByCidToGid([0, 103, 102, 101, 100]))
+
+        #expect(rekeyed.charMap[1] == "P")
+        #expect(rekeyed.charMap[2] == "L")
+        #expect(rekeyed.charMap[3] == "E")
+        #expect(rekeyed.charMap[4] == "H")
+        // Glyph 0 is not in the CMap, so CID 0 gets nothing rather than a
+        // placeholder.
+        #expect(rekeyed.charMap[0] == nil)
+        #expect(rekeyed.codeByteLength == 2)
+    }
+
+    /// A table pointing at glyphs the CMap never mentions yields nothing,
+    /// which is what sends the driver on to the sequential guess.
+    @Test func aTableThatMatchesNothingYieldsNoCandidate() {
+        let cmap = toUnicodeCMap(
+            """
+            1 beginbfchar
+            <0064> <0048>
+            endbfchar
+            """)
+        #expect(cmap.rekeyedByCidToGid([0, 7, 8, 9]) == nil)
+    }
+
     /// The decision holds until 240 bytes have been sampled, then sticks.
     ///
     /// The remapped sample is English and the primary is not, so the sample

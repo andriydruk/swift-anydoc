@@ -88,13 +88,18 @@ func pdfWArrayCoversCid(
 
 /// The remapped candidate for a font's CMap, or `nil` when the CMap is fine.
 ///
-/// `/CIDToGIDMap` is **deliberately not consulted here.** The reference tries
-/// it first and falls through to this sequential remap when it fails; wave
-/// 134 wired that repair and agreement got *worse*, with the hypothesis
-/// recorded in PLAN.md that `build_cmap_from_truetype` hands back a
-/// code-keyed map which makes the repair inert. That is still unverified, so
-/// the branch stays out until it can be measured on its own — the sequential
-/// path is the one this wave demonstrated a divergence for.
+/// **Two repairs, tried in order.** An explicit `/CIDToGIDMap` is authority:
+/// the font states which glyph each CID draws, so a glyph-keyed `/ToUnicode`
+/// can be re-keyed exactly. Only when there is no such table, or it yields
+/// nothing, does the sequential *guess* apply. `cid-to-gid-repair.pdf` and
+/// `cid-to-gid-absent.pdf` differ in that table alone and read `PLEH` and
+/// `HELP` respectively — the order matters, and a fixture with an ascending
+/// table could not have shown it.
+///
+/// Wave 134 recorded a hypothesis that this repair was inert. That was about
+/// a different path — applying the table to the embedded font program's own
+/// `cmap`, which is `pdfApplyCidToGidMap` and remains unwired. For *this*
+/// path the hypothesis is refuted by measurement.
 func pdfTryRemapSubsetCmap(
     _ document: inout PdfDocument, _ font: PdfDictionary, _ cmap: PdfToUnicodeCMap
 ) -> PdfToUnicodeCMap? {
@@ -104,6 +109,15 @@ func pdfTryRemapSubsetCmap(
 
     guard let minimum = cmap.minSourceCid, minimum > 2 else { return nil }
     guard let cidFont = pdfDescendantCidFont(&document, font) else { return nil }
+
+    // The explicit table first. A failure here falls through to the guess
+    // rather than giving up — the table may be present and useless.
+    if let cidToGid = pdfCidToGidMap(&document, cidFont),
+        let rekeyed = cmap.rekeyedByCidToGid(cidToGid)
+    {
+        return rekeyed
+    }
+
     guard let start = pdfWArrayStartCid(&document, cidFont), start <= 2 else { return nil }
 
     // The `/W` array reaching the CMap's own top means the two agree.

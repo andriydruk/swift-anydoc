@@ -86,6 +86,30 @@ struct PdfToUnicodeCMap {
         [charMap.keys.max(), ranges.map(\.end).max()].compactMap { $0 }.max()
     }
 
+    /// Re-key this map through a `/CIDToGIDMap`, reading it as glyph-keyed.
+    ///
+    /// The other repair in this family. Where `remapToSequential` *guesses*
+    /// that the glyphs were renumbered in order, this one is told: the font
+    /// carries an explicit CID-to-glyph table, so a `/ToUnicode` keyed by
+    /// glyph id can be turned into one keyed by CID exactly. The array index
+    /// is the CID and its entry the glyph, so each CID takes whatever text
+    /// the map holds for its glyph.
+    ///
+    /// `nil` when nothing lines up, which sends the caller on to the
+    /// sequential guess.
+    func rekeyedByCidToGid(_ cidToGid: [UInt16]) -> PdfToUnicodeCMap? {
+        var rekeyed = PdfToUnicodeCMap()
+        for (cid, glyph) in cidToGid.enumerated() {
+            guard let text = lookup(UInt32(glyph)) else { continue }
+            rekeyed.charMap[UInt16(truncatingIfNeeded: cid)] = text
+        }
+        guard !rekeyed.charMap.isEmpty else { return nil }
+        // Two bytes, as the reference sets it: this repair only ever applies
+        // to an Identity-H CID font.
+        rekeyed.codeByteLength = 2
+        return rekeyed
+    }
+
     /// Renumber every mapping onto sequential CIDs starting at 1.
     ///
     /// A subsetting producer renumbers the glyphs it keeps into 1, 2, 3, …

@@ -2858,3 +2858,46 @@ b = Builder()
 write("cid-subset-remap-covered", classic_trailer(
     b, cid_document(b, CID_SUBSET_REMAP, b"BT /F1 24 Tf 72 700 Td <0001000200030004> Tj ET\n",
                     widths=b"/W [0 100 500 100 [500 500 500 500]]")))
+
+
+# A `/ToUnicode` keyed by the font's original glyph ids, plus an explicit
+# `/CIDToGIDMap` that says which glyph each CID draws. The table is authority
+# and is applied before the sequential guess.
+#
+# The table is deliberately **non-monotonic** — CID 1 draws glyph 103, CID 2
+# glyph 102, and so on — so the two repairs disagree: applying the table reads
+# PLEH where the sequential remap reads HELP. An ascending table would leave
+# both branches agreeing and the fixture unable to say which one ran.
+CID_GID_CMAP = tounicode_cmap(
+    b"4 beginbfchar\n<0064> <0048>\n<0065> <0045>\n<0066> <004C>\n<0067> <0050>\n"
+    b"endbfchar\n")
+CID_TO_GID_REVERSED = bytes([0, 0, 0, 103, 0, 102, 0, 101, 0, 100])
+
+
+def cid_to_gid_document(b, with_map):
+    cmap_id = b.stream(b"/Filter/FlateDecode", flate(CID_GID_CMAP))
+    extra = b""
+    if with_map:
+        table = b.stream(b"/Filter/FlateDecode", flate(CID_TO_GID_REVERSED))
+        extra = b"/CIDToGIDMap %d 0 R" % table
+    descendant = b.add(
+        b"<</Type/Font/Subtype/CIDFontType2/BaseFont/Test"
+        b"/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>"
+        b"/DW 500 /W [0 [500]]" + extra + b">>")
+    font_id = b.add(
+        b"<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-H"
+        b"/DescendantFonts[%d 0 R]/ToUnicode %d 0 R>>" % (descendant, cmap_id))
+    content_id = b.stream(
+        b"/Filter/FlateDecode", flate(b"BT /F1 24 Tf 72 700 Td <0001000200030004> Tj ET\n"))
+    page_id, pages_id = b.reserve(), b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+          b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+          % (pages_id, font_id, content_id), page_id)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+b = Builder()
+write("cid-to-gid-repair", classic_trailer(b, cid_to_gid_document(b, True)))
+b = Builder()
+write("cid-to-gid-absent", classic_trailer(b, cid_to_gid_document(b, False)))
