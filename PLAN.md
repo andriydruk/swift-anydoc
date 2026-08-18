@@ -5576,3 +5576,44 @@ readings**.
   `gen-pdf-corpus.py` and neither is generated: the corpus is a set of files
   that must all match, and the end-to-end suite fails on any divergence
   rather than tallying it.
+
+- **Wave 146 — a byte is not a character.** **111 of 111** byte-identical.
+
+  The wave began on `pdfDecodeSymbolFallback`, an orphan the reference calls
+  twice. Probing a Wingdings document found something larger and behind it.
+
+  **A simple font with no `/Encoding` is read as `StandardEncoding`, and this
+  port was reading Latin-1.** In StandardEncoding `0xE9` is `Ø`, `0xB7` is a
+  bullet, and 107 of the 256 codes mean nothing and are dropped. Latin-1 says
+  `é`, a middle dot, and renders all 256. Every simple font in every document
+  without an explicit encoding was affected, and the corpus could not see it
+  because all three tables agree across printable ASCII — which is all the
+  existing fixtures ever drew.
+
+  Three tables are now implemented — Standard, WinAnsi, MacRoman — selected
+  by `/Encoding` or by `/BaseEncoding` inside it, with `/Differences` overlaid
+  on top and unassigned codes dropped.
+
+  **The tables were derived by measurement, not transcription.** lopdf stores
+  each code as an index into a glyph-name table; hand-copying 768 entries
+  through that indirection would introduce errors nothing would catch. So
+  1024 single-byte documents were generated — four encodings by 256 codes —
+  and the reference was asked what each produced. The port now reproduces all
+  1024 exactly. That sweep also proved the default: `enc-none` matched
+  `enc-std` on every one of the 256 codes, rather than on the handful a
+  spot-check would have covered.
+
+  Two things worth keeping. The first fixture drew `0xA7` and `0xFC` and the
+  reference dropped `0xFC` — a one-character difference that looked like a
+  quirk and was the whole finding; **the byte that produces nothing is as
+  informative as the byte that produces something.** And a unit test asserting
+  the three tables agree across printable ASCII *failed*: StandardEncoding
+  puts `\u{2019}` at code 39 and `\u{2018}` at code 96, where the others put
+  the ASCII apostrophe and backtick. The tables were right and the assumption
+  was wrong.
+
+  `pdfDecodeSymbolFallback` remains an orphan. The Wingdings document that
+  started the wave takes StandardEncoding like any other simple font — the
+  base font's name selects no symbol table on this path — so the fallback
+  still has no demonstrated caller. `enc-symbol-name.pdf` pins that, because
+  it looks as though it should.

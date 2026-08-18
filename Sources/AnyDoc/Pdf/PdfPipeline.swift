@@ -427,6 +427,34 @@ func pdfPageFontPrograms(_ document: inout PdfDocument, _ page: PdfDictionary)
     }
 }
 
+/// The base encoding table of a page's **simple** fonts, by resource name.
+///
+/// Type 0 fonts are absent by design: their codes are CIDs and go through a
+/// CMap, so a byte-indexed table would be nonsense there. For everything
+/// else this is the first authority on what a byte means — and a font that
+/// names no encoding still gets one, `StandardEncoding`, which is where this
+/// port previously read Latin-1 instead.
+func pdfPageFontBaseEncodings(_ document: inout PdfDocument, _ page: PdfDictionary)
+    -> [String: [UInt8: String]]
+{
+    pdfPageFontProperty(&document, page) { document, font in
+        guard document.value(font, "Subtype")?.asName
+            .map({ String(decoding: $0, as: UTF8.self) }) != "Type0"
+        else { return nil }
+
+        // `/Encoding` is either the name itself or a dictionary whose
+        // `/BaseEncoding` names it; a dictionary with only `/Differences`
+        // leaves the base at the default.
+        var name = document.value(font, "Encoding")?.asName
+            .map { String(decoding: $0, as: UTF8.self) }
+        if name == nil, let dictionary = document.value(font, "Encoding")?.asDictionary {
+            name = document.value(dictionary, "BaseEncoding")?.asName
+                .map { String(decoding: $0, as: UTF8.self) }
+        }
+        return pdfBaseEncodingTable(named: name)
+    }
+}
+
 /// The `/Differences` encodings of a page's fonts, by resource name.
 ///
 /// A simple font may say that code 65 draws `bullet` rather than `A`.
@@ -488,6 +516,7 @@ func pdfPageTextRuns(
     var decisions = PdfCMapDecisions()
     var metrics = pdfPageFontMetrics(&document, page)
     var encodings = pdfPageFontEncodings(&document, page)
+    var baseEncodings = pdfPageFontBaseEncodings(&document, page)
     let programs = pdfPageFontPrograms(&document, page)
     // The single-byte fallback is chosen per font by name: Windows-1252 is
     // right for most documents and exactly wrong for TeX and symbol fonts,
@@ -652,10 +681,26 @@ func pdfPageTextRuns(
     /// have recovered — a page that extracts as nothing where the reference
     /// reads it.
     func pdfDecodeWithoutCMap(_ fontName: String, _ bytes: [UInt8]) -> String {
-        // No usable `ToUnicode`. A `/Differences` encoding is the next
-        // authority: it says what glyph each code draws, which is the
-        // only thing that makes a re-encoded font readable.
+        // No usable `ToUnicode`. For a simple font the encoding is the next
+        // authority: the base table says what each byte means, and
+        // `/Differences` overrides individual codes on top of it. A code
+        // neither of them names is **dropped** — StandardEncoding leaves 107
+        // of the 256 unassigned, and rendering them as Latin-1 invents
+        // characters the document never contained.
         let useCp1252 = cp1252[fontName] ?? true
+        if let base = baseEncodings[fontName] {
+            let differences = encodings[fontName]?.map
+            var out = ""
+            for byte in bytes {
+                if let scalar = differences?[byte] {
+                    out.unicodeScalars.append(scalar)
+                } else if let text = base[byte] {
+                    out += text
+                }
+            }
+            return out
+        }
+        // A Type 0 font reaches here with codes that are CIDs, not bytes.
         if let encoding = encodings[fontName], !encoding.map.isEmpty {
             var out = ""
             for byte in bytes {

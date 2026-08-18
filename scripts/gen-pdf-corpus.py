@@ -3004,3 +3004,39 @@ write("cid-unijis", classic_trailer(
 # is a data dependency worth deciding on deliberately rather than acquiring in
 # order to reproduce two replacement characters. Measured in wave 145 and
 # recorded in PLAN.md; the corpus stays a set of files that must all match.
+
+
+# --- simple-font base encodings ---------------------------------------------
+
+# The same seven bytes through each base encoding. `0xE9` is the tell: `é` in
+# WinAnsi, `È` in MacRoman, `Ø` in Standard. A font naming no encoding gets
+# Standard — not Latin-1, which is what this port used to assume — so
+# `enc-none` and `enc-std` must agree, and `0x92` and `0xFC` vanish in both
+# because StandardEncoding leaves them unassigned.
+def base_encoding_document(b, encoding, basefont=b"Helvetica"):
+    font_id = b.add(b"<</Type/Font/Subtype/TrueType/BaseFont/" + basefont +
+                    b"/FirstChar 0/LastChar 255" + encoding + b">>")
+    content_id = b.stream(
+        b"/Filter/FlateDecode", flate(b"BT /F1 24 Tf 72 700 Td <41E9B7A792FC42> Tj ET\n"))
+    page_id, pages_id = b.reserve(), b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+          b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+          % (pages_id, font_id, content_id), page_id)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+for _name, _encoding in [
+    ("enc-win", b"/Encoding/WinAnsiEncoding"),
+    ("enc-mac", b"/Encoding/MacRomanEncoding"),
+    ("enc-std", b"/Encoding/StandardEncoding"),
+    ("enc-none", b""),
+]:
+    b = Builder()
+    write(_name, classic_trailer(b, base_encoding_document(b, _encoding)))
+
+# A symbol-named font with no encoding of its own. It takes StandardEncoding
+# like any other simple font — the base font's name does not select a symbol
+# table here — which is worth pinning because it looks like it should.
+b = Builder()
+write("enc-symbol-name", classic_trailer(b, base_encoding_document(b, b"", b"Wingdings")))
