@@ -5503,3 +5503,41 @@ readings**.
 
   `pdfCidToGidMap` was already ported and orphaned, and needed no changes —
   the parser was right, nothing had ever called it. Orphans 22 → 20.
+
+- **Wave 144 — the guard rail on wave 142.** **103 of 103** byte-identical.
+
+  Wave 142 taught this port to renumber a subset font's CMap onto sequential
+  CIDs. The reference carries a rule that overrides it, and the comment on
+  that rule says why: subset fonts number their glyphs **in the order the
+  document first uses them**, so sorting the old CIDs and dealing them out in
+  order produces text that is readable and *scrambled*.
+
+  `cid-truetype-promoted.pdf` is that case. The embedded font's own `cmap`
+  says the four CIDs draw `WORD`; the sequential remap says `HELP`. Both are
+  four plausible letters. This port answered `HELP` — **confident nonsense,
+  introduced by the previous wave and invisible to every check that does not
+  read the text.** Two waves closing gaps in the same feature, and the second
+  one exists because the first was a guess that needed a governor.
+
+  The fix is the reference's `CMapEntry`: three candidates, not two, with the
+  embedded font's table as the third. Two reorderings decide which leads — a
+  primary with fewer than ten entries is demoted below the fallback, and a
+  fallback richer than the primary outranks a sequential remap. Wave 142's
+  pair of maps became the reference's triple, which is where it should have
+  been from the start.
+
+  **The reference disagrees with itself here, and that is the finding.**
+  `FontCMaps::from_doc` builds the fallback; `from_doc_pages_fast` skips it.
+  Its Markdown uses the first and its own probes use the second, so on this
+  document `--markdown` says `WORD` while `--underline` says `HELP`. A port
+  with one mode cannot match both oracles, and the underline probe failed
+  exactly there. Rather than write the divergence off as an oracle artifact,
+  `pdfPageTextRuns` now takes `skipTrueTypeFallback` and the probe test
+  passes it — the distinction is real, cheap to carry, and keeps that probe
+  an oracle of extraction instead of one of which mode the reference picked.
+
+  `entryCount` had been ported long ago with a comment saying it was for
+  deciding "whether to fall back", and had never had a caller. It does now.
+  `pdfPageFontCMaps` became genuinely dead in the refactor and is deleted
+  rather than left to pad the orphan list. Orphans 20 → 20, with different
+  names on the list.

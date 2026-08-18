@@ -204,3 +204,116 @@ func pdfDecodeThroughCMap(_ cmap: PdfToUnicodeCMap, _ bytes: [UInt8]) -> String 
     }
     return out
 }
+
+/// The three CMaps a font's `/ToUnicode` can produce, ported from
+/// `CMapEntry` and `build_cmap_entry_from_stream` in `tounicode.rs`.
+///
+/// A declared `/ToUnicode` is not automatically the best answer available.
+/// Beside it sit a **remapped** candidate — the subset repairs in this file —
+/// and a **fallback** built from the embedded font's own `cmap` table. Which
+/// of the three leads is decided here, before any text is decoded, and the
+/// losers stay available to the decoder rather than being discarded.
+struct PdfCMapEntry {
+    var primary: PdfToUnicodeCMap
+    var remapped: PdfToUnicodeCMap?
+    var fallback: PdfToUnicodeCMap?
+}
+
+/// The fallback CMap for a Type 0 font: its embedded font program's own
+/// `cmap` table, re-keyed by `/CIDToGIDMap` when the font carries one.
+///
+/// Gated on `Identity-H`/`Identity-V`, because only there is a CID the same
+/// number as a glyph — the equivalence this whole substitution rests on.
+func pdfType0FallbackCMap(_ document: inout PdfDocument, _ font: PdfDictionary)
+    -> PdfToUnicodeCMap?
+{
+    guard document.value(font, "Subtype")?.asName.map({ String(decoding: $0, as: UTF8.self) })
+        == "Type0"
+    else { return nil }
+    let encoding = document.value(font, "Encoding")?.asName
+        .map { String(decoding: $0, as: UTF8.self) }
+    guard encoding == "Identity-H" || encoding == "Identity-V" else { return nil }
+
+    guard let cidFont = pdfDescendantCidFont(&document, font),
+        let descriptor = document.value(cidFont, "FontDescriptor")?.asDictionary
+    else { return nil }
+    let program =
+        document.value(descriptor, "FontFile2")?.asStream
+        ?? document.value(descriptor, "FontFile3")?.asStream
+    guard let program, let data = document.decodedStream(program) else { return nil }
+
+    guard let parsed = pdfParseTrueTypeCMap(data), !parsed.isEmpty else { return nil }
+    let cmap = PdfToUnicodeCMap(glyphToCharacter: parsed.glyphToCharacter)
+
+    // The same table that repairs a declared CMap repairs this one.
+    if let cidToGid = pdfCidToGidMap(&document, cidFont),
+        let repaired = cmap.rekeyedByCidToGid(cidToGid)
+    {
+        return repaired
+    }
+    return cmap
+}
+
+/// Assemble the three candidates and decide which leads.
+///
+/// **Two reorderings, and each one exists because a plausible answer is
+/// wrong.**
+///
+/// *A `/ToUnicode` with fewer than ten entries is not trusted to lead.* Some
+/// producers write a stub map covering a handful of codes and leave the rest
+/// of the document unmapped; the font's own table describes far more of it.
+/// The stub becomes the remapped candidate rather than being thrown away,
+/// since it may still be right about the codes it does cover.
+///
+/// *A font `cmap` with more entries than the primary outranks a sequential
+/// remap.* This is the guard rail on `remapToSequential`, and the reference
+/// states the reason outright: subset fonts number their glyphs **in the
+/// order the document first uses them**, so sorting the old CIDs and dealing
+/// them out in order produces text that is readable and scrambled — `HELP`
+/// where the font says `WORD`. An embedded `cmap` is not a guess and wins
+/// whenever it is the richer description. `cid-truetype-promoted.pdf` and
+/// `cid-truetype-absent.pdf` are that pair, and before this rule was ported
+/// this port answered `HELP` to both.
+func pdfBuildCMapEntry(
+    _ document: inout PdfDocument, _ font: PdfDictionary, _ parsed: PdfToUnicodeCMap,
+    skipTrueTypeFallback: Bool = false
+) -> PdfCMapEntry {
+    var primary = parsed
+    var remapped = pdfTryRemapSubsetCmap(&document, font, parsed)
+    // Parsing the embedded program is the expensive part of building an
+    // entry, which is why the reference has a mode that skips it.
+    var fallback = skipTrueTypeFallback ? nil : pdfType0FallbackCMap(&document, font)
+
+    let primaryEntries = primary.entryCount
+    if primaryEntries < 10, let stand_in = fallback {
+        fallback = nil
+        remapped = primary
+        primary = stand_in
+    }
+
+    if remapped != nil, let candidate = fallback, candidate.entryCount > primaryEntries {
+        let displaced = remapped
+        remapped = fallback
+        fallback = displaced
+    }
+
+    return PdfCMapEntry(primary: primary, remapped: remapped, fallback: fallback)
+}
+
+/// Whether the fallback decoding should displace the one already chosen.
+///
+/// Three ways it can win, and the first two are about *coverage* rather than
+/// quality. A chosen decoding that came out empty loses to anything. So does
+/// one that produced fewer than half the characters the bytes should have
+/// yielded — two bytes per CID, so `n` bytes should give `n / 2` characters,
+/// and falling short of half that means the map is missing most of the
+/// codes. Only then does the text itself get compared, where the fallback
+/// needs the same margin of 3 that every other candidate does.
+func pdfPrefersFallback(_ fallback: String, over decoded: String, byteCount: Int) -> Bool {
+    guard !fallback.isEmpty else { return false }
+    if decoded.isEmpty { return true }
+    // Scalars, not characters: the reference counts Rust `char`s.
+    let expected = byteCount / 2
+    if expected > 0 && decoded.unicodeScalars.count * 2 < expected { return true }
+    return pdfScoreText(fallback) > pdfScoreText(decoded) + 3
+}

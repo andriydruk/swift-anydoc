@@ -86,6 +86,22 @@ struct PdfToUnicodeCMap {
         [charMap.keys.max(), ranges.map(\.end).max()].compactMap { $0 }.max()
     }
 
+    init() {}
+
+    /// A CMap standing in for a missing one, built from an embedded font's
+    /// own `cmap` table.
+    ///
+    /// The font says which character each glyph draws, which for an
+    /// Identity-H CID font is the same question a `/ToUnicode` answers —
+    /// so the table can serve as one when the declared map is absent,
+    /// too sparse to trust, or a scrambling guess.
+    init(glyphToCharacter: [UInt16: Unicode.Scalar]) {
+        for (glyph, scalar) in glyphToCharacter {
+            charMap[glyph] = String(Character(scalar))
+        }
+        codeByteLength = 2
+    }
+
     /// Re-key this map through a `/CIDToGIDMap`, reading it as glyph-keyed.
     ///
     /// The other repair in this family. Where `remapToSequential` *guesses*

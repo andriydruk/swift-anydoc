@@ -147,10 +147,9 @@ func pdfPages(_ document: inout PdfDocument) -> [PdfDictionary] {
         #expect(pages.count == 2)
         var total = 0
         for page in pages {
-            let cmaps = pdfPageFontCMaps(&document, page)
-            for (_, cmap) in cmaps {
-                #expect(!cmap.isEmpty)
-                total += cmap.entryCount
+            for (_, entry) in pdfPageFontCMapEntries(&document, page) {
+                #expect(!entry.primary.isEmpty)
+                total += entry.primary.entryCount
             }
         }
         #expect(total > 0, "no ToUnicode mappings were parsed")

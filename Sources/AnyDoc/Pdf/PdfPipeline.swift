@@ -355,31 +355,21 @@ private func pdfPageFontProperty<Value>(
     return out
 }
 
-/// The `ToUnicode` CMaps of a page's fonts, by resource name.
-func pdfPageFontCMaps(_ document: inout PdfDocument, _ page: PdfDictionary)
-    -> [String: PdfToUnicodeCMap]
-{
-    pdfPageFontProperty(&document, page) { document, font in
-        guard let toUnicode = document.value(font, "ToUnicode")?.asStream,
-            let data = document.decodedStream(toUnicode)
-        else { return nil }
-        return parsePdfToUnicode(data)
-    }
-}
-
-/// The remapped candidate CMaps of a page's fonts, by resource name.
+/// The full set of CMap candidates for a page's fonts, by resource name.
 ///
-/// Present only for the fonts `pdfTryRemapSubsetCmap` judges to have a
-/// `/ToUnicode` written against pre-subsetting glyph ids. The decode path
-/// scores this against the declared one per font rather than trusting it.
-func pdfPageFontRemappedCMaps(_ document: inout PdfDocument, _ page: PdfDictionary)
-    -> [String: PdfToUnicodeCMap]
-{
+/// Present only for fonts that declare a `/ToUnicode`; the decode ladder
+/// handles the rest. Which candidate leads is settled in `pdfBuildCMapEntry`
+/// before any text is decoded.
+func pdfPageFontCMapEntries(
+    _ document: inout PdfDocument, _ page: PdfDictionary, skipTrueTypeFallback: Bool = false
+) -> [String: PdfCMapEntry] {
     pdfPageFontProperty(&document, page) { document, font in
         guard let toUnicode = document.value(font, "ToUnicode")?.asStream,
             let data = document.decodedStream(toUnicode)
         else { return nil }
-        return pdfTryRemapSubsetCmap(&document, font, parsePdfToUnicode(data))
+        return pdfBuildCMapEntry(
+            &document, font, parsePdfToUnicode(data),
+            skipTrueTypeFallback: skipTrueTypeFallback)
     }
 }
 
@@ -479,11 +469,18 @@ func pdfPageFontStyles(_ document: inout PdfDocument, _ page: PdfDictionary)
 }
 
 /// Every text run of a page, decoded through its fonts' `ToUnicode` CMaps.
+/// - Parameter skipTrueTypeFallback: build no fallback candidate from the
+///   embedded font program. The reference keeps two modes here — `from_doc`
+///   builds the fallback and `from_doc_pages_fast` skips it — and its own
+///   probes run the fast one while its Markdown runs the full one. The two
+///   disagree on `cid-truetype-promoted.pdf`, so a port with only one mode
+///   cannot match both oracles at once.
 func pdfPageTextRuns(
-    _ document: inout PdfDocument, _ page: PdfDictionary, includeInvisible: Bool = false
+    _ document: inout PdfDocument, _ page: PdfDictionary, includeInvisible: Bool = false,
+    skipTrueTypeFallback: Bool = false
 ) -> [PdfTextRun] {
-    var cmaps = pdfPageFontCMaps(&document, page)
-    var remappedCmaps = pdfPageFontRemappedCMaps(&document, page)
+    var entries = pdfPageFontCMapEntries(
+        &document, page, skipTrueTypeFallback: skipTrueTypeFallback)
     var toUnicodeRefs = pdfPageFontToUnicodeRefs(&document, page)
     // Per page, exactly as the reference builds it per page: the decision is
     // shared by every string a font draws on this page and by nothing beyond
@@ -512,9 +509,9 @@ func pdfPageTextRuns(
         if let toUnicode = document.value(font, "ToUnicode")?.asStream,
             let data = document.decodedStream(toUnicode)
         {
-            let parsed = parsePdfToUnicode(data)
-            cmaps[name] = parsed
-            remappedCmaps[name] = pdfTryRemapSubsetCmap(&document, font, parsed)
+            entries[name] = pdfBuildCMapEntry(
+                &document, font, parsePdfToUnicode(data),
+                skipTrueTypeFallback: skipTrueTypeFallback)
             toUnicodeRefs[name] = font["ToUnicode"]?.asReference.map { Int($0.number) }
         }
         if let widths = pdfParseFontWidths(&document, font) { metrics[name] = widths }
@@ -592,7 +589,7 @@ func pdfPageTextRuns(
     return runs
 
     func pdfDecodeRun(_ fontName: String, _ bytes: [UInt8]) -> String {
-        guard let cmap = cmaps[fontName], !cmap.isEmpty else {
+        guard let entry = entries[fontName], !entry.primary.isEmpty else {
             // No usable `ToUnicode`. A `/Differences` encoding is the next
             // authority: it says what glyph each code draws, which is the
             // only thing that makes a re-encoded font readable.
@@ -645,31 +642,51 @@ func pdfPageTextRuns(
             }
             return String(out)
         }
-        let decodedPrimary = pdfDecodeThroughCMap(cmap, bytes)
-        // Without a remapped candidate the declared CMap is the answer, which
-        // is every well-formed font.
-        guard let remapped = remappedCmaps[fontName] else { return decodedPrimary }
-
-        let decodedRemapped = pdfDecodeThroughCMap(remapped, bytes)
+        let decodedPrimary = pdfDecodeThroughCMap(entry.primary, bytes)
         let key = toUnicodeRefs[fontName] ?? 0
 
-        // A decision already made is reused — unless it produces nothing for
-        // this string, in which case the sample below gets another look.
+        guard let remapped = entry.remapped else {
+            // No remapped candidate. The fallback still gets a hearing, but
+            // only against a primary that decoded something.
+            guard !decodedPrimary.isEmpty else { return decodedPrimary }
+            if let fallback = entry.fallback {
+                let decodedFallback = pdfDecodeThroughCMap(fallback, bytes)
+                if pdfPrefersFallback(decodedFallback, over: decodedPrimary, byteCount: bytes.count)
+                {
+                    return decodedFallback
+                }
+            }
+            return decodedPrimary
+        }
+
+        let decodedRemapped = pdfDecodeThroughCMap(remapped, bytes)
+
+        // A decision already made is reused — and returns immediately, so a
+        // settled font never reconsiders its fallback.
         if let settled = decisions.choice(key) {
             let decoded = settled == .primary ? decodedPrimary : decodedRemapped
             if !decoded.isEmpty { return decoded }
         }
 
+        var decoded: String
         switch decisions.consider(
             key, primary: decodedPrimary, remapped: decodedRemapped, byteCount: bytes.count)
         {
-        case .primary: return decodedPrimary
-        case .remapped: return decodedRemapped
+        case .primary: decoded = decodedPrimary
+        case .remapped: decoded = decodedRemapped
         // Not enough sample yet: judge this string on its own, where the
         // remapped decoding needs a smaller margin to be taken.
         case nil:
-            return pdfChooseBestCmapDecode(primary: decodedPrimary, remapped: decodedRemapped)
+            decoded = pdfChooseBestCmapDecode(primary: decodedPrimary, remapped: decodedRemapped)
         }
+
+        if let fallback = entry.fallback {
+            let decodedFallback = pdfDecodeThroughCMap(fallback, bytes)
+            if pdfPrefersFallback(decodedFallback, over: decoded, byteCount: bytes.count) {
+                decoded = decodedFallback
+            }
+        }
+        return decoded
     }
 }
 

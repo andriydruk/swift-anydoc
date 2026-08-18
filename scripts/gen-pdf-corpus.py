@@ -2901,3 +2901,53 @@ b = Builder()
 write("cid-to-gid-repair", classic_trailer(b, cid_to_gid_document(b, True)))
 b = Builder()
 write("cid-to-gid-absent", classic_trailer(b, cid_to_gid_document(b, False)))
+
+
+# The guard rail on the sequential remap. A subset font numbers its glyphs in
+# the order the document first uses them, so sorting the CMap's old CIDs and
+# dealing them out in order gives readable, scrambled text. The embedded
+# font's own `cmap` is not a guess, and when it describes more of the font
+# than the declared `/ToUnicode` does it outranks the remap.
+#
+# The pair differs in the embedded font alone: with it the page reads WORD,
+# without it the sequential remap reads HELP. A port missing this rule
+# answers HELP to both — plausible, and wrong.
+CID_TT_CMAP = tounicode_cmap(
+    b"4 beginbfchar\n<0064> <0048>\n<0065> <0045>\n<0066> <004C>\n<0067> <0050>\n"
+    b"endbfchar\n")
+CID_TT_PROGRAM = truetype_font(
+    {ord("W"): 1, ord("O"): 2, ord("R"): 3, ord("D"): 4, ord("S"): 5, ord("X"): 6}, 8)
+
+
+def cid_truetype_document(b, embed):
+    cmap_id = b.stream(b"/Filter/FlateDecode", flate(CID_TT_CMAP))
+    descriptor = b""
+    if embed:
+        program = b.stream(
+            b"/Filter/FlateDecode/Length1 %d" % len(CID_TT_PROGRAM), flate(CID_TT_PROGRAM))
+        fd = b.add(
+            b"<</Type/FontDescriptor/FontName/Test/Flags 4/ItalicAngle 0/Ascent 800"
+            b"/Descent -200/CapHeight 700/StemV 80/FontBBox[0 0 1000 1000]"
+            b"/FontFile2 %d 0 R>>" % program)
+        descriptor = b"/FontDescriptor %d 0 R" % fd
+    descendant = b.add(
+        b"<</Type/Font/Subtype/CIDFontType2/BaseFont/Test"
+        b"/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>"
+        b"/DW 500 /W [0 [500]]" + descriptor + b">>")
+    font_id = b.add(
+        b"<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-H"
+        b"/DescendantFonts[%d 0 R]/ToUnicode %d 0 R>>" % (descendant, cmap_id))
+    content_id = b.stream(
+        b"/Filter/FlateDecode", flate(b"BT /F1 24 Tf 72 700 Td <0001000200030004> Tj ET\n"))
+    page_id, pages_id = b.reserve(), b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+          b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+          % (pages_id, font_id, content_id), page_id)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+b = Builder()
+write("cid-truetype-promoted", classic_trailer(b, cid_truetype_document(b, True)))
+b = Builder()
+write("cid-truetype-absent", classic_trailer(b, cid_truetype_document(b, False)))

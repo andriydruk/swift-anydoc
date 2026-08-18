@@ -175,7 +175,13 @@ import Testing
                 let graphics = pdfExtractGraphics(operations)
                 // The reference's own order: extract, mark decoration, then
                 // merge fragments into words, then absorb scripts.
-                var items = pdfLayoutItems(pdfPageTextRuns(&document, page))
+                // The reference's probe builds its CMaps with
+                // `from_doc_pages_fast`, which skips the TrueType fallback
+                // where its Markdown path builds it. Matched here so this
+                // stays an oracle of extraction rather than of which mode
+                // the reference happened to pick.
+                var items = pdfLayoutItems(
+                    pdfPageTextRuns(&document, page, skipTrueTypeFallback: true))
                 var styles = pdfPageFontStyles(&document, page)
                 for (name, font) in formFonts { styles[name] = pdfFontStyle(&document, font) }
                 pdfApplyFontStyles(&items, styles)

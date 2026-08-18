@@ -124,6 +124,31 @@ private func toUnicodeCMap(_ body: String) -> PdfToUnicodeCMap {
         #expect(cmap.rekeyedByCidToGid([0, 7, 8, 9]) == nil)
     }
 
+    /// Coverage beats quality: a decoding that yielded fewer than half the
+    /// characters the bytes should have produced loses to any fallback,
+    /// however the two score.
+    @Test func aFallbackWinsWhenTheChosenDecodingCoversTooLittle() {
+        // Twenty bytes are ten CIDs; two characters is well under half.
+        #expect(pdfPrefersFallback("xx", over: "ab", byteCount: 20))
+        // Ten characters from twenty bytes is full coverage, so the scores
+        // decide instead — and these are too close.
+        #expect(!pdfPrefersFallback("xxxxxxxxxx", over: "abcdefghij", byteCount: 20))
+    }
+
+    @Test func anEmptyChosenDecodingLosesToAnything() {
+        #expect(pdfPrefersFallback("x", over: "", byteCount: 2))
+        // But an empty fallback never wins, even against an empty choice.
+        #expect(!pdfPrefersFallback("", over: "", byteCount: 2))
+        #expect(!pdfPrefersFallback("", over: "readable text", byteCount: 26))
+    }
+
+    /// With coverage equal, the fallback needs the same margin of 3 that
+    /// every other candidate does.
+    @Test func aFallbackNeedsAMarginToWinOnScoreAlone() {
+        #expect(pdfPrefersFallback("the quick brown", over: "\u{1}\u{2}\u{3}", byteCount: 6))
+        #expect(!pdfPrefersFallback("the cat sat", over: "the cat sam", byteCount: 22))
+    }
+
     /// The decision holds until 240 bytes have been sampled, then sticks.
     ///
     /// The remapped sample is English and the primary is not, so the sample
