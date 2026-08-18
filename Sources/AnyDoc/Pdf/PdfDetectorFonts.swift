@@ -38,6 +38,26 @@ struct PdfDetectorFontInfo {
 /// §7.7.3.4). The order here *is* the shadowing rule: the first dictionary
 /// that defines a name wins.
 ///
+/// **An ancestor's `/Resources` is inherited only when written as an
+/// indirect reference.** Spelled inline in the `/Pages` node it is invisible,
+/// and a page with no resources of its own then finds no font at all. That is
+/// not the specification — §7.7.3.4 inherits the attribute however it is
+/// written — but it is what the reference does, and by a route worth naming:
+/// lopdf's `get_page_resources` collects ancestors through
+/// `.get(b"Resources").and_then(Object::as_reference)`, which yields nothing
+/// for an inline dictionary. Every reference path inherits through that one
+/// function — `get_page_fonts` is built on it too — so the blindness is
+/// uniform rather than a quirk of one caller, and reproducing it here keeps
+/// all three of ours agreeing with all of theirs.
+///
+/// The page's *own* `/Resources` is read either way: lopdf takes an inline
+/// dictionary directly and picks a reference up in the same walk.
+///
+/// `inherited-page-tree.pdf` is the case. Its Markdown matches regardless —
+/// the text is ASCII and needs no font to decode — so only the `--pagefonts`
+/// and `--pageanalysis` probes can see this, and before they existed it would
+/// have been invisible.
+///
 /// The walk is depth-capped. A malformed file can make `/Parent` a cycle,
 /// and a detector that hangs on a hostile document is worse than one that
 /// misreads it.
@@ -48,7 +68,9 @@ func pdfPageResourceChain(_ document: inout PdfDocument, _ page: PdfDictionary) 
     var node = page
     for _ in 0..<32 {
         guard let parent = document.value(node, "Parent")?.asDictionary else { break }
-        if let resources = document.value(parent, "Resources")?.asDictionary {
+        if let reference = parent["Resources"]?.asReference,
+            let resources = document.object(reference).asDictionary
+        {
             chain.append(resources)
         }
         node = parent

@@ -2764,3 +2764,71 @@ open(os.path.join(OUT, "xref-startxref-bogus.pdf"), "wb").write(
 _at = _damaged_source.rfind(b"xref")
 open(os.path.join(OUT, "xref-junk.pdf"), "wb").write(
     _damaged_source[:_at] + b"%" + b"x" * (len(_damaged_source) - _at - 1))
+
+
+# --- page-tree and revision structure ----------------------------------------
+
+# `/Rotate 90` on the page dictionary with upright text coordinates — how a
+# scanned landscape page is normally written. **Neither side honours it**: the
+# attribute appears nowhere in the reference either, so the text comes out in
+# its stored order on both. A shared limitation rather than a gap, and the
+# document is here so it stays shared.
+def rotate_attribute_document(b):
+    font = b.add(SIMPLE_FONT)
+    content = b.stream(b"", line(b"Upright text on a rotated page.", 700)
+                       + line(b"A second line below it.", 680))
+    page = b.reserve()
+    pages = b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]/Rotate 90"
+          b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+          % (pages, font, content), page)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page, pages)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages)
+
+
+b = Builder()
+write("page-rotate-attr", classic_trailer(b, rotate_attribute_document(b)))
+
+
+# A three-level page tree declaring `/MediaBox` and `/Resources` only at the
+# root, so the page inherits both. Producers nest like this routinely, and a
+# reader that looks for resources on the page alone finds no font.
+def inherited_page_tree_document(b):
+    font = b.add(SIMPLE_FONT)
+    content = b.stream(b"", line(b"Inherited resources and media box.", 700))
+    page = b.reserve()
+    middle = b.reserve()
+    root_pages = b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/Contents %d 0 R>>" % (middle, content), page)
+    b.add(b"<</Type/Pages/Parent %d 0 R/Kids[%d 0 R]/Count 1>>" % (root_pages, page), middle)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1/MediaBox[0 0 612 792]"
+          b"/Resources<</Font<</F1 %d 0 R>>>>>>" % (middle, font), root_pages)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % root_pages)
+
+
+b = Builder()
+write("inherited-page-tree", classic_trailer(b, inherited_page_tree_document(b)))
+
+
+# An incremental update: a second revision appended after the first trailer and
+# chained by `/Prev`, replacing the content stream. Every edited PDF is built
+# this way, and the newer revision has to win.
+_incremental_builder = Builder()
+_first_revision = classic_trailer(
+    _incremental_builder,
+    base_document(_incremental_builder, content=line(b"Original revision text.", 700)))
+_revised = flate(line(b"Revised text after the update.", 700))
+_update = bytearray(_first_revision)
+_content_object = 1  # `base_document` writes the content stream first.
+_body_at = len(_update)
+_update += b"%d 0 obj\n<</Filter/FlateDecode/Length %d>>\nstream\n" % (
+    _content_object, len(_revised))
+_update += _revised + b"\nendstream\nendobj\n"
+_previous = int(re.search(rb"startxref\n(\d+)", _first_revision).group(1))
+_update_xref_at = len(_update)
+_update += b"xref\n0 1\n0000000000 65535 f \n%d 1\n%010d 00000 n \n" % (
+    _content_object, _body_at)
+_update += b"trailer\n<</Size %d/Root %d 0 R/Prev %d>>\nstartxref\n%d\n%%%%EOF\n" % (
+    _incremental_builder.next_id, _incremental_builder.next_id - 1,
+    _previous, _update_xref_at)
+open(os.path.join(OUT, "incremental-update.pdf"), "wb").write(bytes(_update))

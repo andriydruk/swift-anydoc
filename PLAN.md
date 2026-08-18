@@ -5379,3 +5379,48 @@ readings**.
   discipline that catches it is cheap — disable the thing under test and
   re-measure — and it is the only reason waves 113 to 115 have honest
   numbers.
+
+- **Wave 141 — inheritance, and a blindness worth copying.** **97 of 97**
+  byte-identical.
+
+  Three more structural features with no corpus document, probed the way
+  waves 138 to 140 established: build the case, ask the reference, compare.
+
+  - **`/Rotate 90` on the page dictionary.** Neither side honours it. The
+    attribute appears nowhere in either codebase, so the text comes out in
+    stored order on both — a shared limitation, and the document is in the
+    corpus so it stays shared rather than drifting.
+  - **An incremental update.** A second revision appended after the first
+    trailer and chained by `/Prev`, superseding the content stream. Every
+    edited PDF is built this way. Both resolve to the revised text.
+  - **A three-level page tree** whose `/MediaBox` and `/Resources` live only
+    at the root. This one was not agreement.
+
+  **The Markdown matched and the port was still wrong.** Both sides emit
+  `## Inherited resources and media box.`, because the text is ASCII and
+  needs no font to decode. `--pagefonts` and `--pageanalysis` disagreed:
+  this port found one font, the reference found none.
+
+  The cause is one combinator. lopdf's `get_page_resources` collects
+  ancestors through `.get(b"Resources").and_then(Object::as_reference)`, so
+  an ancestor's `/Resources` is inherited **only when written as an indirect
+  reference** — spelled inline in the `/Pages` node it is invisible. That is
+  not ISO 32000-1 §7.7.3.4, which inherits the attribute however it is
+  written. `pdfPageResourceChain` now reproduces it, with the route recorded
+  at the call site.
+
+  Two things made this safe to copy rather than guess at. The blindness is
+  **uniform**: `get_page_fonts` is built on `get_page_resources`, and the
+  extractor uses `get_page_fonts`, so every reference path inherits through
+  the one function and no caller disagrees with another. And the page's
+  *own* `/Resources` is unaffected — lopdf takes an inline dictionary
+  directly and picks a reference up in the same walk — which is a distinct
+  rule and now has its own test, because narrowing the ancestor case could
+  so easily have been applied one level too far.
+
+  Wave 135 said the probes catch what the byte-diff cannot. This is the
+  second time they have, and the sharper version of the claim: the corpus
+  can be **97 of 97 byte-identical while a resource lookup is wrong**, and
+  the only reason that was visible is that three oracles ask questions the
+  Markdown does not answer. Coverage measured in matching output would have
+  scored this document as a success.
