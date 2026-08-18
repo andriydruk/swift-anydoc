@@ -13,6 +13,7 @@ Verify with `scratchpad/pdfprobe` (lopdf) as the oracle and the Swift
 reader's own dump; they must agree on the object graph.
 """
 import os
+import re
 import struct
 import sys
 import zlib
@@ -2728,3 +2729,38 @@ _rise = (
 )
 b = Builder()
 write("text-rise", classic_trailer(b, base_document(b, content=_rise)))
+
+
+# --- damaged cross-reference tables ------------------------------------------
+#
+# Files arrive damaged all the time: truncated downloads, editors that rewrite
+# a table badly, tools that append without updating offsets. Three degrees of
+# it, and the port agrees with the reference on all three — recovering from
+# the first and *refusing* the other two, which matters as much. A reader that
+# invents content from a file the reference rejects is worse than one that
+# fails.
+_damaged_builder = Builder()
+_damaged_source = classic_trailer(_damaged_builder, base_document(_damaged_builder))
+
+
+def _damage(data, transform):
+    at = data.rfind(b"xref")
+    return data[:at] + transform(data[at:])
+
+
+# Every offset zeroed: the table is useless, and only a rescan of the file for
+# `N 0 obj` headers can find the objects. Both sides read it.
+_zeroed = _damage(
+    _damaged_source,
+    lambda tail: re.sub(rb"\n(\d{10}) 00000 n", lambda m: b"\n%010d 00000 n" % 0, tail),
+)
+open(os.path.join(OUT, "xref-zeroed.pdf"), "wb").write(_zeroed)
+
+# `startxref` pointing past the end of the file. Both sides refuse.
+open(os.path.join(OUT, "xref-startxref-bogus.pdf"), "wb").write(
+    re.sub(rb"startxref\n\d+\n", b"startxref\n999999\n", _damaged_source))
+
+# The table replaced by junk. Both sides refuse.
+_at = _damaged_source.rfind(b"xref")
+open(os.path.join(OUT, "xref-junk.pdf"), "wb").write(
+    _damaged_source[:_at] + b"%" + b"x" * (len(_damaged_source) - _at - 1))

@@ -5343,6 +5343,36 @@ readings**.
   incident, exactly. `grep` on the file caught it, the restore went through
   Python instead, and `git diff` confirmed the file was clean. Checking the
   file rather than trusting the command is now a habit that has paid twice.
+
+- **Wave 140 — damaged files, and agreeing about failure.** **95 of 95**
+  byte-identical.
+
+  Files arrive damaged constantly: truncated downloads, editors that rewrite
+  a cross-reference table badly, tools that append without updating offsets.
+  The port had no coverage for any of it, and `PdfDocument.swift` contains
+  no function named for recovery — which looked like a gap worth a wave.
+
+  It is not. Three degrees of damage, and the port agrees with the reference
+  on every one:
+
+  - **A table whose entries are destroyed** while the objects remain in the
+    file. Both sides recover by rescanning for `N 0 obj` headers.
+  - **`startxref` pointing past the end of the file.** Both refuse.
+  - **The table replaced by junk.** Both refuse.
+
+  The two refusals matter as much as the recovery, and are the reason to add
+  them to the corpus. `PdfCorpusTests` already asserts that a file the
+  oracle rejects must not resolve any objects here either — **a reader that
+  invents content from a file the reference refuses is worse than one that
+  fails**, and nothing had been testing that this port does not.
+
+  The wave also caught a mistake in its own fixture. The first damaged
+  document was built by passing **two separate `Builder()` instances**, so
+  the objects went into a throwaway and the trailer described nothing; the
+  file was malformed in a way I had not intended, and both the end-to-end
+  suite and `PdfCorpusTests` refused it. The scratch version had been built
+  correctly, which is why the behaviour changed on the way into the corpus.
+  Fixture bugs look exactly like findings until the fixture is checked.
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
   under test is carried by some other path more often than not. The
