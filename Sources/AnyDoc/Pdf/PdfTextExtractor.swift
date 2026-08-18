@@ -150,7 +150,14 @@ func pdfExtractTextRuns(
                 // combined transform's scale — see `pdfEffectiveFontSize`,
                 // which is *not* simply the vertical component.
                 fontSize: pdfEffectiveFontSize(fontSize, placed),
-                width: advance * deviceScale,
+                // **Absolute.** A negative font size, or a transform that
+                // mirrors the x-axis, makes the advance run backwards; the
+                // run still occupies that much of the page. A negative width
+                // reaches column and table detection as a box with its edges
+                // swapped, so it corrupts layout on documents whose Markdown
+                // still looks right — which is why `neg-font-size.pdf` had to
+                // be measured through `--underline` to see it at all.
+                width: abs(advance * deviceScale),
                 fontName: fontName, renderingMode: renderingMode,
                 mcid: currentMcid())
             // The vote: the combined matrix's x-axis points across the page
@@ -441,7 +448,7 @@ func pdfExtractTextRuns(
                     PdfTextRun(
                         text: pieces, x: placed.e, y: placed.f,
                         fontSize: fontSize * abs(placed.d),
-                        width: (advance - segmentStart) * deviceScale,
+                        width: abs((advance - segmentStart) * deviceScale),
                         fontName: fontName, renderingMode: renderingMode,
                         mcid: currentMcid()))
             }

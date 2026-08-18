@@ -3239,3 +3239,113 @@ b = Builder()
 write("link-over-text", classic_trailer(b, link_annotation_document(b, b"72 570 300 586")))
 b = Builder()
 write("link-apart", classic_trailer(b, link_annotation_document(b, b"72 300 300 316")))
+
+
+# --- features neither side implements ----------------------------------------
+
+# Each document below records a **shared limitation**. None is a gap; all were
+# measured agreeing. They are here so the agreement stays deliberate: the day
+# one side learns to honour optional content or vertical writing, a corpus
+# without these would not notice.
+
+# An optional content group switched **off** in `/OCProperties /D /OFF`. This
+# is how a watermark or a CAD layer is hidden, and neither side honours it —
+# the hidden text is extracted exactly as the visible text is.
+def optional_content_document(b, hidden_off):
+    font = b.add(SIMPLE_FONT)
+    ocg = b.add(b"<</Type/OCG/Name(Watermark)>>")
+    content_id = b.stream(b"/Filter/FlateDecode", flate(
+        b"BT /F1 12 Tf 72 700 Td (Visible body text.) Tj ET\n"
+        b"/OC /MC0 BDC\n"
+        b"BT /F1 12 Tf 72 680 Td (Hidden layer text.) Tj ET\n"
+        b"EMC\n"))
+    page_id, pages_id = b.reserve(), b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+          b"/Resources<</Font<</F1 %d 0 R>>/Properties<</MC0 %d 0 R>>>>"
+          b"/Contents %d 0 R>>" % (pages_id, font, ocg, content_id), page_id)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    off = b"/OFF[%d 0 R]" % ocg if hidden_off else b""
+    return b.add(b"<</Type/Catalog/Pages %d 0 R"
+                 b"/OCProperties<</OCGs[%d 0 R]/D<</Order[%d 0 R]" % (pages_id, ocg, ocg)
+                 + off + b">>>>>>")
+
+
+b = Builder()
+write("ocg-hidden", classic_trailer(b, optional_content_document(b, True)))
+b = Builder()
+write("ocg-visible", classic_trailer(b, optional_content_document(b, False)))
+
+
+# `Identity-V` — vertical writing. Both sides read it exactly as `Identity-H`,
+# so the glyphs come out in stored order with no vertical handling at all.
+def vertical_cid_document(b, encoding):
+    cmap_id = b.stream(b"/Filter/FlateDecode", flate(tounicode_cmap(
+        b"3 beginbfchar\n<0001> <0048>\n<0002> <0065>\n<0003> <006C>\nendbfchar\n")))
+    descendant = b.add(b"<</Type/Font/Subtype/CIDFontType2/BaseFont/Test"
+                       b"/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>"
+                       b"/DW 1000/W [0 [500]]>>")
+    font_id = b.add(b"<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/" + encoding +
+                    b"/DescendantFonts[%d 0 R]/ToUnicode %d 0 R>>" % (descendant, cmap_id))
+    content_id = b.stream(b"/Filter/FlateDecode",
+                          flate(b"BT /F1 24 Tf 72 700 Td <000100020003> Tj ET\n"))
+    page_id, pages_id = b.reserve(), b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+          b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+          % (pages_id, font_id, content_id), page_id)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+b = Builder()
+write("cid-identity-v", classic_trailer(b, vertical_cid_document(b, b"Identity-V")))
+
+# A Type 1 program in `/FontFile`, where this port reads only `/FontFile2` and
+# `/FontFile3`. The text still comes out — from the encoding, not the program —
+# so the unread program costs nothing here.
+b = Builder()
+_prog = b.stream(b"/Filter/FlateDecode/Length1 100/Length2 100/Length3 0",
+                 flate(b"%!PS-AdobeFont-1.0: Test\n" + b"\x00" * 64))
+_fd = b.add(b"<</Type/FontDescriptor/FontName/Test/Flags 4/ItalicAngle 0/Ascent 800"
+            b"/Descent -200/CapHeight 700/StemV 80/FontBBox[0 0 1000 1000]"
+            b"/FontFile %d 0 R>>" % _prog)
+_font = b.add(b"<</Type/Font/Subtype/Type1/BaseFont/Test/FirstChar 0/LastChar 255"
+              b"/FontDescriptor %d 0 R>>" % _fd)
+_content = b.stream(b"/Filter/FlateDecode",
+                    flate(b"BT /F1 12 Tf 72 700 Td (Type1 embedded program.) Tj ET\n"))
+_page, _pages = b.reserve(), b.reserve()
+b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+      b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+      % (_pages, _font, _content), _page)
+b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % _page, _pages)
+write("font-type1-fontfile", classic_trailer(
+    b, b.add(b"<</Type/Catalog/Pages %d 0 R>>" % _pages)))
+
+
+# Coordinates and sizes at the edges of sense: text drawn far outside the
+# media box (kept, not clipped), a negative font size, and a shading operator
+# between two runs. All three are extracted as ordinary text by both sides.
+def odd_geometry_document(b, content_bytes, extra_resources=b""):
+    font = b.add(SIMPLE_FONT)
+    content_id = b.stream(b"/Filter/FlateDecode", flate(content_bytes))
+    page_id, pages_id = b.reserve(), b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+          b"/Resources<</Font<</F1 %d 0 R>>" % (pages_id, font) + extra_resources
+          + b">>/Contents %d 0 R>>" % content_id, page_id)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+b = Builder()
+write("offpage-text", classic_trailer(b, odd_geometry_document(
+    b, b"BT /F1 12 Tf 72 700 Td (On page.) Tj ET\n"
+       b"BT /F1 12 Tf 9000 -5000 Td (Way off page.) Tj ET\n")))
+b = Builder()
+write("neg-font-size", classic_trailer(b, odd_geometry_document(
+    b, b"BT /F1 -12 Tf 72 700 Td (Negative size text.) Tj ET\n")))
+b = Builder()
+_sh = b.add(b"<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 612 792]"
+            b"/Function<</FunctionType 2/Domain[0 1]/C0[1 0 0]/C1[0 0 1]/N 1>>>>")
+write("shading-op", classic_trailer(b, odd_geometry_document(
+    b, b"BT /F1 12 Tf 72 700 Td (Before shading.) Tj ET\n/Sh0 sh\n"
+       b"BT /F1 12 Tf 72 680 Td (After shading.) Tj ET\n",
+    extra_resources=b"/Shading<</Sh0 %d 0 R>>" % _sh)))

@@ -5764,3 +5764,37 @@ readings**.
   connection gap, and without these a later wave would wire it up and change
   output the reference does not change. **A fixture that pins an absence is
   worth as much as one that pins a behaviour.**
+
+- **Wave 151 — nine features agreed, and the tenth was a sign error.**
+  **131 of 131** byte-identical.
+
+  Wave 150 found no defect, so this wave tested whether the dry spell was
+  real by probing features the corpus had never covered: optional content
+  groups, `Identity-V`, a Type 1 `/FontFile`, off-page coordinates, a huge
+  font size, a shading operator between runs, and a negative font size.
+
+  Nine of them agreed, and three are worth naming as **shared limitations**
+  rather than gaps. Neither side honours optional content — text on a layer
+  switched off in `/OCProperties /D /OFF` is extracted exactly like visible
+  text, which matters because that is how watermarks and CAD layers are
+  hidden. Neither side does anything with `Identity-V`; vertical writing is
+  read as horizontal. And a Type 1 program in `/FontFile` goes unread by both,
+  costing nothing because the text comes from the encoding.
+
+  **The tenth was a real defect, and only a probe could see it.** A negative
+  font size made this port compute a run width of **-114** where the reference
+  computes **114**. The Markdown was byte-identical — one line of text does
+  not care how wide it is — so the end-to-end suite passed while a negative
+  width was reaching column and table detection as a box with its edges
+  swapped. The reference takes `.abs()` at three width sites; this port had
+  it at one of the three.
+
+  That is the third time this session a probe has caught what the byte-diff
+  could not (135, 141, 151), and the sharpest instance: the wave was one
+  assertion away from being reported as clean. **A feature sweep that only
+  compares Markdown would have scored all ten documents as passes.**
+
+  On the question the wave set out to answer — the differential approach is
+  *not* exhausted, but its cheap surface is. Nine of ten features agreed
+  outright; the one defect surfaced only because a probe compares
+  intermediate geometry rather than output.
