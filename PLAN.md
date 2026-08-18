@@ -5695,3 +5695,36 @@ readings**.
   `/ToUnicode` covering only some codes should leave the others to the
   encoding rather than dropping them. The reference reaches that through a
   branch that returns the raw bytes when they are all printable ASCII.
+
+- **Wave 149 — the fallback inside the CMap.** **122 of 122** byte-identical.
+
+  The last known divergence in the font family, and both of the obvious
+  explanations were wrong.
+
+  A `/ToUnicode` mapping one code, on a page drawing three: the reference
+  reads `xZx` where this port read `Z`. Two rules fit the first fixture —
+  "all the bytes are printable ASCII, return them raw", which the reference
+  really does have, and "unmapped codes fall to the base encoding", which
+  wave 146 had just made plausible. **A CMap mapping `0x41` to `Z` rather
+  than `A` refuted both at once**: either rule answers `xAx`, and the
+  reference answers `xZx`. A second fixture drawing `0xE9` refuted the base
+  encoding again — `é`, not the `Ø` StandardEncoding would give.
+
+  The answer is inside `decode_cids`, not in the ladder around it. A single
+  byte the CMap does not cover falls back to **Latin-1**: the byte is the
+  character in every legacy encoding, so a partial `/ToUnicode` still leaves
+  the rest readable. Plain Latin-1, not Windows-1252 — `0x92` becomes U+0092,
+  a C1 control, and `pdfNormaliseCp1252Controls` gets its say later.
+
+  **Two-byte codes do the opposite and are dropped.** Those are CIDs, glyph
+  indices with no relation to Unicode, and rendering them is how a reader
+  produces confident CJK-looking nonsense. The same function, opposite
+  answers, decided by the code width.
+
+  A mapping that yields U+FFFD now counts as no mapping in both widths — the
+  replacement character is the CMap admitting it does not know — which was
+  missing here and is why `<41> <FFFD>` used to win over the fallback.
+
+  This also closed `gidB-tounicode` from wave 147, which was recorded there
+  as a separate gap and turns out to be the same one. `gid-tounicode-rescue`
+  is now in the corpus.

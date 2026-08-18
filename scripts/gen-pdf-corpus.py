@@ -3141,3 +3141,65 @@ b = Builder()
 write("gid-name-nondigit", classic_trailer(b, gid_name_document(b, b"gidXY")))
 b = Builder()
 write("gid-name-bare", classic_trailer(b, gid_name_document(b, b"gid")))
+
+
+# --- a /ToUnicode that covers only part of the range -------------------------
+
+# A single-byte CMap mapping one code, on a page drawing three. The codes it
+# does not mention fall back to **Latin-1** — the byte is the character in
+# every legacy encoding — so the page stays readable instead of losing every
+# unmapped letter.
+#
+# `tu-partial-disagree` is the discriminating one: the CMap maps 0x41 to `Z`,
+# not `A`. A reader that answered "all the bytes are printable ASCII, return
+# them raw" would say `xAx`; one that fell back to the *base encoding* would
+# also say `xAx`. Only consulting the CMap first and Latin-1 second gives
+# `xZx`. And `tu-partial-highbyte` separates Latin-1 from StandardEncoding:
+# 0xE9 is `é` here, where StandardEncoding would make it `Ø`.
+def partial_tounicode_document(b, bfchar, codes):
+    cmap_id = b.stream(b"/Filter/FlateDecode", flate(tounicode_cmap(bfchar)))
+    font_id = b.add(b"<</Type/Font/Subtype/TrueType/BaseFont/Helvetica"
+                    b"/FirstChar 0/LastChar 255/ToUnicode %d 0 R>>" % cmap_id)
+    content_id = b.stream(
+        b"/Filter/FlateDecode", flate(b"BT /F1 24 Tf 72 700 Td <" + codes + b"> Tj ET\n"))
+    page_id, pages_id = b.reserve(), b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+          b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+          % (pages_id, font_id, content_id), page_id)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+_MAP_TO_Z = b"1 beginbfchar\n<41> <005A>\nendbfchar\n"
+
+b = Builder()
+write("tu-partial-disagree", classic_trailer(
+    b, partial_tounicode_document(b, _MAP_TO_Z, b"784178")))
+b = Builder()
+write("tu-partial-highbyte", classic_trailer(
+    b, partial_tounicode_document(b, _MAP_TO_Z, b"E941E9")))
+b = Builder()
+write("tu-partial-full", classic_trailer(
+    b, partial_tounicode_document(b, _MAP_TO_Z, b"41")))
+
+# The `/ToUnicode` rescue for a gid-named font: the CMap addresses code 65, so
+# the font is readable and the page is not suppressed.
+def gid_rescued_document(b):
+    enc_id = b.add(b"<</Type/Encoding/Differences [65 /gid65]>>")
+    cmap_id = b.stream(b"/Filter/FlateDecode",
+                       flate(tounicode_cmap(b"1 beginbfchar\n<41> <0041>\nendbfchar\n")))
+    font_id = b.add(b"<</Type/Font/Subtype/TrueType/BaseFont/Helvetica"
+                    b"/FirstChar 0/LastChar 255/Encoding %d 0 R/ToUnicode %d 0 R>>"
+                    % (enc_id, cmap_id))
+    content_id = b.stream(
+        b"/Filter/FlateDecode", flate(b"BT /F1 24 Tf 72 700 Td <784178> Tj ET\n"))
+    page_id, pages_id = b.reserve(), b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+          b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+          % (pages_id, font_id, content_id), page_id)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+b = Builder()
+write("gid-tounicode-rescue", classic_trailer(b, gid_rescued_document(b)))

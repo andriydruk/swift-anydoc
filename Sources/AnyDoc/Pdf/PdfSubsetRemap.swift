@@ -189,9 +189,37 @@ struct PdfCMapDecisions {
 }
 
 /// Decode a run of bytes through one CMap, reading `codeByteLength` bytes at
-/// a time. A code the map does not mention contributes nothing.
+/// a time.
+///
+/// **What happens to a code the map does not mention depends on its width,
+/// and the asymmetry is the point.**
+///
+/// A single-byte code that is unmapped falls back to Latin-1 — the byte *is*
+/// the character in every legacy encoding, so a `/ToUnicode` covering part of
+/// the range still leaves the rest readable. Note this is plain Latin-1 and
+/// not Windows-1252: `0x92` becomes U+0092, a C1 control, rather than a
+/// curly quote. `pdfNormaliseCp1252Controls` gets its say later.
+///
+/// A two-byte code is dropped instead. Those are CIDs — font-internal glyph
+/// indices with no relationship to Unicode — and rendering them produces the
+/// confident CJK-looking nonsense this port exists to avoid.
+///
+/// A mapping that yields U+FFFD is treated as no mapping at all, in both
+/// widths: the replacement character is the CMap admitting it does not know.
 func pdfDecodeThroughCMap(_ cmap: PdfToUnicodeCMap, _ bytes: [UInt8]) -> String {
     var out = ""
+
+    if cmap.codeByteLength == 1 {
+        for byte in bytes {
+            if let text = cmap.lookup(UInt32(byte)), !text.unicodeScalars.contains("\u{FFFD}") {
+                out += text
+            } else if byte >= 0x20 {
+                out.unicodeScalars.append(Unicode.Scalar(byte))
+            }
+        }
+        return out
+    }
+
     let width = cmap.codeByteLength
     var index = 0
     while index < bytes.count {
@@ -199,7 +227,7 @@ func pdfDecodeThroughCMap(_ cmap: PdfToUnicodeCMap, _ bytes: [UInt8]) -> String 
         for offset in 0..<width where index + offset < bytes.count {
             code = (code << 8) | UInt32(bytes[index + offset])
         }
-        out += cmap.lookup(code) ?? ""
+        if let text = cmap.lookup(code), !text.unicodeScalars.contains("\u{FFFD}") { out += text }
         index += width
     }
     return out
