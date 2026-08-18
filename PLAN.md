@@ -5309,6 +5309,40 @@ readings**.
   (wave 137's rotation). The candidate list is mostly renames and
   unreachable code, and hand-probing it has a low yield — worth knowing
   before spending more waves on it.
+
+- **Wave 139 — probing structure instead of names.** **94 of 94**
+  byte-identical.
+
+  Wave 138 ended by saying the name list had a low yield, so this wave
+  probed *features* the corpus never exercised. Three of them, all working
+  and all previously untested:
+
+  - **Object streams.** A PDF 1.5 file packs its catalog, page tree, page
+    and font *inside* a compressed stream, and the cross-reference stream
+    points at them with type-2 entries giving container and index rather
+    than a byte offset. Every modern producer writes files this way, so a
+    reader that cannot follow a type-2 entry finds no catalog and the
+    document is simply unreadable. The port has handled it since the object
+    layer landed — and **every other corpus document writes its objects
+    directly**, so nothing tested it. Disabling `expandObjectStream` makes
+    the new document convert to nothing, which is how much was riding on
+    untested code.
+  - **A Type 3 font that draws real text**, with a `/ToUnicode`.
+    `detector-type3-only.pdf` covered the undecodable case; this covers the
+    readable one.
+  - **Text rise**, a superscript footnote marker lifted mid-line and
+    returned to the baseline.
+
+  This is the same shape as wave 138 but found by a better question. Asking
+  "which reference function has no counterpart?" surfaces renames and
+  unreachable APIs; asking "which *PDF feature* has no corpus document?"
+  surfaces code that works and is one refactor away from silently breaking.
+
+  A process note worth keeping: restoring a temporarily-disabled line with
+  `cp` hit an interactive prompt and **silently did nothing** — the wave-112
+  incident, exactly. `grep` on the file caught it, the restore went through
+  Python instead, and `git diff` confirmed the file was clean. Checking the
+  file rather than trusting the command is now a habit that has paid twice.
   The composition trap appeared for the third session running, and the
   pattern is now unmistakable: a fixture built to *look like* the case
   under test is carried by some other path more often than not. The

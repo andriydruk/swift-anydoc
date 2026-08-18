@@ -2609,3 +2609,122 @@ _inline = (
 )
 b = Builder()
 write("inline-image", classic_trailer(b, base_document(b, content=_inline)))
+
+
+# --- object streams ----------------------------------------------------------
+#
+# A PDF 1.5 object stream: the catalog, the page tree, the page and the font
+# all live *inside* a compressed stream, and the cross-reference stream points
+# at them with type-2 entries giving container and index rather than a byte
+# offset. Every modern producer writes files this way, so a reader that cannot
+# follow a type-2 entry finds no catalog at all and the document is unreadable.
+#
+# The port has handled this since the object layer landed. It had no coverage:
+# every other corpus document writes its objects directly.
+def object_stream_document(b, content=CONTENT):
+    # Streams cannot live inside an object stream, so the content stays direct.
+    content_id = b.stream(b"/Filter/FlateDecode", flate(content))
+
+    font_id = b.reserve()
+    page_id = b.reserve()
+    pages_id = b.reserve()
+    root_id = b.reserve()
+    packed = [
+        (font_id, SIMPLE_FONT),
+        (page_id,
+         b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+         b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+         % (pages_id, font_id, content_id)),
+        (pages_id, b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id),
+        (root_id, b"<</Type/Catalog/Pages %d 0 R>>" % pages_id),
+    ]
+
+    # The header pairs each object number with its offset inside the body,
+    # and `/First` says where the body starts.
+    body = b""
+    pairs = []
+    for number, payload in packed:
+        pairs.append(b"%d %d" % (number, len(body)))
+        body += payload + b" "
+    header = b" ".join(pairs) + b"\n"
+    data = flate(header + body)
+
+    objstm_id = b.reserve()
+    b.offsets[objstm_id] = len(b.out)
+    b.out += (
+        b"%d 0 obj\n<</Type/ObjStm/N %d/First %d/Filter/FlateDecode/Length %d>>\nstream\n"
+        % (objstm_id, len(packed), len(header), len(data))
+        + data + b"\nendstream\nendobj\n"
+    )
+
+    # A cross-reference stream carrying type-2 entries for the packed objects.
+    xref_id = b.reserve()
+    xref_at = len(b.out)
+    b.offsets[xref_id] = xref_at
+    count = b.next_id
+    inside = {number: index for index, (number, _) in enumerate(packed)}
+
+    rows = [bytes([0]) + struct.pack(">I", 0) + struct.pack(">H", 0xFFFF)]
+    for i in range(1, count):
+        if i in inside:
+            rows.append(
+                bytes([2]) + struct.pack(">I", objstm_id) + struct.pack(">H", inside[i]))
+        else:
+            rows.append(bytes([1]) + struct.pack(">I", b.offsets.get(i, 0)) + struct.pack(">H", 0))
+    payload = flate(b"".join(rows))
+
+    b.out += (
+        b"%d 0 obj\n<</Type/XRef/Size %d/Root %d 0 R/W[1 4 2]/Filter/FlateDecode"
+        b"/Length %d>>\nstream\n" % (xref_id, count, root_id, len(payload))
+        + payload + b"\nendstream\nendobj\n"
+    )
+    b.out += b"startxref\n%d\n%%%%EOF\n" % xref_at
+    return bytes(b.out)
+
+
+b = Builder()
+write("object-stream", object_stream_document(b))
+
+
+# A Type 3 font that actually draws text. Every glyph is a drawing procedure
+# rather than an outline, so the `/ToUnicode` is the only thing that makes the
+# codes readable — `detector-type3-only.pdf` covers the *undecodable* case,
+# and this covers the readable one.
+def type3_text_document(b):
+    proc_a = b.stream(b"", b"600 0 0 0 600 600 d1\n0 0 600 600 re f\n")
+    proc_b = b.stream(b"", b"600 0 0 0 600 600 d1\n100 100 400 400 re f\n")
+    charprocs = b.add(b"<</square %d 0 R/box %d 0 R>>" % (proc_a, proc_b))
+    encoding = b.add(b"<</Type/Encoding/Differences[97/square 98/box]>>")
+    cmap = b.stream(b"", (
+        b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap\n"
+        b"1 begincodespacerange <00> <ff> endcodespacerange\n"
+        b"2 beginbfchar\n<61> <0041>\n<62> <0042>\nendbfchar\n"
+        b"endcmap CMapName currentdict /CMap defineresource pop end end\n"))
+    font = b.add(
+        b"<</Type/Font/Subtype/Type3/FontBBox[0 0 600 600]"
+        b"/FontMatrix[0.001 0 0 0.001 0 0]/CharProcs %d 0 R/Encoding %d 0 R"
+        b"/FirstChar 97/LastChar 98/Widths[600 600]/ToUnicode %d 0 R>>"
+        % (charprocs, encoding, cmap))
+    content = b.stream(b"", b"BT /F1 18 Tf 72 700 Td (abab) Tj ET\n")
+    page = b.reserve()
+    pages = b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+          b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+          % (pages, font, content), page)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page, pages)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages)
+
+
+b = Builder()
+write("font-type3-text", classic_trailer(b, type3_text_document(b)))
+
+
+# Text rise (`Ts`): a superscript footnote marker lifted off the baseline
+# mid-line, then returned to zero. The marker ends up on its own baseline, so
+# both sides sort it ahead of the body text it interrupts.
+_rise = (
+    b"BT /F1 12 Tf 72 700 Td (Body text with a footnote) Tj 6 Ts /F1 8 Tf (1) Tj "
+    b"0 Ts /F1 12 Tf ( and more body text.) Tj ET\n"
+)
+b = Builder()
+write("text-rise", classic_trailer(b, base_document(b, content=_rise)))
