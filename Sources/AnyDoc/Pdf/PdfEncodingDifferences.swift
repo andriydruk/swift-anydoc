@@ -92,3 +92,4 @@ func pdfParseEncodingDifferences(
     }
     return result
 }
+

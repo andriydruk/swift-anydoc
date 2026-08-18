@@ -3040,3 +3040,39 @@ for _name, _encoding in [
 # table here — which is worth pinning because it looks like it should.
 b = Builder()
 write("enc-symbol-name", classic_trailer(b, base_encoding_document(b, b"", b"Wingdings")))
+
+
+# --- ligature and control-character expansion --------------------------------
+
+# `/Differences` naming ligature glyphs. The reference expands U+FB00-FB06 to
+# their component letters at the point each text item is built, so `/fi` comes
+# out as `fi` and not as `ﬁ` — searchable text rather than a glyph nobody
+# can type. The same pass strips control characters, so `/uni0000` yields
+# nothing at all.
+def glyph_name_document(b, names):
+    entries = b" ".join(b"/" + n for n in names)
+    enc_id = b.add(b"<</Type/Encoding/Differences [65 " + entries + b"]>>")
+    font_id = b.add(b"<</Type/Font/Subtype/TrueType/BaseFont/Helvetica"
+                    b"/FirstChar 0/LastChar 255/Encoding %d 0 R>>" % enc_id)
+    codes = b"".join(b"%02X" % (65 + i) for i in range(len(names)))
+    content_id = b.stream(
+        b"/Filter/FlateDecode", flate(b"BT /F1 24 Tf 72 700 Td <78" + codes + b"78> Tj ET\n"))
+    page_id, pages_id = b.reserve(), b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+          b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+          % (pages_id, font_id, content_id), page_id)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+b = Builder()
+write("glyph-ligatures", classic_trailer(
+    b, glyph_name_document(b, [b"fi", b"fl", b"ff", b"ffi"])))
+b = Builder()
+write("glyph-control", classic_trailer(b, glyph_name_document(b, [b"uni0000", b"A"])))
+# The name forms that resolve through the fallbacks rather than the table:
+# a dotted variant, a `uni` hex form, a `u` form, and a private-use `uni`
+# that folds out of the F000 block.
+b = Builder()
+write("glyph-fallback-forms", classic_trailer(
+    b, glyph_name_document(b, [b"zero.tf", b"uni2019", b"u00E9", b"uniF041"])))

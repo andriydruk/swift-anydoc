@@ -604,7 +604,15 @@ func pdfPageTextRuns(
         let useCp1252 = cp1252[fontName] ?? true
         var out = pdfCleanSymbolPua(text)
         out = pdfRemapTexCmMathSymbols(out, baseFontName: baseFontNames[fontName] ?? nil)
-        return pdfNormaliseCp1252Controls(out, useCp1252: useCp1252)
+        out = pdfNormaliseCp1252Controls(out, useCp1252: useCp1252)
+        // Last, as the reference applies it — at the point each text item is
+        // built, after every other pass has had its say. `pdfExpandLigatures`
+        // was ported long ago and reached only `/ActualText`, so a `/fi`
+        // ligature glyph came out as `\u{FB01}` where the reference writes
+        // `fi`, a NUL survived into the Markdown, and typographic spaces were
+        // never folded. Six of the reference's own call sites build items
+        // this way; this port had one.
+        return pdfExpandLigatures(out)
     }
 
     var runs = pdfExtractTextRuns(

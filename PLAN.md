@@ -5617,3 +5617,43 @@ readings**.
   base font's name selects no symbol table on this path — so the fallback
   still has no demonstrated caller. `enc-symbol-name.pdf` pins that, because
   it looks as though it should.
+
+- **Wave 147 — a function with no caller, and a rule not understood well
+  enough to port.** **114 of 114** byte-identical.
+
+  Wave 146's sweep worked, so the technique was pointed one layer down: 71
+  documents, each a `/Differences` array naming one glyph, covering the AGL,
+  the `uni`/`u` hex forms, dotted variants, subset conventions, `afii` names
+  and nonsense. Six disagreed with the reference.
+
+  **Five were one missing call.** `pdfExpandLigatures` is a complete and
+  faithful port — ligature expansion, control stripping, invisible-character
+  removal, typographic-space folding, Arabic visual-order repair — and it was
+  reached only by `/ActualText`. The reference calls its equivalent at **six**
+  sites, once for every text item it builds. So `/fi` came out as `\u{FB01}`
+  where the reference writes `fi`, a NUL survived into the Markdown, and
+  typographic spaces were never folded. The fix is one line at the end of
+  `finish`; the connection gap is the twelfth.
+
+  **The sixth was not portable this wave, and the interesting part is why.**
+  A `/Differences` entry naming `gid65` makes the reference emit *nothing at
+  all* — not the page, the whole document. `gidCodes` was already collected
+  here, already tested to the exact boundary (`/gidX` and `/gid` do not count,
+  `/gid1` does), with a comment saying a caller could use it to tell the text
+  was undecodable. No caller ever did.
+
+  Wiring it as "a gid font suppresses its page" was **wrong**, and eight
+  measured documents said so: a two-page file keeps the gid page's text in
+  the reference, and a font whose `/ToUnicode` covers the gid codes is
+  rescued. Reading further, the real rule runs through text quality — a page
+  is stripped only when it is *both* flagged for OCR *and* its text is CID
+  garbage — and that is per-page item stripping this port does not have; its
+  garbage gate is document-level. The wiring was reverted rather than shipped
+  wrong on two of eight cases.
+
+  What is recorded for the next wave: `gidA-plain` and `gidE-long` (gid name,
+  no `/ToUnicode`) and `gidG-inline` (the gid code drawn inside real words)
+  should all produce empty output and produce text here; `gidB-tounicode`
+  shows a **separate** pre-existing gap, where a `/ToUnicode` covering only
+  some codes should leave the rest to the encoding rather than dropping them.
+  That last one was exposed by this wave's fixtures and is not caused by it.
