@@ -2832,3 +2832,29 @@ _update += b"trailer\n<</Size %d/Root %d 0 R/Prev %d>>\nstartxref\n%d\n%%%%EOF\n
     _incremental_builder.next_id, _incremental_builder.next_id - 1,
     _previous, _update_xref_at)
 open(os.path.join(OUT, "incremental-update.pdf"), "wb").write(bytes(_update))
+
+
+# --- subset CMap remap -------------------------------------------------------
+
+# A `/ToUnicode` written against the font's *pre-subsetting* glyph ids: it maps
+# CIDs 100-103, the content stream draws 1-4, and nothing lines up. The
+# reference renumbers the CMap onto sequential CIDs and reads HELP; a reader
+# without that repair extracts an empty page.
+CID_SUBSET_REMAP = tounicode_cmap(
+    b"4 beginbfchar\n<0064> <0048>\n<0065> <0045>\n<0066> <004C>\n<0067> <0050>\n"
+    b"endbfchar\n")
+b = Builder()
+write("cid-subset-remap", classic_trailer(
+    b, cid_document(b, CID_SUBSET_REMAP, b"BT /F1 24 Tf 72 700 Td <0001000200030004> Tj ET\n")))
+
+
+# The negative that proves the gate is a gate. Identical CMap and content —
+# only the `/W` array differs, and it now covers CID 103, the CMap's highest.
+# That agreement between array and CMap is the normal subset layout, so the
+# remap must *not* fire and the page stays empty on both sides. Without this,
+# a repair that fired on every CID font would pass the case above and look
+# correct.
+b = Builder()
+write("cid-subset-remap-covered", classic_trailer(
+    b, cid_document(b, CID_SUBSET_REMAP, b"BT /F1 24 Tf 72 700 Td <0001000200030004> Tj ET\n",
+                    widths=b"/W [0 100 500 100 [500 500 500 500]]")))

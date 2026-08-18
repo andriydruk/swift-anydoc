@@ -72,6 +72,52 @@ struct PdfToUnicodeCMap {
 
     /// Codes above `0xFFFF` cannot appear: the reference parses them with a
     /// 16-bit reader, so a wider code never enters the map.
+    /// The lowest and highest source CID the map mentions, across both
+    /// `bfchar` entries and `bfrange` starts.
+    ///
+    /// These exist for one caller: the subset-remap check in
+    /// `PdfSubsetRemap.swift`, which reads a high minimum as evidence that
+    /// the CMap was written against a font's *pre-subsetting* glyph ids.
+    var minSourceCid: UInt16? {
+        [charMap.keys.min(), ranges.map(\.start).min()].compactMap { $0 }.min()
+    }
+
+    var maxSourceCid: UInt16? {
+        [charMap.keys.max(), ranges.map(\.end).max()].compactMap { $0 }.max()
+    }
+
+    /// Renumber every mapping onto sequential CIDs starting at 1.
+    ///
+    /// A subsetting producer renumbers the glyphs it keeps into 1, 2, 3, …
+    /// but writes a `/ToUnicode` still keyed by the original glyph ids. The
+    /// content stream then draws CIDs the CMap has no entry for, and the page
+    /// extracts as nothing at all. Sorting the old CIDs and reassigning them
+    /// in order recovers the text — *if* the guess is right, which is why the
+    /// result is a candidate to be scored rather than a replacement.
+    ///
+    /// Starting at 1, not 0: glyph 0 is `.notdef` and no content stream draws
+    /// it deliberately.
+    func remapToSequential() -> PdfToUnicodeCMap {
+        var cidToUnicode: [UInt16: String] = [:]
+        // Ranges first, so a `bfchar` entry for the same CID overrides one —
+        // the same precedence `lookup` applies.
+        for range in ranges {
+            for cid in range.start...range.end {
+                let scalarValue = range.base + UInt32(cid - range.start)
+                guard let scalar = Unicode.Scalar(scalarValue) else { continue }
+                cidToUnicode[cid] = String(Character(scalar))
+            }
+        }
+        for (cid, text) in charMap { cidToUnicode[cid] = text }
+
+        var remapped = PdfToUnicodeCMap()
+        for (index, oldCid) in cidToUnicode.keys.sorted().enumerated() {
+            remapped.charMap[UInt16(index + 1)] = cidToUnicode[oldCid]
+        }
+        remapped.codeByteLength = codeByteLength
+        return remapped
+    }
+
     func lookup(_ code: UInt32) -> String? {
         guard code <= 0xFFFF else { return nil }
         return lookupCid(UInt16(code))

@@ -5424,3 +5424,50 @@ readings**.
   the only reason that was visible is that three oracles ask questions the
   Markdown does not answer. Coverage measured in matching output would have
   scored this document as a success.
+
+- **Wave 142 — the repair that must not be trusted.** **99 of 99**
+  byte-identical.
+
+  The orphan list and the unported-candidate list turned out to name two
+  halves of one feature. `pdfChooseBestCmapDecode` was ported and called by
+  nothing; `try_remap_subset_cmap` was reachable in the reference and had no
+  counterpart here. A scorer with nothing to score, and the thing that should
+  have been feeding it.
+
+  The feature is subset-CMap repair. A subsetting producer keeps only the
+  glyphs a document uses, renumbers them 1, 2, 3, … and then writes a
+  `/ToUnicode` still keyed by the *original* glyph ids. The content stream
+  draws the new CIDs, the CMap has an entry for none of them, and **the page
+  extracts as nothing at all**. `cid-subset-remap.pdf` is the case: the
+  reference reads `HELP`, and this port read an empty string.
+
+  **The repair is a guess, and the reference never applies it outright.** It
+  builds a second candidate CMap and decodes the bytes through both, keeping
+  whichever reads more like language. That distinction is the whole reason
+  wave 134 failed: it wired `/CIDToGIDMap` as a *replacement* and agreement
+  got worse. The reference's shape is candidate-and-score, and a wrong guess
+  that replaces the declared mapping turns readable text into confident
+  nonsense — the failure mode this port exists to avoid.
+
+  Two thresholds, both reproduced. Per string the remapped decoding must win
+  by more than 3; once 240 bytes have been sampled the decision is made on
+  the accumulated pair — needing more than 5 — and then **sticks for the rest
+  of the page**. Scoring every string independently would let a page read
+  half one way and half the other, which is why the cache exists. It is
+  per-page in the reference, keyed by the `/ToUnicode` object number, and
+  per-page here for the same reason.
+
+  Three gates gate it, and `cid-subset-remap-covered.pdf` is in the corpus to
+  prove it. It differs from the firing case in the `/W` array alone: widths
+  that reach the CMap's highest CID mean array and CMap agree, which is the
+  normal subset layout, and both sides then leave the page empty. Without
+  that document a repair that fired on every CID font would have passed the
+  positive case and looked correct.
+
+  **`/CIDToGIDMap` is still not wired.** The reference tries it before the
+  sequential remap; wave 134's hypothesis — that `build_cmap_from_truetype`
+  returns a code-keyed map which makes the repair inert — remains unverified,
+  so that branch stays out with the reasoning at the call site rather than
+  being ported on the strength of this wave's success. The `fallback`
+  candidate in `extractor/fonts.rs` is out for the same reason: not measured
+  yet.
