@@ -3349,3 +3349,39 @@ write("shading-op", classic_trailer(b, odd_geometry_document(
     b, b"BT /F1 12 Tf 72 700 Td (Before shading.) Tj ET\n/Sh0 sh\n"
        b"BT /F1 12 Tf 72 680 Td (After shading.) Tj ET\n",
     extra_resources=b"/Shading<</Sh0 %d 0 R>>" % _sh)))
+
+
+# --- descriptor style flags --------------------------------------------------
+
+# Until these existed the `.fontstyle` oracle was **vacuous**: every font in
+# the corpus reported `italic 0 bold 0`, so both sides agreed on 131 documents
+# without either one ever deciding anything. An oracle that only sees zeros
+# proves nothing.
+#
+# `/ItalicAngle` counts from four degrees, so `-3` and `-4` are the pair that
+# pins the threshold rather than merely exercising it.
+def styled_descriptor_document(b, descriptor_extra):
+    fd = b.add(b"<</Type/FontDescriptor/FontName/Test/Ascent 800/Descent -200"
+               b"/CapHeight 700/StemV 80/FontBBox[0 0 1000 1000]" + descriptor_extra + b">>")
+    font_id = b.add(b"<</Type/Font/Subtype/TrueType/BaseFont/Test/FirstChar 32/LastChar 126"
+                    b"/FontDescriptor %d 0 R>>" % fd)
+    content_id = b.stream(b"/Filter/FlateDecode",
+                          flate(b"BT /F1 12 Tf 72 700 Td (Styled sample text.) Tj ET\n"))
+    page_id, pages_id = b.reserve(), b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+          b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+          % (pages_id, font_id, content_id), page_id)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+for _name, _descriptor in [
+    ("style-italic-angle", b"/Flags 4/ItalicAngle -12"),
+    ("style-italic-flag", b"/Flags 68/ItalicAngle 0"),           # 64 | 4
+    ("style-forcebold", b"/Flags 262148/ItalicAngle 0"),         # (1 << 18) | 4
+    ("style-both", b"/Flags 262212/ItalicAngle -15"),
+    ("style-angle-below", b"/Flags 4/ItalicAngle -3"),           # under the bar
+    ("style-angle-at-four", b"/Flags 4/ItalicAngle -4"),         # exactly at it
+]:
+    b = Builder()
+    write(_name, classic_trailer(b, styled_descriptor_document(b, _descriptor)))

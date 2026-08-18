@@ -5798,3 +5798,33 @@ readings**.
   *not* exhausted, but its cheap surface is. Nine of ten features agreed
   outright; the one defect surfaced only because a probe compares
   intermediate geometry rather than output.
+
+- **Wave 152 — a new oracle, and the check that it measures anything.**
+  **137 of 137** byte-identical.
+
+  Wave 151's finding said the byte-diff had stopped being the binding
+  constraint, so this wave went looking for reference probes that take a
+  *file* and could therefore run over the whole corpus. Of the seven,
+  `--fontstyle` was the only one not already wired: per-font italic and bold
+  verdicts plus the embedded program's object number, for every font on every
+  page. It is now generated alongside the other dumps and compared by
+  `PdfFontStyleCorpusProbeTests`.
+
+  **The first run said 131 compared, 0 differ — and proved nothing.** Every
+  one of the 138 fonts in the corpus reported `italic 0 bold 0`. Both sides
+  agreed on a column of zeros. An oracle whose verdict never varies is not an
+  oracle, and the counting output (`138 fonts`) was what made that visible;
+  had the test printed only "0 differ" the wave would have shipped a
+  decoration.
+
+  Six documents now drive the verdict from each of its inputs: `/ItalicAngle`,
+  the italic bit, `ForceBold`, and both together. Two of them exist for the
+  threshold alone — a declared slant counts from **four degrees**, so
+  `-3` must come back regular and `-4` italic. The oracle now sees four
+  distinct verdicts instead of one, and still agrees on all 137 documents.
+
+  No defect this wave. The deliverable is that `--fontstyle` will catch one:
+  a descriptor's flags reach the Markdown only when some run happens to be
+  emphasised, so a wrong italic verdict on a document of regular text is
+  exactly the kind of thing that stays byte-identical — the shape of wave
+  151's negative width, and of 135 and 141 before it.

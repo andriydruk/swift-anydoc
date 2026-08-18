@@ -9,6 +9,10 @@
 #                         itself is built on)
 #   <name>.pdf.graphics   path extraction, from the vendored reference
 #   <name>.pdf.underline  decoration flags and run widths, likewise
+#   <name>.pdf.fontstyle  per-font italic/bold flags and the embedded font
+#                         program's object number — an oracle over what the
+#                         *descriptor* says, which the Markdown only reflects
+#                         when a run happens to be emphasised
 #
 # `pdfprobe` is built here rather than kept in a scratch directory, so the
 # object-graph oracle is reproducible from the repo alone.
@@ -113,6 +117,7 @@ for f in "$corpus"/*.pdf; do
     fi
     "$graphicsprobe" "$f" > "$f.graphics" 2>/dev/null || rm -f "$f.graphics"
     "$graphicsprobe" --underline "$f" > "$f.underline" 2>/dev/null || rm -f "$f.underline"
+    "$graphicsprobe" --fontstyle "$f" > "$f.fontstyle" 2>/dev/null || rm -f "$f.fontstyle"
     "$graphicsprobe" --pagefonts "$f" > "$f.pagefonts" 2>/dev/null || rm -f "$f.pagefonts"
     "$graphicsprobe" --pageanalysis "$f" > "$f.pageanalysis" 2>/dev/null || rm -f "$f.pageanalysis"
     "$graphicsprobe" --detectdoc "$f" > "$f.detectdoc" 2>/dev/null || rm -f "$f.detectdoc"
