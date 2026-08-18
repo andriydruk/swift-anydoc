@@ -3076,3 +3076,68 @@ write("glyph-control", classic_trailer(b, glyph_name_document(b, [b"uni0000", b"
 b = Builder()
 write("glyph-fallback-forms", classic_trailer(
     b, glyph_name_document(b, [b"zero.tf", b"uni2019", b"u00E9", b"uniF041"])))
+
+
+# --- gid-encoded fonts -------------------------------------------------------
+
+# `/Differences [65 /gid65]` names a raw glyph index. The name says which
+# glyph to draw and nothing about which character it is, so the page can only
+# be read through a `/ToUnicode` covering those codes.
+#
+# **The rule is document-level.** Every such page joins the OCR list, but the
+# Markdown is discarded only when *every* page is gid-encoded. The two
+# documents below differ in exactly that: one page and the output vanishes,
+# two pages with one clean and the whole document survives — including the
+# gid page's own text. A port that suppressed each gid page on its own fits
+# every single-page case and fails `gid-two-page`.
+def gid_font_document(b, pages, gid_on):
+    enc_id = b.add(b"<</Type/Encoding/Differences [65 /gid65]>>")
+    gid_font = b.add(b"<</Type/Font/Subtype/TrueType/BaseFont/Helvetica"
+                     b"/FirstChar 0/LastChar 255/Encoding %d 0 R>>" % enc_id)
+    plain_font = b.add(b"<</Type/Font/Subtype/TrueType/BaseFont/Helvetica"
+                       b"/FirstChar 0/LastChar 255>>")
+    pages_id = b.reserve()
+    kids = []
+    for index, text_hex in enumerate(pages):
+        font_id = gid_font if gid_on[index] else plain_font
+        content_id = b.stream(
+            b"/Filter/FlateDecode",
+            flate(b"BT /F1 24 Tf 72 700 Td <" + text_hex + b"> Tj ET\n"))
+        page_id = b.reserve()
+        b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+              b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+              % (pages_id, font_id, content_id), page_id)
+        kids.append(page_id)
+    b.add(b"<</Type/Pages/Kids[" + b" ".join(b"%d 0 R" % k for k in kids)
+          + b"]/Count %d>>" % len(kids), pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+HELLO_A_WORLD = b"48656C6C6F204120576F726C64"   # "Hello A World", 0x41 is the gid code
+
+b = Builder()
+write("gid-all-pages", classic_trailer(b, gid_font_document(b, [HELLO_A_WORLD], [True])))
+b = Builder()
+write("gid-two-page", classic_trailer(
+    b, gid_font_document(b, [HELLO_A_WORLD, b"5365636F6E64"], [True, False])))
+
+# The boundary of what counts as a gid name: `gidXY` has non-digits and
+# `gid` has no digits at all, so neither suppresses anything.
+def gid_name_document(b, glyph):
+    enc_id = b.add(b"<</Type/Encoding/Differences [65 /" + glyph + b"]>>")
+    font_id = b.add(b"<</Type/Font/Subtype/TrueType/BaseFont/Helvetica"
+                    b"/FirstChar 0/LastChar 255/Encoding %d 0 R>>" % enc_id)
+    content_id = b.stream(
+        b"/Filter/FlateDecode", flate(b"BT /F1 24 Tf 72 700 Td <784178> Tj ET\n"))
+    page_id, pages_id = b.reserve(), b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+          b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+          % (pages_id, font_id, content_id), page_id)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+b = Builder()
+write("gid-name-nondigit", classic_trailer(b, gid_name_document(b, b"gidXY")))
+b = Builder()
+write("gid-name-bare", classic_trailer(b, gid_name_document(b, b"gid")))

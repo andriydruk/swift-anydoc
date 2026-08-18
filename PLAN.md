@@ -5657,3 +5657,41 @@ readings**.
   shows a **separate** pre-existing gap, where a `/ToUnicode` covering only
   some codes should leave the rest to the encoding rather than dropping them.
   That last one was exposed by this wave's fixtures and is not caused by it.
+
+- **Wave 148 — the threshold was the rule.** **118 of 118** byte-identical.
+
+  Wave 147 left the gid rule unported with a stated reason: that suppression
+  ran through text quality, needing per-page item stripping this port lacks.
+  **That reason was wrong**, and measuring it first thing was what caught it.
+  `--detectdoc` returns *identical* verdicts for a gid document and its
+  control — `pages_needing_ocr` is empty for both — so the text-quality path
+  cannot be what empties the output.
+
+  Two more hypotheses died the same way. `--underline` dumps the items, and
+  they are **identical** between the suppressed document and its control:
+  `Hello A World` either way, so nothing about the text explains it. Then a
+  two-run page suppressed *both* runs, killing "the run containing the gid
+  code is dropped".
+
+  The answer is one line of the reference: `all_gid = !gid_pages.is_empty()
+  && gid_pages.len() >= page_count`. **Every page** must be gid-encoded
+  before the Markdown is discarded. Each such page joins the OCR list
+  regardless; the discarding is document-level. That is why the two-page
+  file kept everything — including the gid page's own text — while every
+  single-page case vanished. Wave 147's fixtures were all single-page, and
+  on single-page documents "suppress the page" and "suppress when all pages
+  are bad" are indistinguishable. Eight documents agreed with a wrong rule.
+
+  `gid-two-page.pdf` is now in the corpus for exactly that reason: it is the
+  one document that tells the two rules apart, and without it a future
+  refactor to per-page suppression would pass.
+
+  `pdfToUnicodeMapsAnyCode` is the rescue: a `/ToUnicode` addressing *any* of
+  the gid codes means the CMap addresses them, and the rest are subset
+  leftovers. One hit is enough, and a hit producing U+FFFD or nothing is not
+  a hit.
+
+  Still open, and unrelated to this rule: `gidB-tounicode`, where a
+  `/ToUnicode` covering only some codes should leave the others to the
+  encoding rather than dropping them. The reference reaches that through a
+  branch that returns the raw bytes when they are all printable ASCII.

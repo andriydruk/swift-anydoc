@@ -55,6 +55,9 @@ func pdfConvert(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOptio
 
     var lines: [PdfTextLine] = []
     var pageTables: [Int: [PdfPositionedMarkdown]] = [:]
+    /// Pages whose fonts name raw glyph indices with no `/ToUnicode` to
+    /// resolve them. Collected per page, judged once at the end.
+    var gidPages: Set<Int> = []
     /// Where each page's raster figures sit. Nothing consumes these yet —
     /// chart masking is unported — but they are the reference's
     /// `page_image_regions`, and collecting them is what makes the image
@@ -109,6 +112,8 @@ func pdfConvert(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOptio
         // detectors need every item on the page to find a grid at all; and
         // the letter-spacing measurement has to see merged words, not the
         // fragments a PDF draws them as.
+        if pdfPageHasGidEncodedFonts(&document, page) { gidPages.insert(number) }
+
         var items = pdfLayoutItems(pdfPageTextRuns(&document, page))
 
         // The **items** were squared up by `pdfPageTextRuns`, where the
@@ -254,6 +259,26 @@ func pdfConvert(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOptio
     // look like a successful conversion to every caller that does not read
     // it — which is the whole failure this project names first.
     var result = detection
+
+    // A page whose fonts are gid-encoded cannot be decoded reliably, and
+    // every such page joins the OCR list. **The Markdown is thrown away only
+    // when *every* page is like that** — the reference's `all_gid`. A single
+    // bad page among good ones still contributes the text it has; a document
+    // that is bad throughout has nothing worth returning.
+    //
+    // That threshold is the whole rule, and it is not obvious: eight probe
+    // documents in wave 147 were read as "a gid page suppresses itself",
+    // which fits all the single-page cases and is wrong. `gid-two-page.pdf`
+    // is the one that tells them apart.
+    if !gidPages.isEmpty {
+        for page in gidPages.sorted().map({ UInt32($0) })
+        where !result.pagesNeedingOcr.contains(page) {
+            result.pagesNeedingOcr.append(page)
+        }
+        result.pagesNeedingOcr.sort()
+        if gidPages.count >= Int(result.pageCount) { markdown = "" }
+    }
+
     if result.pdfType == .textBased && pdfIsGarbageText(markdown) {
         markdown = ""
         if result.pageCount > 0 { result.pagesNeedingOcr = Array(1...result.pageCount) }
@@ -453,6 +478,28 @@ func pdfPageFontBaseEncodings(_ document: inout PdfDocument, _ page: PdfDictiona
         }
         return pdfBaseEncodingTable(named: name)
     }
+}
+
+/// Whether a page carries a font whose `/Differences` names raw glyph
+/// indices its `/ToUnicode` does not address.
+///
+/// `gid00053` says which glyph to draw and nothing about which character it
+/// is. Such a font can only be read through a `/ToUnicode` that covers those
+/// codes; without one the page's encoding is a subset artefact and the text
+/// it yields is a guess.
+///
+/// Page-level fonts only. The reference runs the same check inside form
+/// XObjects and **discards the answer**, so a gid font reached only through
+/// a form does not count.
+func pdfPageHasGidEncodedFonts(_ document: inout PdfDocument, _ page: PdfDictionary) -> Bool {
+    let encodings = pdfPageFontEncodings(&document, page)
+    guard encodings.values.contains(where: { !$0.gidCodes.isEmpty }) else { return false }
+
+    let entries = pdfPageFontCMapEntries(&document, page)
+    for (name, differences) in encodings where !differences.gidCodes.isEmpty {
+        if !pdfToUnicodeMapsAnyCode(entries[name]?.primary, differences.gidCodes) { return true }
+    }
+    return false
 }
 
 /// The `/Differences` encodings of a page's fonts, by resource name.

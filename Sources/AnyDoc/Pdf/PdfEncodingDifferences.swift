@@ -93,3 +93,22 @@ func pdfParseEncodingDifferences(
     return result
 }
 
+
+/// Whether a `/ToUnicode` CMap usably addresses any of these codes.
+///
+/// **One is enough.** A subset font's CMap routinely maps the first code of a
+/// sequence and leaves its components alone, so requiring every gid code to
+/// map would reject fonts that decode perfectly well. The question is whether
+/// the CMap addresses these codes *at all* — a font whose CMap ignores them
+/// entirely is the one that cannot be read.
+///
+/// "Usable" excludes an empty result and one containing U+FFFD, because
+/// extraction rejects those downstream anyway; counting them would rescue a
+/// font on the strength of a mapping that yields nothing.
+func pdfToUnicodeMapsAnyCode(_ cmap: PdfToUnicodeCMap?, _ codes: [UInt8]) -> Bool {
+    guard let cmap else { return false }
+    return codes.contains { code in
+        guard let text = cmap.lookup(UInt32(code)) else { return false }
+        return !text.isEmpty && !text.unicodeScalars.contains("\u{FFFD}")
+    }
+}
