@@ -6258,3 +6258,34 @@ readings**.
 
   Reverting the negative-gap guard diverges the Markdown, so the fixture
   guards it at output level.
+
+- **Wave 165 — finishing what wave 164 started, and a new divergence found
+  on the way.** **161 of 161** byte-identical.
+
+  Wave 164 ported `should_preserve_overlapping_stream_order` and two of its
+  four consumers. The other two were live-but-unported code in this port's own
+  merge loop, one wave old:
+
+  - **`needs_bullet_space`** — a bullet on a preserved line always takes a
+    space, whatever the gap says, because the text it introduces was drawn
+    separately and its position carries no word-boundary signal.
+  - **`end_x` takes the maximum** on a preserved line rather than the new
+    item's end. An overlay starts left of what it covers, so assigning the new
+    end outright moves the right edge *backwards* and makes every later gap
+    look enormous.
+
+  Both are now ported, and unit-tested rather than left to the corpus, because
+  reaching them needs geometry no fixture had: the bullet's gap must sit
+  **outside the ordinary 6pt limit and inside the widened 14.4pt one**. At
+  18pt — the first arrangement tried — the bullet never merges at all and the
+  branch is dead. The test pins that boundary from both sides.
+
+  **A separate divergence surfaced and is not fixed.** `overlay-bullet.pdf`
+  and its untagged twin both differ: the reference formats them as list items
+  (`- the quick brown fox Th`) where this port emits a heading with the bullet
+  still attached (`## •the quick brown fox Th`). The cause is upstream of the
+  preserved-line work — the zero-width bullet item and `should_join_items`,
+  which **both** implementations skip the geometry test for when
+  `previous.width == 0`, yet they disagree on what happens next. Neither
+  document is in the corpus, because a corpus document must match; the
+  geometry is recorded here and is the next wave's target.

@@ -263,9 +263,21 @@ func pdfMergeTextItems(_ items: [PdfLayoutItem]) -> [PdfLayoutItem] {
                 }
                 let effective =
                     tracked.map { next <= $0.end ? $0.floor : threshold } ?? threshold
-                if gap > effective { text += " " }
+                // A bullet on a preserved line always takes a space, whatever
+                // the gap says: the text it introduces was drawn separately
+                // and its position carries no word-boundary signal.
+                let needsBulletSpace =
+                    preserved && pdfIsStandaloneBullet(text)
+                    && !candidate.text.rustTrim().isEmpty
+                if needsBulletSpace || gap > effective { text += " " }
                 text += candidate.text
-                endX = candidate.x + pdfEffectiveMergeWidth(candidate)
+
+                // **A preserved line's extent only grows.** The overlay starts
+                // left of what it covers, so taking the new item's end
+                // outright would move the right edge backwards and make every
+                // later gap look enormous.
+                let candidateEnd = candidate.x + pdfEffectiveMergeWidth(candidate)
+                endX = preserved ? max(endX, candidateEnd) : candidateEnd
                 next += 1
             }
 
