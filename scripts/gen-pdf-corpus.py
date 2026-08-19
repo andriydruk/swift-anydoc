@@ -3385,3 +3385,38 @@ for _name, _descriptor in [
 ]:
     b = Builder()
     write(_name, classic_trailer(b, styled_descriptor_document(b, _descriptor)))
+
+
+# --- two-column prose, and the same page drawn upside down -------------------
+
+# Column detection needs enough items to see a valley, so this page carries 22
+# lines a side — the shorter version merges into one flow and tests nothing.
+# The reference emits the left column entire, then the right.
+#
+# The pair differs only in the **sign of the right column's font size**. Wave
+# 151 found run widths coming out negative for a negative size, and found it
+# through a probe on a one-line document where the Markdown could not care.
+# Here it would: a negative width reaches column detection as a box whose
+# edges are swapped, and the valley between the columns is exactly what that
+# would destroy. This is the fix measured where it matters.
+def two_column_document(b, left_size, right_size, rows=22):
+    font = b.add(SIMPLE_FONT)
+    body = b""
+    for i in range(rows):
+        body += b"BT /F1 %d Tf 72 %d Td (Left column line %02d of the article.) Tj ET\n" % (
+            left_size, 720 - i * 14, i)
+        body += b"BT /F1 %d Tf 330 %d Td (Right column line %02d of article.) Tj ET\n" % (
+            right_size, 720 - i * 14, i)
+    content_id = b.stream(b"/Filter/FlateDecode", flate(body))
+    page_id, pages_id = b.reserve(), b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+          b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+          % (pages_id, font, content_id), page_id)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+b = Builder()
+write("cols-two-column", classic_trailer(b, two_column_document(b, 11, 11)))
+b = Builder()
+write("cols-negative-size", classic_trailer(b, two_column_document(b, 11, -11)))

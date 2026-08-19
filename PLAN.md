@@ -5865,3 +5865,37 @@ readings**.
   PLAN.md wave 98 recorded six of seven gates sitting unset for thirty waves.
   This is the second occurrence, by a different route, and the reason the
   check is now in the suites rather than in a habit.
+
+- **Wave 154 — the corpus was missing the document, not the ability.**
+  **139 of 139** byte-identical.
+
+  Wave 151 found run widths coming out negative for a negative font size, and
+  concluded that only a probe could have seen it. **That conclusion was too
+  strong, and this wave disproves it.**
+
+  The corpus had no working two-column PDF — column detection was exercised
+  only by the synthetic grid probe, never by a document. Adding one takes 22
+  lines a side; the shorter version merges into a single flow and tests
+  nothing. `cols-two-column.pdf` and `cols-negative-size.pdf` differ only in
+  the **sign of the right column's font size**.
+
+  Reverting wave 151's `abs()` with those documents in place:
+
+  - the underline probe flags 22 items in the new file plus the old one-line
+    case, as expected; and
+  - **the Markdown diverges too.** Without the fix the columns interleave —
+    `Left 00, Right 00, Left 01, Right 01` — where the reference emits the
+    left column entire and then the right. A negative width reaches column
+    detection as a box with its edges swapped, and the valley between the
+    columns is exactly what that destroys.
+
+  So the defect was always output-visible. What was missing was a document
+  where it mattered: every fixture that drew a negative size drew one line,
+  and one line does not care how wide it is. The honest form of wave 151's
+  lesson is not "the byte-diff is blind here" but **"the byte-diff is only as
+  good as the layouts the corpus contains"** — which is the same lesson as
+  wave 146's high bytes and wave 152's column of zeros, arriving for the
+  third time.
+
+  This also gives the fix a Markdown-level regression test rather than a
+  probe-level one, and gives the corpus its first real multi-column page.
