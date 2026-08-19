@@ -11,9 +11,9 @@ import Testing
 ///
 /// They were written against the two implementations to establish that they
 /// agreed, and they now pin the delegation instead: the same five cases, plus
-/// the one place `pdfNeedsSpace` still decides for itself. Keeping them is
-/// the point — a future edit that re-inlines the geometry, or drops the width
-/// guard, fails here rather than silently on some page nobody has.
+/// the case that once diverged and no longer does. Keeping them is the
+/// point — a future edit that re-inlines the geometry fails here rather
+/// than silently on some page nobody has.
 ///
 /// **The copy had gone stale**, which is why this mattered beyond tidiness:
 /// it hardcoded the 0.10 word-gap bar and so had no letter-spaced branch at
@@ -57,14 +57,37 @@ import Testing
         #expect(agree(item("b", x: 72, width: 6), item("illion", x: 78.4, width: 30)))
     }
 
-    /// The one decision `pdfNeedsSpace` still makes alone: with no measured
-    /// width there is no gap to reason about, so it joins, while
-    /// `pdfShouldJoinItems` would reach a conclusion from the text. The guard
-    /// is kept deliberately and this test is what says so.
-    @Test func theyDivergeWhenTheWidthIsUnmeasured() {
+    /// **They agree here too, and this test used to say the opposite.**
+    ///
+    /// `pdfNeedsSpace` carried a `guard previous.width > 0 else { return
+    /// false }` — join, no space, whenever the previous item had no measured
+    /// width — described in its own comment as a deliberate difference, and
+    /// pinned here as one. It was a bug. The reference's line assembler calls
+    /// `should_join_items` unconditionally, and that function has its own
+    /// zero-width path: estimate a width from the character count and reason
+    /// about the gap as usual. The guard skipped all of it, so these two
+    /// items **110 points apart** were joined into one word.
+    ///
+    /// Wave 166 found it through a bulleted line: a zero-width bullet glued
+    /// to its text reads `\u{2022}the quick brown fox`, which is a heading
+    /// rather than a list item, because `is_list_item` wants `\u{2022} ` with
+    /// the space.
+    ///
+    /// A test asserting a divergence is only as good as the reason recorded
+    /// with it, and this one's reason was wrong.
+    @Test func theyAgreeWhenTheWidthIsUnmeasured() {
         let previous = item("word", x: 72, width: 0)
         let current = item("next", x: 200, width: 24)
-        #expect(!pdfNeedsSpace(previous, current, "prev"))
-        #expect(!agree(previous, current))
+        #expect(pdfNeedsSpace(previous, current, "prev"))
+        #expect(agree(previous, current))
+    }
+
+    /// The zero-width case that matters in practice: a bullet, whose glyph
+    /// often measures nothing, followed by the text it introduces.
+    @Test func aZeroWidthBulletKeepsItsSpace() {
+        #expect(
+            pdfNeedsSpace(
+                item("\u{2022}", x: 72, width: 0, size: 12),
+                item("the quick brown fox", x: 86, width: 114, size: 12), "\u{2022}"))
     }
 }

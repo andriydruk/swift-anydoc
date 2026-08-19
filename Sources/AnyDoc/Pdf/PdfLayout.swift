@@ -206,11 +206,16 @@ func pdfNeedsSpace(
         if verticalOffset > 1.0, ratio < 0.85 || inverse < 0.85 { return false }
     }
 
-    // Without a measured width there is no gap to reason about, so fall back
-    // to joining. `pdfShouldJoinItems` would instead reach a conclusion from
-    // the text, so this guard is a real difference between the two and is
-    // kept deliberately — see `PdfJoinDuplicationTests`.
-    guard previous.width > 0 else { return false }
+    // **No width guard here**, and its absence is the point. This used to
+    // return `false` — join, no space — whenever the previous item had no
+    // measured width, described in a comment as a deliberate difference and
+    // pinned by a test. It was neither: the reference's line assembler calls
+    // `should_join_items` unconditionally, and *that* function has its own
+    // zero-width path, which estimates a width from the character count and
+    // reasons about the gap normally. The guard short-circuited it, so a
+    // zero-width item joined to whatever followed at any distance — a
+    // bulleted line came out as one word and was read as a heading rather
+    // than a list, and two items 110pt apart merged.
 
     // Everything geometric is `pdfShouldJoinItems`, which is the port of the
     // function the reference's own line assembler calls here. This used to be

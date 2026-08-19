@@ -3749,3 +3749,39 @@ b = Builder()
 write("overlay-backtrack", classic_trailer(b, overlay_document(b, True)))
 b = Builder()
 write("overlay-plain", classic_trailer(b, overlay_document(b, False)))
+
+
+# --- a bullet whose glyph measures nothing -----------------------------------
+
+# The bullet in this font has no `/Widths` entry, so it reaches the line
+# assembler with width 0 — which is the common case for a bullet, not an
+# exotic one. Glued to the text it introduces it reads `•the quick brown fox`,
+# and `is_list_item` wants `• ` with the space, so the line came out a heading
+# instead of a list item.
+#
+# The tagged twin also exercises the preserved-line path: with marked content
+# the overlay keeps stream order (`Ththe quick…`), without it the items sort
+# by x (`the quick… Th`). Both must still open with `- `.
+def zero_width_bullet_document(b, tagged):
+    font = b.add(SIMPLE_FONT)
+    runs = [(72, b"\xb7"), (90, b"Th"), (86, b"the quick brown fox")]
+    body = b""
+    for index, (x, text) in enumerate(runs):
+        if tagged:
+            body += b"/P <</MCID %d>> BDC\n" % index
+        body += b"BT /F1 12 Tf %d 700 Td (%s) Tj ET\n" % (x, text)
+        if tagged:
+            body += b"EMC\n"
+    content_id = b.stream(b"/Filter/FlateDecode", flate(body))
+    page_id, pages_id = b.reserve(), b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+          b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+          % (pages_id, font, content_id), page_id)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+b = Builder()
+write("overlay-bullet", classic_trailer(b, zero_width_bullet_document(b, True)))
+b = Builder()
+write("overlay-bullet-plain", classic_trailer(b, zero_width_bullet_document(b, False)))

@@ -6289,3 +6289,38 @@ readings**.
   `previous.width == 0`, yet they disagree on what happens next. Neither
   document is in the corpus, because a corpus document must match; the
   geometry is recorded here and is the next wave's target.
+
+- **Wave 166 — a bug with a test defending it.** **163 of 163**
+  byte-identical.
+
+  Wave 165 recorded a divergence it could not explain: a bulleted line came
+  out `## \u{2022}the quick brown fox` here and `- the quick brown fox` in the
+  reference. Tracing it went through three wrong suspects — the merge loop,
+  `should_join_items`' zero-width fallback, and `is_list_item` — and each was
+  **identical on both sides**. `is_list_item` requires `\u{2022} ` with the
+  space, and both implementations estimate a width from the character count
+  when none is measured, then reason about the gap normally.
+
+  The difference was one line earlier. `pdfNeedsSpace` carried
+
+  ```swift
+  guard previous.width > 0 else { return false }
+  ```
+
+  which returns *join, no space* for any item with no measured width, and
+  short-circuits the geometry entirely. **The reference's line assembler calls
+  `should_join_items` unconditionally.** A bullet's glyph commonly measures
+  nothing, so a bullet was glued to its text and the line read as a heading.
+  The same guard joined two items **110 points apart** into one word.
+
+  **It was documented as deliberate and pinned by a test.** The comment called
+  it "a real difference between the two … kept deliberately", and
+  `PdfJoinDuplicationTests.theyDivergeWhenTheWidthIsUnmeasured` asserted the
+  divergence — with the 110-point case as its example, which should have read
+  as a bug on sight. Removing the guard broke exactly that test and nothing
+  else: the corpus stayed byte-identical on all 161 documents before the two
+  new ones were added.
+
+  A test asserting a divergence is only as good as the reason recorded with
+  it. This one's reason was wrong, and it kept the bug alive across every wave
+  that ran afterwards.
