@@ -3502,12 +3502,17 @@ write("rtl-forms-a", classic_trailer(b, arabic_document(
 # document at all**. The invisible-character and typographic-space handling
 # came alive in wave 147, when ligature expansion was wired into every run,
 # and was covered only by unit tests.
-def cid_unicode_document(b, pairs, content_bytes, base_font=b"Test", width=500):
-    body = b"%d beginbfchar\n" % len(pairs)
-    for cid, unicode_value in pairs:
-        body += b"<%04X> <%04X>\n" % (cid, unicode_value)
-    body += b"endbfchar\n"
-    cmap_id = b.stream(b"/Filter/FlateDecode", flate(tounicode_cmap(body)))
+def cid_unicode_document(b, pairs, content_bytes, base_font=b"Test", width=500,
+                         raw_cmap=None):
+    """`raw_cmap` writes the CMap verbatim, for documents testing its syntax
+    rather than its mappings."""
+    if raw_cmap is None:
+        body = b"%d beginbfchar\n" % len(pairs)
+        for cid, unicode_value in pairs:
+            body += b"<%04X> <%04X>\n" % (cid, unicode_value)
+        body += b"endbfchar\n"
+        raw_cmap = tounicode_cmap(body)
+    cmap_id = b.stream(b"/Filter/FlateDecode", flate(raw_cmap))
     descendant = b.add(b"<</Type/Font/Subtype/CIDFontType2/BaseFont/" + base_font +
                        b"/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>"
                        b"/DW %d/W [0 [%d]]>>" % (width, width))
@@ -3620,3 +3625,27 @@ write("numbered-list", classic_trailer(b, heading_and_list_document(
        b"BT /F1 11 Tf 100 706 Td (a. Nested letter item) Tj ET\n"
        b"BT /F1 11 Tf 100 692 Td (b. Second letter item) Tj ET\n"
        b"BT /F1 11 Tf 72 678 Td (2. Second numbered item) Tj ET\n" + _LIST_TAIL)))
+
+
+# --- a ToUnicode CMap naming another ----------------------------------------
+
+# `usecmap` lets a CMap inherit from another by name. The reference parses the
+# name out (`find_usecmap_name`); this port does not, and the pair below shows
+# why that costs nothing here — the directive names `Adobe-Identity-UCS`,
+# whose resolution yields no mappings either way, so both documents read
+# `Hello`. A CMap naming a *predefined CJK* map would be a different question,
+# and that is the `.bcmap` data dependency wave 145 measured and declined.
+_CMAP_HEAD = (b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n"
+              b"1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n")
+_CMAP_MAPS = (b"5 beginbfchar\n<0001> <0048>\n<0002> <0065>\n<0003> <006C>\n"
+              b"<0004> <006C>\n<0005> <006F>\nendbfchar\n")
+_CMAP_TAIL = b"endcmap\nend\nend\n"
+
+b = Builder()
+write("cmap-usecmap", classic_trailer(b, cid_unicode_document(
+    b, [], b"BT /F1 18 Tf 72 700 Td <00010002000300040005> Tj ET\n",
+    raw_cmap=_CMAP_HEAD + b"/Adobe-Identity-UCS usecmap\n" + _CMAP_MAPS + _CMAP_TAIL)))
+b = Builder()
+write("cmap-plain", classic_trailer(b, cid_unicode_document(
+    b, [], b"BT /F1 18 Tf 72 700 Td <00010002000300040005> Tj ET\n",
+    raw_cmap=_CMAP_HEAD + _CMAP_MAPS + _CMAP_TAIL)))

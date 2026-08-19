@@ -6082,3 +6082,38 @@ readings**.
   whose whole discrimination lives in the object graph. An audit is only as
   wide as the evidence it consults, which is the same mistake in miniature as
   the one it was written to catch.
+
+- **Wave 160 — triaging the rest of the orphan list.** **155 of 155**
+  byte-identical.
+
+  Wave 150 cleared six of the twenty orphans. This wave took the remaining
+  thirteen, and the useful result is that "no caller" turns out to have three
+  quite different causes.
+
+  **Four have no live caller in the reference either** —
+  `pdfCorrectRotatedItems`, `pdfDecodeSingleByteRun`, `pdfLayoutComplexity`
+  and `pdfPageReplacementEvidenceNeedsOcr`. Nothing to connect.
+
+  **`pdfIsStandaloneBullet` is blocked behind an unported gate**, which is a
+  different thing from a missing call and worth naming as such. Both of the
+  reference's uses sit inside `merge_text_items` — the function wave 155
+  fixed — and both are gated on `preserve_stream_order`, which is
+  `!rtl && should_preserve_overlapping_stream_order(&group)`: the narrow case
+  of a content stream that backtracks to overlay `/ActualText` fragments.
+  **This port does not implement that predicate at all**, so the bullet helper
+  is unreachable *by construction*. Wiring it would do nothing; the real gap
+  is the gate, and it is now named rather than hiding behind a helper that
+  looks merely unwired.
+
+  **`pdfFindUsecmapName` is reachable and measured to cost nothing.** A
+  `/ToUnicode` naming another CMap through `usecmap` reads identically on both
+  sides — `cmap-usecmap.pdf` and `cmap-plain.pdf` differ in that directive
+  alone and both give `Hello`. The reference parses the name; resolving
+  `Adobe-Identity-UCS` yields no mappings, so nothing follows from it. A CMap
+  naming a *predefined CJK* map would be a different question, and that is the
+  1.6 MB `.bcmap` dependency wave 145 measured and declined.
+
+  Left as candidates, reachable and not yet measured: `fix_bare_struct_names`
+  (nine live callers, struct-tree repair), `detect_encoding_issues` (ten, and
+  it feeds a result field rather than the Markdown), and
+  `text_span_has_decoding_issue`.
