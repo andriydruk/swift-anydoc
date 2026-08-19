@@ -183,21 +183,35 @@ func pdfMergeTextItems(_ items: [PdfLayoutItem]) -> [PdfLayoutItem] {
     // `لبسال`, the same as the single-run version of the same line. Whether
     // the two runs then merge or stay separate does not matter — the order
     // is already right either way.
+    //
+    // **And a line the stream deliberately overlaid keeps its stream order**,
+    // sorted neither way — see `pdfShouldPreserveOverlappingStreamOrder`. That
+    // check runs on the group as the stream left it, so it must come before
+    // the sort that would destroy the evidence.
+    var preserveOrder = Set<Int>()
     for index in groups.indices {
         let rightToLeft = pdfIsRtlText(groups[index].items.map(\.text))
+        if !rightToLeft && pdfShouldPreserveOverlappingStreamOrder(groups[index].items) {
+            preserveOrder.insert(index)
+            continue
+        }
         groups[index].items.sort { rightToLeft ? $0.x > $1.x : $0.x < $1.x }
     }
+    let preservedYs = Set(preserveOrder.map { groups[$0].y })
     groups.sort { $0.y > $1.y }
 
     var merged: [PdfLayoutItem] = []
     for group in groups {
         let line = group.items
+        let preserved = preservedYs.contains(group.y)
         var index = 0
         while index < line.count {
             let first = line[index]
             var text = first.text
             var endX = first.x + pdfEffectiveMergeWidth(first)
-            let tracked = pdfTrackedRunSpaceFloor(line, from: index)
+            // A preserved line's runs are overlaid rather than tracked, so
+            // the letter-spacing floor must not be measured across them.
+            let tracked = preserved ? nil : pdfTrackedRunSpaceFloor(line, from: index)
 
             var next = index + 1
             while next < line.count {
@@ -217,8 +231,18 @@ func pdfMergeTextItems(_ items: [PdfLayoutItem]) -> [PdfLayoutItem] {
                     break
                 }
                 let gap = candidate.x - endX
-                if gap > first.fontSize * 0.5 { break }
-                if gap < -first.fontSize * 0.5 { break }
+                // A bullet on a preserved line reaches further: the text it
+                // introduces was drawn separately and sits further off.
+                let gapMax =
+                    preserved && pdfIsStandaloneBullet(text)
+                    ? first.fontSize * 1.2 : first.fontSize * 0.5
+                if gap > gapMax { break }
+                // **A preserved line is allowed to run backwards.** The
+                // overlay starts left of the fragment it covers, so its gap
+                // is negative by design; breaking on that is what stopped the
+                // two from fusing, and left the later line sort free to
+                // interleave them by x.
+                if gap < -first.fontSize * 0.5 && !preserved { break }
 
                 // Where the gap is a word boundary. Punctuation that joins
                 // what precedes it never takes a space; a lowercase pair is
@@ -342,4 +366,132 @@ func pdfMergeSubscriptItems(_ items: [PdfLayoutItem]) -> [PdfLayoutItem] {
         result += merged
     }
     return result
+}
+
+// MARK: - overlaid stream order
+
+/// Whether a group's items should keep the order the content stream drew
+/// them in, rather than being sorted left to right — ported from
+/// `should_preserve_overlapping_stream_order` in `extractor/mod.rs`.
+///
+/// **Some producers draw a line twice.** A short fragment goes down, and then
+/// a longer one is drawn *starting to its left* and overlapping it, carrying
+/// the real text; the first is a rendering artefact of how the tagged content
+/// was built. Sorting such a line by x interleaves the two — `the quick brown
+/// fox Th jumps over` — where the stream order reads `Ththe quick brown fox
+/// jumps over`. `overlay-backtrack.pdf` is that document, and its twin
+/// without marked content is the control.
+///
+/// **The gates are many because a wrong answer here reorders ordinary text.**
+/// Three items or more; at least one carrying an MCID, since this only
+/// happens in tagged content; two non-empty; every size within a quarter of
+/// the first, so a footnote marker cannot drag a line in; not mostly
+/// mathematical symbols, which overlap legitimately; and an x-cluster that is
+/// contiguous and not absurdly wide.
+///
+/// Only then is a backtrack looked for, and it must be *explained*: a short
+/// alphabetic fragment nearby, the overlay starting lowercase, and a space or
+/// hyphen inside its first 24 characters — or a bullet close enough to the
+/// left with a short fragment between. Anything less is a line that merely
+/// happens to overlap.
+func pdfShouldPreserveOverlappingStreamOrder(_ group: [PdfLayoutItem]) -> Bool {
+    guard group.count >= 3 else { return false }
+    guard let first = group.first(where: { !$0.text.rustTrim().isEmpty }) else { return false }
+    guard group.contains(where: { $0.mcid != nil }) else { return false }
+
+    var nonEmpty = 0
+    var nonSpaceCharacters = 0
+    var mathSymbolCharacters = 0
+    var maxFontSize = first.fontSize
+
+    for item in group {
+        if !item.text.rustTrim().isEmpty { nonEmpty += 1 }
+        // A size that differs by more than a quarter means this is not one
+        // overlaid line.
+        if abs(item.fontSize - first.fontSize) > first.fontSize * 0.25 { return false }
+        maxFontSize = max(maxFontSize, item.fontSize)
+        for scalar in item.text.unicodeScalars where !scalar.isRustWhitespace {
+            nonSpaceCharacters += 1
+            switch scalar {
+            case "*", "\u{02C6}", "^", "=", "+", "_", "[", "]", "{", "}", "|", "<", ">":
+                mathSymbolCharacters += 1
+            default: break
+            }
+        }
+    }
+
+    guard nonEmpty >= 2 else { return false }
+    // Mathematics overlaps on purpose and must not be reordered by this.
+    if nonSpaceCharacters > 0 && mathSymbolCharacters * 4 > nonSpaceCharacters { return false }
+
+    let byX = group.sorted { $0.x < $1.x }
+    let clusterStart = byX[0].x
+    var clusterEnd = clusterStart + pdfEffectiveMergeWidth(byX[0])
+    for item in byX.dropFirst() {
+        if item.x - clusterEnd > maxFontSize * 2.5 { return false }
+        clusterEnd = max(clusterEnd, item.x + pdfEffectiveMergeWidth(item))
+    }
+    if clusterEnd - clusterStart > maxFontSize * 36 { return false }
+
+    for index in 0..<(group.count - 1) {
+        let previous = group[index]
+        let next = group[index + 1]
+        let fontSize = max(previous.fontSize, next.fontSize)
+        let backtrack = fontSize * 0.25
+        let nextStart = next.x
+        let nextEnd = next.x + pdfEffectiveMergeWidth(next)
+        guard nextStart < previous.x - backtrack, nextEnd > previous.x + backtrack else {
+            continue
+        }
+
+        let hasNearPrefix = group[...index].reversed().prefix(4).contains {
+            pdfIsShortAlphaFragment($0.text)
+                && $0.x >= nextStart - fontSize * 0.5
+                && $0.x <= nextStart + fontSize * 4
+        }
+        let startsLowercase = pdfFirstTextScalar(next.text)
+            .map { Character($0).isLowercase } ?? false
+        let phraseContinuation = pdfHasPhraseContinuationShape(next.text)
+
+        var hasNearBullet = false
+        if let bulletIndex = group[...index].firstIndex(where: {
+            pdfIsStandaloneBullet($0.text) && nextStart <= $0.x + fontSize * 3
+        }), bulletIndex < index {
+            hasNearBullet =
+                group[(bulletIndex + 1)...index]
+                .reversed()
+                .first { !$0.text.rustTrim().isEmpty }
+                .map {
+                    $0.text.rustTrim().unicodeScalars.count <= 8
+                        && pdfHasPhraseContinuationShape(next.text)
+                } ?? false
+        }
+
+        if (hasNearPrefix && startsLowercase && phraseContinuation) || hasNearBullet {
+            return true
+        }
+    }
+    return false
+}
+
+/// One to four letters and nothing else — the shape of a fragment a producer
+/// draws before overlaying the word it belongs to.
+func pdfIsShortAlphaFragment(_ text: String) -> Bool {
+    let trimmed = text.rustTrim()
+    let count = trimmed.unicodeScalars.count
+    return (1...4).contains(count)
+        && trimmed.unicodeScalars.allSatisfy { Character($0).isLetter }
+}
+
+/// The first non-space character, or nil.
+func pdfFirstTextScalar(_ text: String) -> Unicode.Scalar? {
+    text.rustTrimStart().unicodeScalars.first
+}
+
+/// Whether a fragment looks like the continuation of a phrase rather than a
+/// word on its own: a space or hyphen inside its first 24 characters.
+func pdfHasPhraseContinuationShape(_ text: String) -> Bool {
+    text.rustTrimStart().unicodeScalars.prefix(24).contains {
+        $0.isRustWhitespace || $0 == "-"
+    }
 }

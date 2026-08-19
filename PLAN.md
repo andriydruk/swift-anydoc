@@ -6222,3 +6222,39 @@ readings**.
   one side and `suffix(2)` on the other, which are not the same slice, and the
   outputs looked different when they were identical. Re-measured as bytes.
   Fourth instance this session of a formatting choice corrupting a reading.
+
+- **Wave 164 — the last unported feature, and it was real.** **161 of 161**
+  byte-identical.
+
+  Wave 163 left three candidates. Two are renames the script cannot see:
+  `detect_header_level` is `pdfHeadingLevel`, complete with the same 1.05–1.2
+  bold gate, and `positioned_table` is the `PdfPositionedMarkdown`
+  construction. The third, `has_phrase_continuation_shape`, is a helper of
+  `should_preserve_overlapping_stream_order` — **the gate wave 160 named, and
+  the only genuinely unported feature in all 46 candidates.**
+
+  It is real. Some producers draw a short fragment and then overlay the word
+  it belongs to, starting *left* of it. Sorted by x the two interleave — `the
+  quick brown fox Th jumps over` — where the stream order reads `Ththe quick
+  brown fox jumps over`. `overlay-backtrack.pdf` diverged; this port produced
+  the interleaved form.
+
+  **Wiring the predicate changed nothing, which was the informative part.** It
+  returned `true` on the very first document and the output stayed wrong,
+  because skipping the x-sort is not enough: the three runs still had to
+  *merge* into one item, and our merge loop breaks on a negative gap — which
+  is exactly what an overlay has, by construction. The reference guards that
+  break with `&& !preserve_stream_order`. Two lines, and without the second
+  the first is inert.
+
+  The gates are many because a wrong answer reorders ordinary text, so the
+  unit tests break one thing at a time: too few items, no MCID anywhere, a
+  size differing by more than a quarter, an overlay starting uppercase, no
+  space in the first 24 characters, mostly mathematical symbols, no backtrack
+  at all. `overlay-plain.pdf` is the corpus control — the same three runs at
+  the same coordinates without marked content, which must still sort by x, and
+  separates "we preserve order where the reference does" from "we stopped
+  sorting".
+
+  Reverting the negative-gap guard diverges the Markdown, so the fixture
+  guards it at output level.

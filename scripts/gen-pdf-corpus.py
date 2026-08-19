@@ -3712,3 +3712,40 @@ b = Builder()
 write("table-marker-word", classic_trailer(b, marker_row_table(b, b"note", 8)))
 b = Builder()
 write("table-marker-separate", classic_trailer(b, marker_row_table(b, b"*", 16)))
+
+
+# --- a tagged line the stream draws twice ------------------------------------
+
+# Some producers draw a short fragment and then overlay the word it belongs
+# to, starting *left* of it. Sorting such a line by x interleaves the two:
+# `the quick brown fox Th jumps over`, where the stream order reads
+# `Ththe quick brown fox jumps over`.
+#
+# `overlay-plain` is the control and the reason the pair discriminates: the
+# same three runs at the same coordinates with no marked content at all. The
+# predicate requires an MCID, so that one *must* sort by x — which is what
+# separates "we preserve stream order when the reference does" from "we stopped
+# sorting".
+def overlay_document(b, tagged):
+    font = b.add(SIMPLE_FONT)
+    runs = [(100, b"Th"), (96, b"the quick brown fox"), (240, b"jumps over")]
+    body = b""
+    for index, (x, text) in enumerate(runs):
+        if tagged:
+            body += b"/P <</MCID %d>> BDC\n" % index
+        body += b"BT /F1 12 Tf %d 700 Td (%s) Tj ET\n" % (x, text)
+        if tagged:
+            body += b"EMC\n"
+    content_id = b.stream(b"/Filter/FlateDecode", flate(body))
+    page_id, pages_id = b.reserve(), b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+          b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+          % (pages_id, font, content_id), page_id)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+b = Builder()
+write("overlay-backtrack", classic_trailer(b, overlay_document(b, True)))
+b = Builder()
+write("overlay-plain", classic_trailer(b, overlay_document(b, False)))
