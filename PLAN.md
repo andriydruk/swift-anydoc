@@ -6117,3 +6117,36 @@ readings**.
   (nine live callers, struct-tree repair), `detect_encoding_issues` (ten, and
   it feeds a result field rather than the Markdown), and
   `text_span_has_decoding_issue`.
+
+- **Wave 161 — a repair that repairs nothing.** **156 of 156**
+  byte-identical.
+
+  `fix_bare_struct_names` was the strongest of the three candidates left after
+  wave 160: nine live callers, and reachable from the very top of the
+  reference's load path. It is a **byte-level repair applied before parsing** —
+  some producers write `/S Code` where `/S /Code` belongs, and lopdf drops the
+  whole object rather than guess. This port has `pdfFixBareStructNames` and
+  has never called it.
+
+  **Measured, it costs nothing, and the reason is in the repair itself.**
+  `struct-names-bare.pdf` is `gap-tagged` with every `/S/H1` rewritten
+  `/S H1`. Both sides lose the roles identically — heading and list item come
+  out as plain `##` — because inserting the missing `/` grows the buffer by a
+  byte, so every cross-reference offset past the first repair site is wrong
+  and the struct tree does not survive the recovery that follows. The
+  reference performs the repair and arrives where this port arrives without
+  it.
+
+  Two further constructions tried to find a document where the byte shift
+  would not matter: wreck every offset first, so both readers must scan for
+  object headers and the inserted byte is free. Both readers then refuse the
+  document outright, on the proper and bare versions alike.
+
+  So it joins wave 145's CJK ordering branch — a feature the reference has,
+  that no document has yet shown doing anything. Recorded with the fixture
+  rather than ported on the strength of nine call sites, which is what
+  "reachable" alone would have argued for.
+
+  Two candidates remain from wave 160's triage: `detect_encoding_issues`,
+  which feeds a result field rather than the Markdown, and
+  `text_span_has_decoding_issue`.

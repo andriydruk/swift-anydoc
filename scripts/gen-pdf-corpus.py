@@ -3649,3 +3649,27 @@ b = Builder()
 write("cmap-plain", classic_trailer(b, cid_unicode_document(
     b, [], b"BT /F1 18 Tf 72 700 Td <00010002000300040005> Tj ET\n",
     raw_cmap=_CMAP_HEAD + _CMAP_MAPS + _CMAP_TAIL)))
+
+
+# --- struct element names written bare ---------------------------------------
+
+# `gap-tagged` with every `/S/H1` rewritten `/S H1`. Some producers emit bare
+# tokens where a PDF name belongs, and lopdf drops the whole object rather
+# than guess — which is why the reference carries `fix_bare_struct_names`, a
+# byte-level repair applied to the buffer *before* the document is parsed.
+#
+# **This port leaves that repair unwired, and it is measured to cost nothing.**
+# The roles are lost here on both sides: heading and list item both come out
+# as plain `##`. The reason is in the repair itself — inserting the missing
+# `/` grows the buffer by a byte, so every cross-reference offset past the
+# first repair site is then wrong, and the struct tree does not survive the
+# recovery that follows. Two further constructions failed to separate the two
+# sides: with offsets already wrecked, so the inserted byte costs nothing,
+# both readers refuse the document outright.
+#
+# Recorded rather than ported, like the CJK ordering branch of wave 145: a
+# feature the reference has, that no document has yet shown doing anything.
+b = Builder()
+_proper = classic_trailer(b, tagged_document(b))
+write("struct-names-bare", _proper.replace(b"/S/H1", b"/S H1")
+      .replace(b"/S/L", b"/S L").replace(b"/S/LI", b"/S LI"))
