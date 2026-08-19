@@ -9,6 +9,10 @@
 #                         itself is built on)
 #   <name>.pdf.graphics   path extraction, from the vendored reference
 #   <name>.pdf.underline  decoration flags and run widths, likewise
+#   <name>.pdf.result     the two `PdfProcessResult` fields no other dump
+#                         exposes — `has_encoding_issues` and `layout` —
+#                         which the *pipeline* computes rather than the
+#                         detector, and which the Markdown cannot show
 #   <name>.pdf.fontstyle  per-font italic/bold flags and the embedded font
 #                         program's object number — an oracle over what the
 #                         *descriptor* says, which the Markdown only reflects
@@ -118,6 +122,7 @@ for f in "$corpus"/*.pdf; do
     "$graphicsprobe" "$f" > "$f.graphics" 2>/dev/null || rm -f "$f.graphics"
     "$graphicsprobe" --underline "$f" > "$f.underline" 2>/dev/null || rm -f "$f.underline"
     "$graphicsprobe" --fontstyle "$f" > "$f.fontstyle" 2>/dev/null || rm -f "$f.fontstyle"
+    "$graphicsprobe" --result "$f" > "$f.result" 2>/dev/null || rm -f "$f.result"
     "$graphicsprobe" --pagefonts "$f" > "$f.pagefonts" 2>/dev/null || rm -f "$f.pagefonts"
     "$graphicsprobe" --pageanalysis "$f" > "$f.pageanalysis" 2>/dev/null || rm -f "$f.pageanalysis"
     "$graphicsprobe" --detectdoc "$f" > "$f.detectdoc" 2>/dev/null || rm -f "$f.detectdoc"

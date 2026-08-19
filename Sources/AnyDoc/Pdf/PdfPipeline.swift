@@ -58,6 +58,10 @@ func pdfConvert(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOptio
     /// Pages whose fonts name raw glyph indices with no `/ToUnicode` to
     /// resolve them. Collected per page, judged once at the end.
     var gidPages: Set<Int> = []
+    /// Per-page geometry, kept only to compute the result's `layout`.
+    var itemsByPage: [Int: [PdfLayoutItem]] = [:]
+    var rectsByPage: [Int: [PdfRect]] = [:]
+    var linesByPage: [Int: [PdfLineSegment]] = [:]
     /// Where each page's raster figures sit. Nothing consumes these yet —
     /// chart masking is unported — but they are the reference's
     /// `page_image_regions`, and collecting them is what makes the image
@@ -160,16 +164,22 @@ func pdfConvert(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOptio
         pdfSuppressTableUnderlines(
             &items, rects: pageGraphicsRects, lines: pageGraphicsLines)
 
+        itemsByPage[number] = items
+        rectsByPage[number] = pageGraphicsRects
+        linesByPage[number] = pageGraphicsLines
+
         // Form-field values join *after* the passes above, which is the
         // reference's order — they are not text the page drew, so merging
         // and letter-spacing must not see them.
         //
-        // **Links do not join at all.** The reference sorts them into a
-        // separate stream and uses them to decorate matching text as
-        // `[text](url)`; they never contribute text of their own, so
-        // appending them here emitted a bare URL the reference never
-        // prints. That decoration pass is unported, so a hyperlink
-        // currently survives as plain text.
+        // **Links do not join at all**, and the reference does not use them
+        // either. It extracts `/Link` annotations into items and its writer
+        // routes them into a `links` vector that nothing ever reads —
+        // measured four ways in wave 150, over the text and away from it,
+        // with and without a URI, all identical to the same page without the
+        // annotation. `include_links` is true by default and still nothing
+        // reaches the output. So not appending them here *is* the agreement,
+        // not a deferred feature.
         items += formFields.filter { $0.page == number }.map(pdfAnnotationLayoutItem)
 
         // Tables are detected on the page's items and their cells are then
@@ -279,7 +289,29 @@ func pdfConvert(_ bytes: [UInt8], options: PdfMarkdownOptions = PdfMarkdownOptio
         if gidPages.count >= Int(result.pageCount) { markdown = "" }
     }
 
+    // The reference's `has_encoding_issues`.
+    //
+    // Its OR reads `!ocr_reasons_by_page.is_empty()`, and the trap is *which*
+    // set that is: the local one holding only reasons raised at the **Markdown
+    // stage**, not the merged set the result finally carries. Wiring it to the
+    // merged set — which includes the detector's own reasons — turns this true
+    // for every Identity-H-without-ToUnicode and Type 3 document, and the
+    // reference says false for all of them. Four documents caught that, and
+    // only because the `--result` oracle added this wave can see the field at
+    // all.
+    //
+    // This port raises no Markdown-stage reasons of its own: the garbage gate
+    // below sets the flag directly, and gid pages join `pagesNeedingOcr`
+    // without a reason. So the term that remains is the Markdown test. The
+    // reference's third term is a text-quality analysis this port has not
+    // built; a document tripping only that would diverge, and the oracle is
+    // what would show it.
+    result.hasEncodingIssues = pdfDetectEncodingIssues(markdown)
+    result.layout = pdfLayoutComplexity(
+        itemsByPage: itemsByPage, rectsByPage: rectsByPage, linesByPage: linesByPage)
+
     if result.pdfType == .textBased && pdfIsGarbageText(markdown) {
+        result.hasEncodingIssues = true
         markdown = ""
         if result.pageCount > 0 { result.pagesNeedingOcr = Array(1...result.pageCount) }
         result.ocrRecommended = true

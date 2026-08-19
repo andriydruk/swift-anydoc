@@ -6150,3 +6150,40 @@ readings**.
   Two candidates remain from wave 160's triage: `detect_encoding_issues`,
   which feeds a result field rather than the Markdown, and
   `text_span_has_decoding_issue`.
+
+- **Wave 162 — two result fields, and a new oracle to check them with.**
+  **156 of 156** byte-identical.
+
+  The last two orphans, `pdfLayoutComplexity` and `pdfDetectEncodingIssues`,
+  had the same cause as wave 160's bullet helper: **not a missing call, but a
+  missing place to put the answer.** The reference's `PdfProcessResult`
+  carries `layout` and `has_encoding_issues`; this port's `PdfTypeResult`
+  carried neither, so two differentially-verified functions had nowhere to be
+  called from. `pdfLayoutComplexity` has been correct since wave 61 and unused
+  ever since.
+
+  **The fields were unverifiable before this wave**, which is the reason to
+  extend the oracle rather than wire them by construction. `--markdown` shows
+  the text and `--detectdoc` the detector's verdict; neither exposes a field
+  the *pipeline* computes. `gen-graphics-oracle.sh` now appends a `--result`
+  probe, `gen-pdf-oracles.sh` dumps it beside every document, and
+  `PdfResultFieldsProbeTests` compares it — with a `verdicts.count > 1`
+  assertion, so an oracle that saw one answer everywhere would fail rather
+  than pass quietly.
+
+  **It earned its keep immediately.** `layout` matched on all 156 documents;
+  `has_encoding_issues` diverged on four. The OR in the reference reads
+  `!ocr_reasons_by_page.is_empty()`, and the trap is *which* set that names:
+  the local one holding reasons raised at the **Markdown stage**, not the
+  merged set the result finally carries. Wired to the merged set — the
+  obvious reading — it turns true for every Identity-H-without-ToUnicode and
+  Type 3 document, and the reference says false for all of them. Nothing else
+  in the suite could have seen that: the Markdown is byte-identical either
+  way.
+
+  A stale comment went with it. `PdfPipeline.swift` claimed the reference
+  "uses [links] to decorate matching text as `[text](url)`" and called the
+  decoration pass unported. Wave 150 measured otherwise — the writer routes
+  link items into a vector nothing reads — so not appending them *is* the
+  agreement, not a deferred feature. The comment predates the measurement and
+  contradicted it for twelve waves.

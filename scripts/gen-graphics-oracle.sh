@@ -282,6 +282,28 @@ cat >> "$crate/src/extractor/content_stream.rs" <<'RUSTEOF'
 // One additive entry point so an external binary needs none of the crate's
 // private items made public. Everything it calls is the reference's own code.
 /// Dump the path-extraction output for every page of a PDF held in memory.
+/// Probe (added for swift-anydoc, wave 162): the fields of
+/// `PdfProcessResult` that no other probe exposes.
+///
+/// `--markdown` shows the text and `--detectdoc` the detector's verdict, but
+/// `has_encoding_issues` and `layout` are computed by the *pipeline* — the
+/// first from an OR across the OCR reasons, the text-quality analysis and
+/// `detect_encoding_issues` on the finished Markdown; the second from the
+/// page's items, rectangles and lines. Both are part of the public result and
+/// neither was comparable before this.
+pub fn probe_result(bytes: &[u8]) -> String {
+    match crate::process_pdf_mem(bytes) {
+        Ok(r) => format!(
+            "enc {}\nlayout {} {:?} {:?}\n",
+            r.has_encoding_issues as u8,
+            r.layout.is_complex as u8,
+            r.layout.pages_with_tables,
+            r.layout.pages_with_columns
+        ),
+        Err(e) => format!("#ERROR {e:?}\n"),
+    }
+}
+
 /// Probe (added for swift-anydoc): the marked-content id in effect for each
 /// extracted text item.
 pub fn probe_mcid(bytes: &[u8]) -> String {
@@ -4813,6 +4835,12 @@ cat > "$crate/src/bin/graphicsprobe.rs" <<'RUSTEOF'
 fn main() {
     let mut args = std::env::args().skip(1);
     let path = args.next().expect("usage: graphicsprobe [--underline] <file.pdf>");
+    if path == "--result" {
+        let file = std::env::args().nth(2).expect("usage: --result <file.pdf>");
+        let bytes = std::fs::read(&file).expect("read");
+        print!("{}", pdf_inspector::extractor::content_stream::probe_result(&bytes));
+        return;
+    }
     if path == "--mcid" {
         let file = std::env::args().nth(2).expect("usage: --mcid <file.pdf>");
         let bytes = std::fs::read(&file).expect("read");

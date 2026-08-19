@@ -49,6 +49,22 @@ struct PdfDetectionConfig {
 
 /// What the detector concluded.
 struct PdfTypeResult: Equatable {
+    /// Whether the extracted text shows signs of a broken encoding.
+    ///
+    /// The reference's `has_encoding_issues`, and part of its public result:
+    /// true when any page carries an OCR reason, or when the finished
+    /// Markdown trips `pdfDetectEncodingIssues`, or when the garbage gate
+    /// fired. A caller uses it to decide whether to trust the text at all,
+    /// which is why it is a field rather than something inferred from the
+    /// Markdown being empty.
+    var hasEncodingIssues = false
+    /// How intricate the page layouts are — the reference's `layout`.
+    ///
+    /// `pdfLayoutComplexity` has been differentially verified since wave 61
+    /// and had no caller: the *function* was right, the result type simply
+    /// had nowhere to put it.
+    var layout = PdfLayoutComplexity()
+
     var pdfType: PdfType = .textBased
     var pageCount: UInt32 = 0
     var pagesSampled: UInt32 = 0
