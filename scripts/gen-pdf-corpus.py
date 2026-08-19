@@ -3557,3 +3557,58 @@ write("typographic-spaces", classic_trailer(b, cid_unicode_document(
     b, [(1, ord("a")), (2, 0x2003), (3, ord("b")), (4, 0x2009), (5, ord("c")),
         (6, 0x00A0), (7, ord("d"))],
     b"BT /F1 14 Tf 72 700 Td <0001000200030004000500060007> Tj ET\n")))
+
+
+# --- headings that wrap, and lists at two levels -----------------------------
+
+# `pdfMergeWrappedBoldHeadingGroups` runs in the analysis and had no document
+# reaching it: a bold heading long enough to wrap becomes two lines in the
+# stream, and both sides fuse them into one `#`.
+#
+# The lists cover the classifiers. Note the reference **flattens** the two
+# indent levels to a single one — the nesting in the page is not carried into
+# the Markdown — which is worth pinning precisely because it looks like
+# something a port would get wrong in the other direction.
+#
+# The bullet is `0xB7`. `0x95` — the Windows-1252 bullet — is unassigned in
+# StandardEncoding, which is what a font naming no `/Encoding` gets, so a
+# fixture using it silently loses every bullet and tests nothing. That is how
+# the first version of this document was written.
+def heading_and_list_document(b, content_bytes):
+    regular = b.add(b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>")
+    bold = b.add(b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica-Bold>>")
+    content_id = b.stream(b"/Filter/FlateDecode", flate(content_bytes))
+    page_id, pages_id = b.reserve(), b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+          b"/Resources<</Font<</F1 %d 0 R/FB %d 0 R>>>>/Contents %d 0 R>>"
+          % (pages_id, regular, bold, content_id), page_id)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+_SECTION_BODY = b"".join(
+    b"BT /F1 11 Tf 72 %d Td (Body text line %02d of the section here.) Tj ET\n"
+    % (670 - i * 14, i) for i in range(8))
+_LIST_TAIL = b"".join(
+    b"BT /F1 11 Tf 72 %d Td (Body text line %02d follows the list.) Tj ET\n"
+    % (640 - i * 14, i) for i in range(6))
+
+b = Builder()
+write("wrapped-bold-heading", classic_trailer(b, heading_and_list_document(
+    b, b"BT /FB 16 Tf 72 720 Td (A Rather Long Section Heading That) Tj ET\n"
+       b"BT /FB 16 Tf 72 700 Td (Wraps Onto A Second Line) Tj ET\n" + _SECTION_BODY)))
+
+b = Builder()
+write("nested-list", classic_trailer(b, heading_and_list_document(
+    b, b"BT /F1 11 Tf 72 720 Td (\xb7 First top level item) Tj ET\n"
+       b"BT /F1 11 Tf 100 706 Td (\xb7 Nested item one) Tj ET\n"
+       b"BT /F1 11 Tf 100 692 Td (\xb7 Nested item two) Tj ET\n"
+       b"BT /F1 11 Tf 72 678 Td (\xb7 Second top level item) Tj ET\n"
+       b"BT /F1 11 Tf 100 664 Td (\xb7 Another nested item) Tj ET\n" + _LIST_TAIL)))
+
+b = Builder()
+write("numbered-list", classic_trailer(b, heading_and_list_document(
+    b, b"BT /F1 11 Tf 72 720 Td (1. First numbered item) Tj ET\n"
+       b"BT /F1 11 Tf 100 706 Td (a. Nested letter item) Tj ET\n"
+       b"BT /F1 11 Tf 100 692 Td (b. Second letter item) Tj ET\n"
+       b"BT /F1 11 Tf 72 678 Td (2. Second numbered item) Tj ET\n" + _LIST_TAIL)))

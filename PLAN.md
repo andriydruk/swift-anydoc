@@ -5965,3 +5965,32 @@ readings**.
   reference look like it emitted `contentcont` where this port emitted
   `content cont`. Re-measuring in hex showed both sides identical. Formatting
   applied to a measurement is part of the measurement.
+
+- **Wave 157 — the fixture that tested nothing.** **153 of 153**
+  byte-identical.
+
+  Three shapes with thin or no document coverage: a bold heading long enough
+  to wrap, a bulleted list at two indent levels, and a numbered list at two
+  levels. All three agree, and one of them is now pinned behaviour worth
+  knowing: **the reference flattens nested lists to a single level.** The
+  indentation in the page does not reach the Markdown, which looks exactly
+  like something a port would get wrong in the opposite direction.
+
+  `pdfMergeWrappedBoldHeadingGroups` had no document reaching it before this;
+  `wrapped-bold-heading.pdf` is the one that does.
+
+  **The first version of the list document tested nothing, and said so
+  quietly.** It drew `0x95` for the bullet — the Windows-1252 bullet, and the
+  obvious choice. The font names no `/Encoding`, so it gets StandardEncoding,
+  where `0x95` is **unassigned**: every bullet vanished, both sides agreed on
+  a paragraph of plain sentences, and the list classifiers were never
+  reached. Wave 146's own finding, arriving as a trap one wave later. `0xB7`
+  is the bullet Standard assigns, and with it the document produces `- `
+  markers on both sides.
+
+  A second measurement error, caught before it reached the write-up: the
+  scratch comparison printed lines via `split(separator: "\n")`, which drops
+  empty elements, so the blank line between heading and body vanished from
+  *this port's* output and not the reference's. It read as a divergence and
+  was an artifact of the printing. Third instance this session — after
+  `head -4` and `tr -s ' '` — of formatting corrupting a reading.
