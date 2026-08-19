@@ -5828,3 +5828,40 @@ readings**.
   emphasised, so a wrong italic verdict on a document of regular text is
   exactly the kind of thing that stays byte-identical — the shape of wave
   151's negative width, and of 135 and 141 before it.
+
+- **Wave 153 — the gates were set and three suites compared nothing.**
+  **137 of 137** byte-identical.
+
+  Wave 152 shipped an oracle that agreed on 131 documents while deciding
+  nothing, and the fix was to check that it measured anything at all. Turning
+  that same question on the *harness* found the larger version of it.
+
+  `scripts/run-probes.sh` exists to build each corpus in its own directory
+  and set all seven gates. Eleven waves of this session assembled the
+  variables by hand instead, and got them wrong: `ANYDOC_MCID_CORPUS` and
+  `ANYDOC_FONT_CORPUS` were pointed at the *PDF* corpus, which holds none of
+  the `.content` dumps the marked-content suite needs, and
+  `ANYDOC_CLASSIFY_PROBE` and `ANYDOC_NFKC_DUMP` were never set at all. So
+  every "full suite" report in waves 142–152 was missing the marked-content
+  comparison, 22,047 classifier strings and 1,112,064 codepoints of NFKC.
+
+  Running the real script: **everything passes.** No regression hid behind
+  the idle gates — but that was luck, not verification, and eleven waves of
+  green said nothing about three of them.
+
+  The wave's deliverable is that the mistake now fails. `guard
+  !names.isEmpty else { return }` in the marked-content and structure-tree
+  suites returned quietly when a *set* gate named a directory with nothing in
+  it — indistinguishable, in the output, from a suite that ran. Both now
+  assert instead, naming the variable, the path and the script. The same
+  guard went onto wave 152's `--fontstyle` suite, including the subtler form:
+  `fontsSeen > 0`, so an oracle over zero fonts cannot pass either.
+
+  Verified in all three states, because an assertion that never fires is the
+  thing this wave is about: misconfigured **fails** with the path in the
+  message, the real corpus compares 21 cases, and an unset gate still skips —
+  which stays right for a checkout that cannot build oracles at all.
+
+  PLAN.md wave 98 recorded six of seven gates sitting unset for thirty waves.
+  This is the second occurrence, by a different route, and the reason the
+  check is now in the suites rather than in a habit.

@@ -67,6 +67,14 @@ import Testing
             }
         }
 
+        // A gate pointing somewhere without `.fontstyle` dumps compares
+        // nothing and reports green, which is the failure this assertion
+        // exists to prevent — and `fontsSeen` guards the subtler version:
+        // wave 152 shipped this oracle when every font in the corpus scored
+        // `0 0`, so it agreed on 131 documents while deciding nothing.
+        #expect(compared > 0, "no .fontstyle dumps beside the corpus — run scripts/run-probes.sh")
+        #expect(fontsSeen > 0, "the corpus has no fonts to compare")
+
         print("fontstyle: \(compared) compared, \(mismatches.count) differ, \(fontsSeen) fonts")
         for line in mismatches.prefix(6) { print(line) }
         #expect(mismatches.isEmpty)

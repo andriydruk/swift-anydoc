@@ -14,6 +14,13 @@
 # part and are rebuilt only when their sources change. Everything lands
 # outside the repo, so nothing here is committed.
 #
+# **Use this rather than assembling the variables by hand.** Each corpus has
+# its own generator and its own directory; pointing one gate at another's
+# directory makes that suite find nothing and return quietly, which reads as
+# a pass. The suites now assert against a set-but-empty gate, so that
+# mistake fails instead of hiding — but the script is still the only way to
+# get all seven right at once.
+#
 # **CI deliberately does not run this.** The oracles are built from a
 # vendored copy of the reference crate, and fetching that in CI was rejected
 # in favour of keeping the published repository free of any dependency on

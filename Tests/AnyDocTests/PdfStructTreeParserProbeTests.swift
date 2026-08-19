@@ -70,6 +70,12 @@ import Testing
         let names = files.filter { $0.hasSuffix(".pdf") }.map {
             String($0.dropLast(4))
         }.sorted()
+        // Set but empty means the variable points at the wrong directory —
+        // see the note in `PdfMarkedContentProbeTests`.
+        #expect(
+            !names.isEmpty,
+            Comment(rawValue: "ANYDOC_STRUCT_CORPUS is set to \(path) but holds no PDFs — "
+                + "run scripts/run-probes.sh, which builds each corpus in its own directory"))
         guard !names.isEmpty else { return }
 
         var mismatches: [String] = []

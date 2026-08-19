@@ -17,6 +17,16 @@ import Testing
         let names = files.filter { $0.hasSuffix(".content") }.map {
             String($0.dropLast(".content".count))
         }.sorted()
+        // **Set but empty is a misconfiguration, not a fresh checkout.** The
+        // gate above already said a corpus was named; finding nothing in it
+        // means the variable points somewhere without `.content` dumps, and
+        // returning quietly there is how a suite reports green having
+        // compared nothing. That happened for eleven waves of hand-assembled
+        // environments before this assertion existed.
+        #expect(
+            !names.isEmpty,
+            Comment(rawValue: "ANYDOC_MCID_CORPUS is set to \(path) but holds no .content files — "
+                + "run scripts/run-probes.sh, which builds each corpus in its own directory"))
         guard !names.isEmpty else { return }
 
         var mismatches: [String] = []
