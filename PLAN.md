@@ -5994,3 +5994,34 @@ readings**.
   *this port's* output and not the reference's. It read as a divergence and
   was an artifact of the printing. Third instance this session — after
   `head -4` and `tr -s ' '` — of formatting corrupting a reading.
+
+- **Wave 158 — auditing the corpus for fixtures that test nothing.**
+  **153 of 153** byte-identical.
+
+  Wave 157 found a list document whose bullets silently vanished, so both
+  sides agreed on a paragraph and the list classifiers were never reached.
+  This wave went looking for the rest of that class deliberately, and the
+  method is worth keeping: **ask which documents produce no output, and why.**
+
+  Two cheap sweeps. First, every fixture drawing a byte above 0x7F in text —
+  the wave-157 trap, where StandardEncoding leaves the character unassigned
+  and it disappears. Only the repaired list document did; the other hits were
+  binary payloads.
+
+  Second, every document whose reference Markdown is empty or nearly so. Nine
+  are empty on purpose — the gate negatives, the image-only pages, the
+  garbage gate, the gid suppression. **One was not.**
+
+  `xref-stream-narrow-w.pdf` wraps the same `base_document` as `classic-xref`,
+  `xref-stream` and `xref-stream-predictor`, all of which emit 72 bytes. It
+  emitted nothing, and the oracle resolved two objects out of the document.
+  The generator wrote the free entry for object 0 as **three** bytes while
+  `/W[1 2 1]` makes every row **four**, so the table was misaligned from the
+  first row on. Neither side could read the document, both returned empty,
+  and the fixture agreed with the reference for roughly fifty waves while
+  exercising none of the narrow-field path it was named for.
+
+  Repaired, both sides read it and produce the same 72 bytes — so there was
+  no defect hiding behind it, only an untested branch. That is the good
+  outcome and not the guaranteed one: the same audit run against a port with
+  a narrow-`/W` bug would have found the bug instead.

@@ -328,14 +328,22 @@ write("xref-stream", xref_stream_trailer(b, base_document(b)))
 b = Builder()
 write("xref-stream-predictor", xref_stream_trailer(b, base_document(b), predictor=2))
 
-# Narrow /W fields: a one-byte offset field is legal for a small file.
+# Narrow /W fields: a two-byte offset field is legal for a small file.
+#
+# **Every row is `sum(W)` bytes, including the free entry for object 0.** With
+# `/W[1 2 1]` that is four, and writing the free row as three misaligns the
+# whole table by a byte: the document then resolves nothing, both sides return
+# empty Markdown, and the fixture agrees with the reference while exercising
+# none of the narrow-field path. It was written that way and passed for
+# fifty-odd waves — found by asking which corpus documents produce no output,
+# and why. Its three siblings over the same `base_document` all emit 72 bytes.
 b = Builder()
 root = base_document(b)
 stream_id = b.reserve()
 xref_at = len(b.out)
 b.offsets[stream_id] = xref_at
 count = b.next_id
-rows = [bytes([0, 0, 0])]
+rows = [bytes([0, 0, 0, 0])]
 for i in range(1, count):
     rows.append(bytes([1]) + struct.pack(">H", b.offsets.get(i, 0)) + bytes([0]))
 data = flate(b"".join(rows))
