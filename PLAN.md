@@ -5899,3 +5899,40 @@ readings**.
 
   This also gives the fix a Markdown-level regression test rather than a
   probe-level one, and gives the corpus its first real multi-column page.
+
+- **Wave 155 — right-to-left text, ordered before the merge.** **144 of 144**
+  byte-identical.
+
+  Wave 154 asked which layout shapes the corpus lacked. The answer was
+  right-to-left: **zero documents**, for a path that only became live in wave
+  147, when ligature expansion — which carries the Arabic visual-order
+  reversal — was wired into every text run. Eight waves of a live, untested
+  code path.
+
+  Five of the six probe documents agreed immediately: pure presentation
+  forms, forms mixed with Latin and digits, base Arabic letters (the control
+  that must *not* reverse), Presentation Forms-A, and punctuation. The sixth
+  did not.
+
+  **`rtl-two-runs.pdf` — one Arabic line drawn as two `Tj` operators instead
+  of one — came out with its halves swapped.** `ساللب` where the reference
+  reads `لبسال`, the same as the single-run version of the identical line.
+
+  Finding it took four wrong guesses, each killed by measuring an
+  intermediate. The items matched the reference exactly. `pdfIsRtlText`
+  returned true. `pdfSortLineItems` ordered correctly. `pdfLineText` produced
+  the *right* answer, and so did `pdfAnalyseDocument` and `pdfWriteMarkdown`
+  when handed those lines — the whole documented path was correct while
+  `pdfMarkdown` was wrong.
+
+  The culprit was earlier than any of it. `pdfMergeTextItems` runs *before*
+  grouping and concatenates a line's runs into one item, sorting each group
+  left-to-right unconditionally. The reference sorts that same group by
+  descending x when the line is RTL. **Order has to be fixed there, because
+  after the merge the runs are one item and the seam is gone** — which is why
+  a correct `pdfSortLineItems` downstream could not save it, and why the bug
+  survived a function whose entire job was direction-aware ordering.
+
+  Reverting the one-line fix with the fixture present diverges the Markdown,
+  so `rtl-two-runs.pdf` guards it at the output level rather than the probe
+  level.

@@ -3420,3 +3420,67 @@ b = Builder()
 write("cols-two-column", classic_trailer(b, two_column_document(b, 11, 11)))
 b = Builder()
 write("cols-negative-size", classic_trailer(b, two_column_document(b, 11, -11)))
+
+
+# --- right-to-left text ------------------------------------------------------
+
+# The RTL path had **no corpus document at all** until wave 155, and it became
+# live only in wave 147, when ligature expansion — which carries the Arabic
+# visual-order reversal — was wired into every text run.
+#
+# Presentation forms are stored in visual (left-to-right screen) order; both
+# sides normalise them to base letters and reverse. `rtl-base-letters` is the
+# control: base Arabic triggers no reversal, so a port that reversed on any
+# RTL character would fail it.
+def arabic_document(b, pairs, content_bytes):
+    body = b"%d beginbfchar\n" % len(pairs)
+    for cid, unicode_value in pairs:
+        body += b"<%04X> <%04X>\n" % (cid, unicode_value)
+    body += b"endbfchar\n"
+    cmap_id = b.stream(b"/Filter/FlateDecode", flate(tounicode_cmap(body)))
+    descendant = b.add(b"<</Type/Font/Subtype/CIDFontType2/BaseFont/Arab"
+                       b"/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>"
+                       b"/DW 1000/W [0 [600]]>>")
+    font_id = b.add(b"<</Type/Font/Subtype/Type0/BaseFont/Arab/Encoding/Identity-H"
+                    b"/DescendantFonts[%d 0 R]/ToUnicode %d 0 R>>" % (descendant, cmap_id))
+    content_id = b.stream(b"/Filter/FlateDecode", flate(content_bytes))
+    page_id, pages_id = b.reserve(), b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+          b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+          % (pages_id, font_id, content_id), page_id)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+_AR = [(1, 0xFEDF), (2, 0xFE8E), (3, 0xFEB3), (4, 0xFE91), (5, 0xFEE0)]
+_ONE_RUN = b"BT /F1 18 Tf 72 700 Td <00010002000300040005> Tj ET\n"
+
+b = Builder()
+write("rtl-pure", classic_trailer(b, arabic_document(b, _AR, _ONE_RUN)))
+
+# **The discriminating document.** The same five glyphs, drawn as two `Tj`
+# operators instead of one. A right-to-left line reads from its highest x, so
+# the merge must order the group that way *before* concatenating: merged
+# left-to-right this reads `ساللب`, where the reference reads `لبسال` — the
+# same as the single-run line above. Sorting after the merge cannot fix it,
+# because by then the runs are one item and the seam is gone.
+b = Builder()
+write("rtl-two-runs", classic_trailer(b, arabic_document(
+    b, _AR, b"BT /F1 18 Tf 72 700 Td <000100020003> Tj <00040005> Tj ET\n")))
+
+# Latin and digits inside an Arabic line: the LTR run keeps its own order
+# while the run order around it reverses.
+b = Builder()
+write("rtl-mixed", classic_trailer(b, arabic_document(
+    b, _AR + [(6, ord("2")), (7, ord("0")), (8, ord("A")), (9, ord("B"))],
+    b"BT /F1 18 Tf 72 700 Td <000100020006000700080009000300040005> Tj ET\n")))
+
+# Base Arabic letters rather than presentation forms — no reversal at all.
+b = Builder()
+write("rtl-base-letters", classic_trailer(b, arabic_document(
+    b, [(1, 0x0644), (2, 0x0627), (3, 0x0633), (4, 0x0628), (5, 0x0645)], _ONE_RUN)))
+
+# Presentation Forms-A (the U+FB50 block) rather than Forms-B.
+b = Builder()
+write("rtl-forms-a", classic_trailer(b, arabic_document(
+    b, [(1, 0xFB52), (2, 0xFB58), (3, 0xFB5E), (4, 0xFB68), (5, 0xFB6C)], _ONE_RUN)))

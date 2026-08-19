@@ -172,7 +172,21 @@ func pdfMergeTextItems(_ items: [PdfLayoutItem]) -> [PdfLayoutItem] {
     }
 
     // Lines run down the page; within a line, left to right.
-    for index in groups.indices { groups[index].items.sort { $0.x < $1.x } }
+    // **Direction-aware, and it has to happen here.** A right-to-left line
+    // reads from its highest x, so the group is ordered that way before the
+    // merge concatenates it — sorting afterwards is too late, because the
+    // merge has already fused the runs into one item in the wrong order and
+    // no later pass can tell where the seam was.
+    //
+    // `rtl-two-runs.pdf` is the case: one Arabic line drawn as two `Tj`
+    // operators. Merged left-to-right it reads `ساللب`; the reference reads
+    // `لبسال`, the same as the single-run version of the same line. Whether
+    // the two runs then merge or stay separate does not matter — the order
+    // is already right either way.
+    for index in groups.indices {
+        let rightToLeft = pdfIsRtlText(groups[index].items.map(\.text))
+        groups[index].items.sort { rightToLeft ? $0.x > $1.x : $0.x < $1.x }
+    }
     groups.sort { $0.y > $1.y }
 
     var merged: [PdfLayoutItem] = []
