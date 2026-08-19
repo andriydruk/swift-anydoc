@@ -3484,3 +3484,76 @@ write("rtl-base-letters", classic_trailer(b, arabic_document(
 b = Builder()
 write("rtl-forms-a", classic_trailer(b, arabic_document(
     b, [(1, 0xFB52), (2, 0xFB58), (3, 0xFB5E), (4, 0xFB68), (5, 0xFB6C)], _ONE_RUN)))
+
+
+# --- CJK, and the characters that vanish -------------------------------------
+
+# Both of these paths were live and untested. CJK has its own rules on both
+# sides — the reference skips its `Tw` width cap for text containing CJK, and
+# this port has a CJK branch in the join test — and the corpus had **no CJK
+# document at all**. The invisible-character and typographic-space handling
+# came alive in wave 147, when ligature expansion was wired into every run,
+# and was covered only by unit tests.
+def cid_unicode_document(b, pairs, content_bytes, base_font=b"Test", width=500):
+    body = b"%d beginbfchar\n" % len(pairs)
+    for cid, unicode_value in pairs:
+        body += b"<%04X> <%04X>\n" % (cid, unicode_value)
+    body += b"endbfchar\n"
+    cmap_id = b.stream(b"/Filter/FlateDecode", flate(tounicode_cmap(body)))
+    descendant = b.add(b"<</Type/Font/Subtype/CIDFontType2/BaseFont/" + base_font +
+                       b"/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>"
+                       b"/DW %d/W [0 [%d]]>>" % (width, width))
+    font_id = b.add(b"<</Type/Font/Subtype/Type0/BaseFont/" + base_font +
+                    b"/Encoding/Identity-H/DescendantFonts[%d 0 R]/ToUnicode %d 0 R>>"
+                    % (descendant, cmap_id))
+    content_id = b.stream(b"/Filter/FlateDecode", flate(content_bytes))
+    page_id, pages_id = b.reserve(), b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+          b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+          % (pages_id, font_id, content_id), page_id)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+_CJK = [(1, 0x65E5), (2, 0x672C), (3, 0x8A9E), (4, 0x6587), (5, 0x66F8),
+        (6, ord("A")), (7, ord("B")), (8, ord(" "))]
+
+# CJK is set without spaces, so runs must join with none — `cjk-split-runs`
+# draws the same five glyphs as two operators and must read identically to
+# `cjk-single-run`.
+b = Builder()
+write("cjk-single-run", classic_trailer(b, cid_unicode_document(
+    b, _CJK, b"BT /F1 18 Tf 72 700 Td <00010002000300040005> Tj ET\n",
+    base_font=b"MSMincho", width=1000)))
+b = Builder()
+write("cjk-split-runs", classic_trailer(b, cid_unicode_document(
+    b, _CJK, b"BT /F1 18 Tf 72 700 Td <000100020003> Tj <00040005> Tj ET\n",
+    base_font=b"MSMincho", width=1000)))
+b = Builder()
+write("cjk-mixed-latin", classic_trailer(b, cid_unicode_document(
+    b, _CJK, b"BT /F1 18 Tf 72 700 Td <00010002000600070003> Tj ET\n",
+    base_font=b"MSMincho", width=1000)))
+# `Tw` set on CJK: the reference skips its width cap for CJK text, so this is
+# the document that reaches that branch.
+b = Builder()
+write("cjk-word-spacing", classic_trailer(b, cid_unicode_document(
+    b, _CJK, b"BT /F1 18 Tf 8 Tw 72 700 Td <000100080002000800030008> Tj ET\n",
+    base_font=b"MSMincho", width=1000)))
+
+# A soft hyphen inside a word, then a zero-width space, BOM, ZWNJ and word
+# joiner — all of which disappear, leaving `content cont`.
+b = Builder()
+write("invisible-chars", classic_trailer(b, cid_unicode_document(
+    b, [(1, ord("c")), (2, ord("o")), (3, ord("n")), (4, 0x00AD), (5, ord("t")),
+        (6, ord("e")), (7, 0x200B), (8, 0xFEFF), (9, 0x200C), (10, 0x2060)],
+    b"BT /F1 14 Tf 72 700 Td <00010002000300040005000600030005> Tj ET\n"
+    b"BT /F1 14 Tf 72 680 Td <00010007000200080003000900050010> Tj ET\n")))
+
+# An em space and a thin space fold to ASCII so the joiner sees word
+# boundaries; a non-breaking space is deliberately left alone, because the
+# coordinate-based spacing depends on telling the two apart.
+b = Builder()
+write("typographic-spaces", classic_trailer(b, cid_unicode_document(
+    b, [(1, ord("a")), (2, 0x2003), (3, ord("b")), (4, 0x2009), (5, ord("c")),
+        (6, 0x00A0), (7, ord("d"))],
+    b"BT /F1 14 Tf 72 700 Td <0001000200030004000500060007> Tj ET\n")))

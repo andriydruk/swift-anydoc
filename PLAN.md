@@ -5936,3 +5936,32 @@ readings**.
   Reverting the one-line fix with the fixture present diverges the Markdown,
   so `rtl-two-runs.pdf` guards it at the output level rather than the probe
   level.
+
+- **Wave 156 — two live paths, six documents, no defect.** **150 of 150**
+  byte-identical.
+
+  Wave 155's lead was "what did a recent change make live?", and it found the
+  RTL bug on the first try. This wave applied it twice more.
+
+  **CJK had no corpus document at all**, while both sides carry CJK-specific
+  rules: the reference skips its `Tw` width cap for text containing CJK, and
+  this port has a CJK branch in the join test — a language set without spaces
+  between words, where the ordinary "zero gap means a word boundary" rule is
+  exactly wrong. Four documents now cover it: one run, the same glyphs split
+  across two operators (which must read identically), CJK around Latin, and
+  `Tw` set on CJK, which is the document that reaches the width-cap branch.
+
+  **The invisible-character and typographic-space handling came alive in wave
+  147** with the rest of `pdfExpandLigatures`, covered only by unit tests. Two
+  documents now carry it: a soft hyphen inside a word plus a zero-width space,
+  BOM, ZWNJ and word joiner, all of which vanish; and an em space and thin
+  space folding to ASCII while a non-breaking space survives, since the
+  spacing logic depends on telling those apart.
+
+  All six agreed. The wave's value is coverage, not a fix — but it also
+  caught a measurement error of the kind that has bitten twice before. The
+  first reading of the invisible-character document piped `od -c` through
+  `tr -s ' '`, which **collapsed the very spaces under test** and made the
+  reference look like it emitted `contentcont` where this port emitted
+  `content cont`. Re-measuring in hex showed both sides identical. Formatting
+  applied to a measurement is part of the measurement.
