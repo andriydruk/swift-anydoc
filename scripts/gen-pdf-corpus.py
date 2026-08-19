@@ -3673,3 +3673,42 @@ b = Builder()
 _proper = classic_trailer(b, tagged_document(b))
 write("struct-names-bare", _proper.replace(b"/S/H1", b"/S H1")
       .replace(b"/S/L", b"/S L").replace(b"/S/LI", b"/S LI"))
+
+
+# --- a table row holding only a footnote marker ------------------------------
+
+# The reference has `merge_superscript_marker_rows`: a grid row whose only
+# non-empty cell is one or two characters from `* # o O ° º † ‡` merges into
+# the nearest row within 10pt, appending the marker to that row's cell **with
+# no separating space**. This port has no equivalent.
+#
+# **Measured, the rule is unreachable from a constructed document, and these
+# three show why.** Below about 13pt the marker's line is merged into the row
+# above by ordinary row grouping, long before any grid row exists for the rule
+# to act on — and `table-marker-word`, identical but for a `note` in place of
+# the `*`, comes out the same way, which is the evidence that the marker rule
+# is not what is acting. Above that the marker becomes a row of its own, and
+# the gap now exceeds the rule's own 10pt threshold, so it declines. The
+# window between the two is empty for every construction tried.
+#
+# The no-space signature is what would tell them apart: `cell 20*` from the
+# rule, `cell 20 *` from row grouping. Both sides print the spaced form.
+def marker_row_table(b, marker, gap):
+    rects = b"".join(b"%d %d 120 20 re S\n" % (72 + column * 120, 700 - row * 20)
+                     for row in range(3) for column in range(2))
+    text = b"".join(line(b"cell %d%d" % (row, column), 706 - row * 20, x=78 + column * 120)
+                    for row in range(3) for column in range(2))
+    if marker is not None:
+        y = 666 - gap
+        rects += b"".join(b"%d %d 120 6 re S\n" % (72 + column * 120, y - 6)
+                          for column in range(2))
+        text += line(marker, y, x=78)
+    return base_document(b, content=rects + text)
+
+
+b = Builder()
+write("table-marker-merged", classic_trailer(b, marker_row_table(b, b"*", 8)))
+b = Builder()
+write("table-marker-word", classic_trailer(b, marker_row_table(b, b"note", 8)))
+b = Builder()
+write("table-marker-separate", classic_trailer(b, marker_row_table(b, b"*", 16)))

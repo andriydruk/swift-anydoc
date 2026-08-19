@@ -6187,3 +6187,38 @@ readings**.
   link items into a vector nothing reads — so not appending them *is* the
   agreement, not a deferred feature. The comment predates the measurement and
   contradicted it for twelve waves.
+
+- **Wave 163 — the first of the unported candidates, and an empty window.**
+  **159 of 159** byte-identical.
+
+  With the orphan list closed, this wave started on the 46
+  unported-but-reachable names. Most are renames the script cannot see —
+  `is_cjk_char` is `pdfIsCjkScalarValue`, `decode_cids` is
+  `pdfDecodeThroughCMap`, and so on. Four have no counterpart under any name
+  and are live on the Markdown path: `merge_superscript_marker_rows`,
+  `detect_header_level`, `has_phrase_continuation_shape` and
+  `positioned_table`.
+
+  **`merge_superscript_marker_rows` is measured unreachable**, and the pair of
+  documents that shows it is the point. The rule merges a grid row whose only
+  non-empty cell is one or two characters from `* # o O ° º † ‡` into the
+  nearest row within 10pt, appending **with no separating space** — `cell 20*`
+  rather than `cell 20 *`. That signature is what distinguishes it from
+  ordinary row grouping, and neither side ever prints it.
+
+  Below about 13pt the marker's line is absorbed by row grouping before any
+  grid row exists for the rule to act on. `table-marker-word.pdf` is identical
+  but for a `note` in place of the `*`, and comes out the same way — which is
+  the evidence that the marker rule is not what is acting, rather than a guess
+  that it is not. Above 13pt the marker becomes a row of its own and the gap
+  then exceeds the rule's own 10pt threshold. Five gaps were swept; the window
+  between the two behaviours is empty.
+
+  So it joins `fix_bare_struct_names`, the CJK ordering branch and link
+  extraction: reachable in the reference, and no document yet shows it doing
+  anything. Three candidates remain from this group.
+
+  A method note: the first comparison of the wide-gap cases used `tail -2` on
+  one side and `suffix(2)` on the other, which are not the same slice, and the
+  outputs looked different when they were identical. Re-measured as bytes.
+  Fourth instance this session of a formatting choice corrupting a reading.
