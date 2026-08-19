@@ -6025,3 +6025,46 @@ readings**.
   no defect hiding behind it, only an untested branch. That is the good
   outcome and not the guaranteed one: the same audit run against a port with
   a narrow-`/W` bug would have found the bug instead.
+
+- **Wave 159 — which documents no oracle can tell apart.** **153 of 153**
+  byte-identical.
+
+  Three waves running found fixtures that could not disagree: wave 152's
+  `--fontstyle` scoring a column of zeros, wave 157's bullet that
+  StandardEncoding leaves unassigned, wave 158's cross-reference stream
+  misaligned by a byte. Each was found by hand. This wave makes the question
+  standing.
+
+  `PdfCorpusDiscriminationTests` groups the corpus by the tuple of **every**
+  oracle dump — Markdown, object graph, graphics, underline, detectdoc,
+  pagefonts, pageanalysis, fontstyle — and reports the groups whose members
+  are identical in all eight. Ten of 158 documents fall into such groups, and
+  reading them is the point:
+
+  - **Recovery paths converging.** `bad-xref-offsets`, `classic-xref` and
+    `xref-zeroed` describe the same document through a sound table, a broken
+    one and a zeroed one; that they end up identical *is* the assertion.
+    Likewise the four damaged files that all refuse.
+  - **Boundary pairs.** `gid-name-bare` and `gid-name-nondigit` are the two
+    names that must *not* count as gid names.
+  - **"Changes nothing" pairs.** `link-apart`/`link-over-text` and
+    `ocg-hidden`/`ocg-visible` exist to pin an absence.
+  - **Same verdict by different routes.** The three style fixtures all reach
+    italic through `/ItalicAngle`, the italic bit, and the angle exactly at
+    the four-degree bar.
+  - **Findings already recorded.** `cid-identity-ordering` and
+    `cid-japan1-fallback` are identical because the CJK ordering branch does
+    not fire (wave 145); `enc-none` and `enc-symbol-name` because a
+    symbol-named font takes StandardEncoding like any other (wave 146).
+
+  It **reports rather than fails**. Whether a group is deliberate is a
+  judgement about intent that no assertion can make, and a list that failed
+  would be silenced rather than read — the same reasoning as the coverage
+  suite, which was itself added after six gates sat unset for thirty waves.
+
+  The first version of the signature omitted the object-graph and graphics
+  dumps and reported twelve groups, including the thirteen container
+  fixtures — every filter and cross-reference variant wrapping one document,
+  whose whole discrimination lives in the object graph. An audit is only as
+  wide as the evidence it consults, which is the same mistake in miniature as
+  the one it was written to catch.
