@@ -1843,69 +1843,83 @@ The drill that has caught every divergence this phase, in order:
 
 ## Phase 6 status
 
-Working end to end: bytes → objects → xref → filters → content operations →
-ToUnicode-decoded text → exact positions and widths → lines, words,
-paragraphs → captions, headings, lists and code → Markdown. The document's
-structure, prose, emphasis, underlines, lists and cleanup come out right,
-and links and form fields are recovered; its *tables* are not.
+**Working end to end**, and byte-identical to the reference on every document
+the corpus can build: bytes → objects → cross-reference (classic, streams,
+object streams, incremental updates, and recovery from three degrees of
+damage) → filters → decryption → content operations → text decoded through
+`/ToUnicode`, subset repairs, the base encodings and embedded font programs →
+exact positions and widths → lines, words, columns and paragraphs → headings,
+lists, captions, code and tables → Markdown.
 
-Graphics paths are now extracted, which unblocks the two largest remaining
-pieces. The heuristic table strategy is complete. Remaining, roughly by size: the
-three other detection strategies (14.4k LOC
-of the 16.3k, now that the grid and the formatter are in — `detect_rects`
-4.7k, `detect_lines` 2.8k, `detect_struct` 1.2k), the
-base14/TrueType/glyph-name encodings for fonts without a
-`ToUnicode` CMap, multi-column layout, and encryption. Link items are
-extracted but not yet *merged into the text* they sit over — that needs the
-layout to consume positioned annotations alongside text runs.
+**Tables are done.** All five stages of the cascade are wired and passing —
+the structure tree, rectangles, stroked lines, rect-guided cells, and the
+heuristic strategy — along with band splitting and continuation across page
+breaks. *(This paragraph replaces a status that survived until wave 159
+claiming tables were the largest remaining piece; they had been finished for
+some thirty waves. Encryption, the base14/TrueType/glyph-name encodings and
+multi-column layout were listed as remaining there too, and are likewise
+done.)*
 
-The one PDF fixture is a classic-xref PDF 1.7 using only FlateDecode, with 7
-embedded TrueType fonts carrying `ToUnicode` CMaps and a `StructTreeRoot` —
-a narrow slice, which is why the generated corpus below exists.
+**Deliberately not ported, each with recorded evidence:**
+
+- The **invisible-text retry** (wave 124) — four experiments failed to make
+  the reference exhibit it.
+- The **CJK `.bcmap` tables** (wave 145) — 1.6 MB of data files the reference
+  loads from disk, in exchange for output measured to be two U+FFFD
+  replacement characters. Predefined CMap encodings such as `90ms-RKSJ-H` go
+  unported for the same reason.
+
+**Shared limitations**, measured and pinned by corpus documents so they stay
+shared: `/Rotate` on a page dictionary, optional content groups (a layer
+switched *off* is still extracted), `Identity-V` vertical writing, and a
+Type 1 program in `/FontFile`. Link annotations are extracted by the
+reference and then discarded unread by its own writer, so this port not
+extracting them agrees with it (wave 150).
+
+**Remaining:** 14 untriaged entries on the orphan list, 46
+unported-but-reachable candidates from `find-unported.py` (historically low
+yield — twelve checked across waves 138 and 150, none a real gap), and
+Phase 7's release work.
+
+`Sources/AnyDoc/Pdf` is 120 files and about 27,900 lines.
 
 ### Generated adversarial corpus
 
-`scripts/gen-pdf-corpus.py` writes 30 PDFs byte by byte, each aimed at a path
-the fixture cannot reach. It is deterministic: regenerating produces
-identical bytes, so the oracle dumps stay valid.
+`scripts/gen-pdf-corpus.py` writes **158 PDFs** byte by byte, each aimed at a
+path the single committed fixture cannot reach. It is deterministic:
+regenerating produces identical bytes, so the oracle dumps stay valid. lopdf
+refuses five of them by design — malformed files where agreeing to *fail* is
+the assertion — leaving **153 compared end to end, all byte-identical**.
 
-| Group | Files |
-| --- | --- |
-| Cross-reference | `classic-xref`, `xref-stream`, `xref-stream-predictor`, `xref-stream-narrow-w`, `object-stream`, `incremental-update` |
-| Filters | `filter-lzw`, `filter-ascii85`, `filter-chained`, `filter-none` |
-| Streams | `indirect-length`, `lying-length` |
-| Fonts and content | `cid-font`, `content-shapes`, `content-array`, `two-column` |
-| Malformed | `bad-xref-offsets`, `truncated`, `no-startxref`, `garbage-header` |
-| Annotations | `annotations` (links, reversed rect, AcroForm field tree) |
-| Graphics | `graphics-rects`, `graphics-fills`, `graphics-clips` |
-| Underlines | `underline-basic`, `underline-table`, `underline-segmented`, `underline-fraction` |
-| Merging | `merge-fragments`, `merge-thresholds` |
+Rather than list every file, the generator is the index: each document is
+introduced by a comment saying what it is for and, where it is one of a pair,
+what its partner must do differently. The groups are cross-references and
+damaged files; filters and streams; fonts (CID, CMaps, subset repairs, glyph
+names, base encodings, descriptor style flags); text shaping (ligatures,
+invisible characters, typographic spaces, right-to-left, CJK); layout
+(columns, headings, lists, letter-spacing, underlines); tables in each
+detection strategy; graphics, images and charts; annotations; encryption; and
+the detector's own classes.
 
-`Tests/AnyDocTests/PdfCorpusTests.swift` runs against it when
-`ANYDOC_PDF_CORPUS` points at the generated directory, and skips otherwise —
-the corpus is a build product, not a committed artifact. Two assertions: the
-object graph must match a dump from the `pdfprobe` lopdf oracle, and every
-file must reach the end of the pipeline without crashing or hanging. Current
-result: **27 graphs compared identical, 3 rejections agreed** (lopdf and this
-port reject the same three malformed files), **26 rendered to Markdown**.
+**Eight oracle dumps** are generated beside each document — Markdown, object
+graph, graphics, underline, `detectdoc`, `pagefonts`, `pageanalysis` and
+`fontstyle` — because the Markdown alone need not show a wrong font verdict,
+a negative run width, or a page analysed incorrectly. Probes have caught
+defects the Markdown comparison did not, though **"the byte-diff cannot see
+it" is usually the wrong reading**: wave 151's negative widths were found by
+a probe and looked invisible to the Markdown, and wave 154 then showed the
+Markdown catches them as soon as the corpus holds a two-column page. What
+the probes really buy is that they do not depend on the corpus containing a
+document whose *layout* makes the fault visible.
 
-The corpus found one real divergence, now fixed. A stream whose direct
-`/Length` overruns the file was being recovered by scanning forward for
-`endstream`; lopdf's `take(length)` simply fails there and yields the
-dictionary alone, so scanning resurrected content the reference drops.
-Recovery by scanning is now reserved for a stream with *no* `/Length` at all
-(`PdfDocument.swift`, `readIndirectObject`).
-
-One apparent divergence is an oracle artifact rather than a reader bug: lopdf
-decompresses an object stream *in place* while loading it, so the probe
-reports its raw length as the decoded one. The decoded lengths agree;
-`normalizeOracleArtifacts` compares such streams on the decoded length alone.
-
-**The real-document corpus gap remains.** Generated files exercise the code
-paths but not the malformations real producers emit, and encryption is
-neither generated nor implemented. Phase 6 still cannot claim parity without
-§5.3's external corpus, and the differential harness is a local/manual step.
-
+`scripts/run-probes.sh` builds every corpus and sets all **seven gates**. Use
+it: a gate pointed at the wrong directory makes its suite compare nothing and
+report green, which is how waves 142–152 ran three suites idle without
+noticing (wave 153). Two suites now guard against this — `PdfProbeCoverage`
+reports which gates were set, and the corpus suites fail on a set-but-empty
+gate — and `PdfCorpusDiscrimination` reports which documents no oracle can
+tell apart, so a fixture that has stopped asking anything is visible rather
+than silent.
 - **Wave 40 — the line-table orchestrator.** `PdfLineTables.swift` ports
   `detect_tables_from_lines_inner` and both its public entry points, finishing
   `detect_lines.rs`. Ported whole rather than split: the function recurses into
