@@ -6361,3 +6361,25 @@ readings**.
   A test asserting a divergence is only as good as the reason recorded with
   it. This one's reason was wrong, and it kept the bug alive across every wave
   that ran afterwards.
+
+- **Wave 167 — the first clean wave since the feature landed.** **168 of 168**
+  byte-identical.
+
+  Wave 166 removed a guard that short-circuited the geometry for any
+  zero-width item, so the branches behind it became reachable for the first
+  time. That is the shape that has paid out three waves running — a fix makes
+  new code live — so this wave probed it directly.
+
+  Five documents, one per branch: the non-alphabetic pair, the outer
+  bail-out at six character widths, and the three case rules (same case,
+  lower-then-upper, upper-then-lower). **All five agree.**
+
+  Two of them turned out not to reach the line join at all, which is worth
+  recording so a later wave does not mistake them for coverage they are not:
+  at a 6pt gap the *merge* takes the pair first, against its own 6pt limit,
+  and supplies the space from its word-boundary threshold. `zw-beyond-bailout`
+  is the document that actually exercises the join, 42.6 points past the
+  estimated end of a one-glyph item.
+
+  No port defect and no evidence defect. **One of the two clean waves the
+  completion criterion asks for.**

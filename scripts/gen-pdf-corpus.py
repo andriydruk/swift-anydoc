@@ -3785,3 +3785,38 @@ b = Builder()
 write("overlay-bullet", classic_trailer(b, zero_width_bullet_document(b, True)))
 b = Builder()
 write("overlay-bullet-plain", classic_trailer(b, zero_width_bullet_document(b, False)))
+
+
+# --- the zero-width join path ------------------------------------------------
+
+# Wave 166 removed a guard that returned "join, no space" for any item with no
+# measured width, so these branches became reachable for the first time. Each
+# document below lands on a different one.
+#
+# At 12pt the estimated width of a one-glyph item is 5.4, and the thresholds
+# sit at 2.7 (non-alphabetic pair), 4.32 (same case), 1.62 (upper then lower)
+# and 32.4 (the outer bail-out). Note the first two never reach the line join
+# at all: the merge takes them first, at a 6pt gap against its own 6pt limit,
+# and supplies the space from its word-boundary threshold. `zw-beyond-bailout`
+# is the one that does reach the join, 42.6 past the estimated end.
+def zero_width_join_document(b, runs):
+    font = b.add(SIMPLE_FONT)
+    body = b"".join(b"BT /F1 12 Tf %d 700 Td (%s) Tj ET\n" % (x, text) for x, text in runs)
+    content_id = b.stream(b"/Filter/FlateDecode", flate(body))
+    page_id, pages_id = b.reserve(), b.reserve()
+    b.add(b"<</Type/Page/Parent %d 0 R/MediaBox[0 0 612 792]"
+          b"/Resources<</Font<</F1 %d 0 R>>>>/Contents %d 0 R>>"
+          % (pages_id, font, content_id), page_id)
+    b.add(b"<</Type/Pages/Kids[%d 0 R]/Count 1>>" % page_id, pages_id)
+    return b.add(b"<</Type/Catalog/Pages %d 0 R>>" % pages_id)
+
+
+for _name, _runs in [
+    ("zw-nonalpha-near", [(72, b"\xb7"), (78, b"the quick brown fox")]),
+    ("zw-beyond-bailout", [(72, b"\xb7"), (120, b"the quick brown fox")]),
+    ("zw-samecase", [(72, b"ab"), (84, b"cd efgh ijkl")]),
+    ("zw-lower-upper", [(72, b"ab"), (84, b"Cd efgh ijkl")]),
+    ("zw-upper-lower", [(72, b"AB"), (84, b"cd efgh ijkl")]),
+]:
+    b = Builder()
+    write(_name, classic_trailer(b, zero_width_join_document(b, _runs)))
