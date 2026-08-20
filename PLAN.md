@@ -481,7 +481,8 @@ reference (which the MIT license permits, with attribution), not clean-room reim
   `Format` globals, and the `Number`/`RK`/`MulRk`/`Label`/`LabelSst`/`BoolErr`/`Formula`/
   `MergeCells` cell records. Formula *token* parsing is deliberately absent — anydoc only
   ever reads the cached values. `Format.excel` is now complete for `.xls` and `.xlsx`;
-  `.xlsb` (a different record stream) remains unported and gated out.
+  `.xlsb` (a different record stream) remains unported and gated out. See
+  **`.xlsb` — deliberately not supported** below.
   - Validated: `xls__sheet.xls` byte-identical, 26 hand-built adversarial workbooks
     byte-identical (built by writing the OLE container and BIFF records directly, since
     no converter is installed), and 650 corruption mutants confined to the BIFF stream
@@ -519,6 +520,42 @@ reference (which the MIT license permits, with attribution), not clean-room reim
     hand-built adversarial documents byte-identical (OLE container, FIB, piece table,
     FKP pages, style sheet and list tables all written directly), and 1,075 corruption
     mutants with zero divergences of any kind.
+
+### `.xlsb` — deliberately not supported
+
+**Decided August 2026, on evidence rather than principle, and revisitable the same
+way.**
+
+`Format.excel` covers SpreadsheetML (`.xlsx`/`.xlsm`) and the BIFF8 binary workbook
+(`.xls`). The third member of the family, `.xlsb`, is a different record stream again
+and is gated out of the snapshot sweep by `unimplementedExtensions` in
+`SnapshotTests.swift`.
+
+**Why not, in the order the reasons actually weigh:**
+
+1. **There is nothing to be wrong against.** Every format ported so far had a
+   reference conversion to diff byte-for-byte. anydoc's committed snapshots contain
+   **no `.xlsb` case** — `scripts/import-goldens.py` takes every `*.snap` with no
+   filtering and produced 59 goldens, none of them XLSB — and this repository has no
+   `.xlsb` fixture. A port would be written from MS-XLSB alone, with no oracle. That
+   is the mode this project exists to avoid, and the one its worst bugs have always
+   hidden in: output that is well-formed, plausible and wrong.
+2. **The reference does not implement it either.** anydoc reaches `.xlsb` through the
+   `calamine` crate rather than its own code, so the behaviour to match *is*
+   calamine's, and calamine is not what this port mirrors.
+3. **It is untested on the other side.** No snapshot exercises `.xlsb` there, so even
+   anydoc's own behaviour for it is unverified by its suite.
+
+**What would change the decision:** an `.xlsb` fixture with a reference conversion to
+diff against. Given one, the rest is ordinary work — the CFB reader, the BIFF8
+decoders and the shared `Sheet` model are already in place, and the record stream is
+the only new part. Without one, the honest position is that `.xlsb` is *unsupported*
+rather than half-supported.
+
+*(A caveat on point 3: this reflects anydoc's snapshot tests, which is what the golden
+importer sees. It does not rule out Rust unit tests inside anydoc's source that
+produce no snapshot — the full checkout was not available when this was written.)*
+
 
 ## Milestone: core parity
 
