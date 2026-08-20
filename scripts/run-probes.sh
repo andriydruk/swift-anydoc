@@ -67,6 +67,12 @@ if [ ! -f "$work/nfkc/nfkc-dump.txt" ]; then
     ./scripts/gen-nfkc-tables.sh "$work/nfkc" >/dev/null
 fi
 
+echo "==> pdf corruption mutants"
+python3 scripts/gen-pdf-mutants.py "$work/corpus" "$work/mutants" --per-file=8 >/dev/null
+for f in "$work"/mutants/*.pdf; do
+    timeout 10 "$probe" --markdown "$f" > "$f.ref" 2>/dev/null || rm -f "$f.ref"
+done
+
 echo "==> running every suite with all gates set"
 ANYDOC_GRID_PROBE="$work/grid" \
 ANYDOC_PDF_CORPUS="$work/corpus" \
@@ -75,4 +81,5 @@ ANYDOC_MCID_CORPUS="$work/mcid" \
 ANYDOC_STRUCT_CORPUS="$work/struct" \
 ANYDOC_CLASSIFY_PROBE="$work/classify" \
 ANYDOC_NFKC_DUMP="$work/nfkc/nfkc-dump.txt" \
+ANYDOC_PDF_MUTANTS="$work/mutants" \
     swift test "$@" 2>&1 | grep -Ev "^􀟈|^􀄵 *Test|started\.$" || exit 1

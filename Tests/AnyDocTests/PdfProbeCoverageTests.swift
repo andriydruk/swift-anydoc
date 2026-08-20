@@ -11,11 +11,11 @@ import Testing
 /// behaviour for a fresh checkout, which cannot build the oracles, but it
 /// means `swift test` reports green whether or not a single comparison ran.
 ///
-/// Six of the seven gates were unset for more than thirty waves before wave
-/// 98 checked. This suite makes the state visible at the end of every run:
+/// Six of what were then seven gates were unset for more than thirty waves
+/// before wave 98 checked. This suite makes the state visible at the end of every run:
 /// it never fails, it just says what was and was not compared.
 ///
-/// `scripts/run-probes.sh` sets all seven.
+/// `scripts/run-probes.sh` sets all of them.
 @Suite struct PdfProbeCoverageTests {
     /// Every gate, with what it turns on.
     private static let gates: [(variable: String, covers: String)] = [
@@ -26,6 +26,7 @@ import Testing
         ("ANYDOC_STRUCT_CORPUS", "structure-tree parsing"),
         ("ANYDOC_CLASSIFY_PROBE", "line classifiers and cleanup"),
         ("ANYDOC_NFKC_DUMP", "NFKC over every codepoint"),
+        ("ANYDOC_PDF_MUTANTS", "the PDF corruption sweep"),
     ]
 
     @Test func reportDifferentialCoverage() {

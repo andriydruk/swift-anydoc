@@ -6383,3 +6383,38 @@ readings**.
 
   No port defect and no evidence defect. **One of the two clean waves the
   completion criterion asks for.**
+
+- **Wave 168 — the sweep PDF never had.** **168 of 168** byte-identical, plus
+  **1,384 corruption mutants**.
+
+  Every other format was validated with a deterministic corruption sweep —
+  650 mutants for `.xls`, 1,050 for `.xlsx`, 1,075 for `.doc`, each with zero
+  crashes and zero hangs. **PDF, by a wide margin the largest reader here, had
+  none.** That was the gap this wave closed, and it is the last structural
+  difference between how PDF was validated and how everything else was.
+
+  `scripts/gen-pdf-mutants.py` builds eight mutants per corpus document from a
+  seeded xorshift64* — byte flips, truncations, zeroed runs — so the stream is
+  identical on every run. `run-probes.sh` generates them and the eighth gate,
+  `ANYDOC_PDF_MUTANTS`, turns the comparison on.
+
+  **First run: no crashes, no hangs, and 67 of 1,384 disagree.** The split is
+  what makes it interpretable — 20 where this port recovers *more* text than
+  the reference, 22 where it recovers *less*, 9 different outright, and 16
+  where the reference refuses the file and this port still returns something
+  (1,919 bytes in total). Near-symmetric, which is the signature of two
+  recovery strategies rather than one being uniformly laxer: `PdfDocument`
+  rescans for `N 0 obj` headers where lopdf gives up, and lopdf accepts some
+  damaged tables this port rejects.
+
+  **The test asserts a ratchet, not parity.** Demanding identical output on
+  arbitrary corruption would mean reimplementing lopdf's error paths byte for
+  byte, on files no producer emits. The same tolerance is already recorded for
+  `.xls`, whose container layer diverges on ~18% of whole-file mutants for
+  exactly this reason. 51 and 16 are ceilings; a change that pushes past them
+  fails, and lowering them is progress.
+
+  This wave found no port defect, but it is **not** one of the two clean waves
+  the completion criterion asks for — it added a harness rather than probing
+  with the existing one, and a harness on its first run has never yet been
+  trustworthy in this project.
