@@ -421,6 +421,36 @@ while the load average was 7.8 showed every format ~1.4× slower, including
 rebuilding both versions back to back under the same conditions; absolute
 numbers from different sessions are not comparable here.
 
+**Wave 4 — an ASCII fast path, and two experiments that failed.**
+
+Re-profiling put the remaining PDF time at 33% inflate, **23.6% malloc and
+ARC**, and 13.6% string and Unicode work, of which
+`_swift_stdlib_getBinaryProperties` alone was 7.2%. The call tree attributed
+that to whitespace trimming — `rustTrimStartSub`, `rustTrimEndSub`,
+`trimmingCharactersInPdfWhitespace`, `rustSplitWhitespace` — which runs over
+every string this port produces.
+
+`isRustWhitespace` now answers ASCII without touching the Unicode tables.
+Below 0x80 `White_Space` is exactly space and `\t \n \v \f \r`, so this is a
+definition rather than an approximation, and an exhaustive check over all
+1,114,112 scalars confirms the fast path agrees with the property everywhere.
+Back to back: **10.38 ms → 9.73 ms median, 10.30 → 9.68 best, about 6%.**
+
+**Two hypotheses were tested and refuted, which is why they are written down:**
+
+- *Widening the Huffman table.* If `decode`'s 18% were fallback misses, more
+  bits would fix it. Sweeping 9, 10, 11 and 12 bits gave 10.40–10.90 ms
+  median — all inside the run-to-run spread. The cost is the refill and the
+  lookup, not the misses, so the table stays at nine bits.
+- *Reserving the output buffer.* Growing by doubling reallocates and copies,
+  so reserving four times the compressed size up front looked free. It was
+  **25% slower** (13.2 ms against 10.5): a PDF is many small streams, and
+  over-reserving each one costs more than the doubling it avoids.
+
+Cross-session absolute numbers remain unreliable — the same build measured
+9.73 ms in one session and 10.40 ms in another under different load. Only
+back-to-back A/Bs are quoted above.
+
 ---
 
 ## 5. Validation strategy — "how exactly do we know it works"

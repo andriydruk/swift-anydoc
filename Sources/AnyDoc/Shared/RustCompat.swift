@@ -5,7 +5,18 @@
 
 extension Unicode.Scalar {
     /// Rust `char::is_whitespace`: the Unicode `White_Space` property.
-    var isRustWhitespace: Bool { properties.isWhitespace }
+    ///
+    /// **ASCII is answered without touching the Unicode tables.** Below 0x80
+    /// `White_Space` is exactly space and `\t \n \v \f \r`, so the fast path
+    /// is a definition rather than an approximation. It matters because
+    /// trimming runs over every string this port produces: profiling put 7.2%
+    /// of PDF conversion in `_swift_stdlib_getBinaryProperties`, and the call
+    /// tree attributed most of it to `rustTrimStartSub`, `rustTrimEndSub` and
+    /// `rustSplitWhitespace`.
+    var isRustWhitespace: Bool {
+        if value < 0x80 { return value == 0x20 || (0x09...0x0D).contains(value) }
+        return properties.isWhitespace
+    }
 
     /// Rust `char::is_alphanumeric`: `Alphabetic` or general category Nd/Nl/No.
     var isRustAlphanumeric: Bool {

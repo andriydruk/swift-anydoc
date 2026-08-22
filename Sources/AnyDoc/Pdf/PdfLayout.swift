@@ -234,10 +234,12 @@ extension String {
     /// no-break space producers emit for justified text.
     fileprivate func trimmingCharactersInPdfWhitespace() -> String {
         var view = Substring(self)
-        while let first = view.unicodeScalars.first, first.properties.isWhitespace {
+        // `isRustWhitespace` rather than `properties.isWhitespace`: identical
+        // answers, and it short-circuits ASCII without a table lookup.
+        while let first = view.unicodeScalars.first, first.isRustWhitespace {
             view = view.dropFirst()
         }
-        while let last = view.unicodeScalars.last, last.properties.isWhitespace {
+        while let last = view.unicodeScalars.last, last.isRustWhitespace {
             view = view.dropLast()
         }
         return String(view)
