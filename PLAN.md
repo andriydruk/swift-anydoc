@@ -566,8 +566,39 @@ strengthens that.
 - macOS + iOS-simulator build jobs prove Apple-platform usability.
 - Lint job: fail on `import Foundation`, `import FoundationEssentials`,
   `import FoundationXML`, `import Compression`, `import PDFKit`, `import CoreGraphics`, or
-  any `@_silgen_name`/`dlopen` escape hatch inside `Sources/AnyDoc/`. `Package.swift`
-  declares zero dependencies.
+  any `@_silgen_name`/`dlopen` escape hatch inside `Sources/AnyDoc/`.
+
+**The dependency rule, as it now stands.** A package may be added when it is
+**pure Swift and supports every platform this targets** — macOS, iOS and
+Linux. A *system library* may be linked when it is present on all three
+already; `CZlib` is the one such link, and the lint names it.
+
+The rule was previously "zero dependencies", which conflated three different
+things: fetching a package, linking a system library, and importing
+Foundation. They have different costs and deserve different answers.
+
+**Nothing currently qualifies as worth adding, and the candidates were
+checked rather than dismissed.** `Deque` would replace six `removeFirst()`
+sites, of which four are one-shot and two are page-tree walks bounded at
+10,000 nodes — none appears in the profile at all. `OrderedDictionary` would
+replace `PdfDictionary`'s thirty-line keys-plus-storage pair with no speed
+change, since it is a `Dictionary` and an array underneath and dictionary
+lookups are 1.3% of PDF time. `swift-algorithms` would buy readability.
+`FoundationEssentials` touches none of the hot paths.
+
+**And a fetched package costs something a linked library does not: CI is
+offline today.** Nine jobs, no network, because nothing is fetched. The first
+dependency ends that — every job gains a network failure mode and a supply
+chain. That is not an argument against ever adding one; it is the price to
+weigh when something finally earns it.
+
+**The gate that enforces this was tested by breaking it, and the first
+version did not work.** Adding a real `.package(url:)` line to the manifest
+passed the lint. The cause was the comment stripper: `s,//.*,,` removes the
+`//` in `https://github.com/...` as well, mangling the URL past the point
+where the pattern could match it. A gate for a rule nobody has broken yet is
+exactly the kind that is never exercised — so it is now checked by adding a
+dependency, confirming the failure, and removing it again.
 - Strict concurrency (`-strict-concurrency=complete`) and `Sendable` conformance checked.
 
 ### 5.8 Definition of done, per phase and overall
