@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    tags: ["[0-9]+.[0-9]+.[0-9]+", "[0-9]+.[0-9]+.[0-9]+-*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build a release for"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  # Re-verify from a clean checkout of the tag. CI having been green on the
+  # commit is not the same claim: a tag can point anywhere, and the release
+  # artifacts should come from a run that saw exactly what is being tagged.
+  #
+  # Deliberately does NOT build the Rust reference. The differential suite is
+  # a local gate; a release must not depend on fetching upstream. This job
+  # proves the package builds and the non-differential tests pass — no more.
+  verify:
+    name: Verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Purity gate
+        run: bash scripts/lint-purity.sh
+      - name: Build
+        run: swift build -c release
+      - name: Test
+        run: swift test
+
+  publish:
+    name: Publish
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      # The tag's changelog section is the release body. If the version has no
+      # section, fail rather than publish an empty release: a release nobody
+      # wrote notes for is worse than a failed workflow, because it is silently
+      # wrong instead of loudly missing.
+      - name: Extract changelog section
+        id: notes
+        run: |
+          version="${{ inputs.tag || github.ref_name }}"
+          awk -v v="$version" '
+            $0 ~ "^## \\[" v "\\]" { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "::error::CHANGELOG.md has no '## [$version]' section"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.notes.outputs.version }}" \
+            --title "${{ steps.notes.outputs.version }}" \
+            --notes-file release-notes.md \
+            --verify-tag
