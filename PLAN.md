@@ -309,7 +309,9 @@ Honest sizing: this phase alone is comparable to Phases 0–5 combined.
 - API docs (DocC), README with the same format table, SemVer, CI release automation.
 
 Performance is done (waves 1–5: PDF 15.91 → 6.51 ms, ~1.5× the reference,
-meeting §5.6's target). Remaining: SemVer and CI release automation.
+meeting §5.6's target). Docs, SemVer and release automation are done (waves
+6–7). **Phase 7's stated list is complete**; the package is untagged, which is
+the remaining decision rather than remaining work.
 
 **Wave 6 — the docs, and the public surface they exposed.**
 
@@ -363,6 +365,38 @@ Two smaller things the build caught:
   "empty", which is a parser concern more than a caller's. **Pre-1.0 is the
   free moment to make it internal; after 1.0 it is a breaking change.** Worth a
   decision before tagging, not a silent default.
+
+**Wave 7 — SemVer for a package whose output is the product.**
+
+`docs/VERSIONING.md`. SemVer as normally written constrains the API, which
+here misses what callers depend on: a release can keep every signature
+identical and change the Markdown for the same input, and nothing the compiler
+checks has moved. Output is therefore a first-class surface and the larger of
+the two bumps wins.
+
+That produces one genuinely awkward case, so the policy names it rather than
+leaving it to be argued later: **a fix that moves output toward the reference
+changes already-successful conversions**, which the rule above calls breaking,
+and ships as a patch anyway. Output that disagreed with `firecrawl/anydoc` was
+never the contract — it was a defect against it. The exception is narrow by
+construction: converging on the reference, never diverging from it by choice.
+The same logic makes a newly-supported format a *minor* bump — it changes
+output only where output was absent, so nothing that already converted moves.
+
+`.github/workflows/release.yml` re-verifies from a clean checkout of the tag on
+Linux and macOS before publishing, because CI having been green on a commit is
+a different claim from the tag pointing at that commit. It **does not build the
+Rust reference** — the differential suite stays a local gate, so releasing
+never depends on fetching upstream, consistent with the CI decision.
+
+The release body is the tag's `CHANGELOG.md` section, and a missing section
+fails the run rather than publishing an empty release: silently wrong is worse
+than loudly missing. Tags are bare, not `v`-prefixed, because the workflow
+looks the tag up in the changelog verbatim; the trigger matches only bare tags,
+so a mistyped tag does nothing at all. The extraction was tested against
+present, absent, first and adjacent sections before commit — it is the one
+piece of logic that would otherwise first run at tag time, which is the worst
+moment to find out.
 
 **Wave 1 — the measurement, and what it cost to get an honest one.**
 
