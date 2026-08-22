@@ -67,12 +67,17 @@ Median in-process conversion over the fixture corpus, Apple silicon, release bui
 | | median | peak RSS |
 | --- | --- | --- |
 | all formats | 0.23 ms | — |
-| pdf | 6.5 ms | 5.7 MB |
-| everything else | 0.03 – 4.9 ms | 3.0 – 4.2 MB |
+| pdf | 6.5 – 7.3 ms | 5.8 MB |
+| everything else | 0.03 – 4.9 ms | 2.9 – 4.4 MB |
+
+The PDF figure is a range because it is one: repeated runs of the same benchmark on the
+same machine land anywhere in it. Quoting the fastest run as *the* number is how a
+benchmark becomes a claim it cannot support, so both ends are here.
 
 PDF conversion runs at about **1.5×** the Rust reference on the same file and machine
 (median of five interleaved trials; the spread across trials is 1.4–1.7×, so read it as
-"about 1.5×" rather than a fixed number). `scripts/bench.py` reproduces the table;
+"about 1.5×" rather than a fixed number). `scripts/bench.py <fixture-dir>` reproduces the
+table;
 `anydoc-cli <file> --bench <runs>` times one file in-process, which is the only way to
 measure formats whose conversion is faster than process startup.
 

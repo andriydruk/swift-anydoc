@@ -6754,3 +6754,17 @@ So the lint is two checks, each verified to fire:
 Both were run in both directions before the commit. A gate that has only been
 seen to pass is not known to be a gate — the same lesson as wave 152's
 vacuous oracle, and cheap enough to re-learn deliberately.
+
+**Wave 8 postscript — auditing the numbers the README now states.**
+
+Every figure in the new README was re-measured rather than copied forward, and
+three were wrong. PDF was published as **6.5 ms** on the strength of wave 5's
+run; re-running the same benchmark on the same machine gave **7.25 ms**. Peak
+RSS for the non-PDF formats was published as 3.0–4.2 MB and measures 2.9–4.4.
+
+The PDF number is now a **range**, because that is what it is. Quoting the
+fastest observed run as *the* number is how a benchmark turns into a claim it
+cannot support — and a README is the document least likely to be re-checked,
+so it is the worst place to put a number that only held once. The corpus
+claims (1,793 tests, 57 of 58 fixtures, 168 PDFs, 1,384 mutants, 265
+adversarial documents) all verified as stated.
