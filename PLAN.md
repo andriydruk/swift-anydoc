@@ -308,6 +308,62 @@ Honest sizing: this phase alone is comparable to Phases 0–5 combined.
 - Performance pass (see §5.6 targets), allocation profiling on the bench corpus.
 - API docs (DocC), README with the same format table, SemVer, CI release automation.
 
+Performance is done (waves 1–5: PDF 15.91 → 6.51 ms, ~1.5× the reference,
+meeting §5.6's target). Remaining: SemVer and CI release automation.
+
+**Wave 6 — the docs, and the public surface they exposed.**
+
+`README.md` was rewritten. It had gone stale in a way worth naming: it still
+said "PDF is in progress" and listed as *not yet ported* the ruled-table
+strategies, structure-tree tables, base14/TrueType encodings, multi-column
+layout, scanned-vs-text classification and encryption — every one of which
+landed during phase 6. It also claimed "zero dependencies … the Swift standard
+library and nothing else", which the `CZlib` link had made false, and listed
+`xlsb` among handled extensions, which it is not. A README is the one document
+nobody re-reads while working, so it decays silently; it now states the
+dependency rule as it actually stands and carries the `.xlsb` rationale.
+
+`Sources/AnyDoc/AnyDoc.docc` is the DocC catalog — a landing article plus
+curation. **No SPM dependency was added for it.** `swift-docc-plugin` would
+trip the purity gate and make CI fetch, so the catalog is built with the
+`docc` in Xcode against a symbol graph from `swift build`:
+
+```
+swift build -Xswiftc -emit-symbol-graph -Xswiftc -emit-symbol-graph-dir -Xswiftc $SG
+xcrun docc convert Sources/AnyDoc/AnyDoc.docc --additional-symbol-graph-dir $SG \
+  --fallback-display-name AnyDoc --fallback-bundle-identifier org.swift.anydoc \
+  --output-path $OUT
+```
+
+SwiftPM handles the catalog natively, so `swift build` stays clean and anyone
+who *does* want the plugin can add it downstream.
+
+**Building the docs is the check, not writing them.** A curation list is prose
+until something resolves it: a misspelled symbol produces a page that silently
+omits it. Converting produced 180 pages with no warnings, which is what proves
+the 26 links resolve — and it also produced the wave's actual finding. The
+first curation covered 12 symbols; the other **14 fell into docc's
+auto-generated `Structures` / `Functions` / `Enumerations` buckets**, which is
+how an under-curated catalog looks when it still "works". All 26 are now
+curated into named sections and the generic buckets are empty.
+
+Two smaller things the build caught:
+
+- The landing page claimed `PdfInspection` reports **whether the file was
+  encrypted**. It does not — it carries `kind`, `pageCount`, `confidence`,
+  `title`, `ocrRecommended`, `pagesNeedingOcr` and `ocrReasonsByPage`.
+  Corrected. Doc prose is unchecked by the compiler and is exactly where this
+  kind of plausible-sounding invention survives.
+- `inlinesToPlainText` and `inlinesAreEmpty` are `public` with **37 in-library
+  call sites, 9 in tests, and none outside the package** — and all 223 test
+  files use `@testable import`, so the tests do not need them public either.
+  Kept public: a caller pattern-matching `Block.paragraph([Inline])` needs a
+  way to flatten a run, and `documentToMarkdown` alone does not give one.
+  `inlinesAreEmpty` is the marginal one — it encodes the reference's notion of
+  "empty", which is a parser concern more than a caller's. **Pre-1.0 is the
+  free moment to make it internal; after 1.0 it is a breaking change.** Worth a
+  decision before tagging, not a silent default.
+
 **Wave 1 — the measurement, and what it cost to get an honest one.**
 
 `scripts/bench.py` reports median, p95, slowest and peak RSS per format over

@@ -1,9 +1,9 @@
 # swift-anydoc
 
-Pure-Swift, zero-dependency port of [firecrawl/anydoc](https://github.com/firecrawl/anydoc):
-convert documents (Word, PowerPoint, Excel, OpenDocument, RTF, EPUB, CSV, PDF) to
-GitHub-Flavored Markdown. One library target, no dependencies, no Foundation, no Apple
-closed-source frameworks — the Swift standard library and nothing else.
+Swift port of [firecrawl/anydoc](https://github.com/firecrawl/anydoc): convert documents
+(Word, PowerPoint, Excel, OpenDocument, RTF, EPUB, CSV, PDF) to GitHub-Flavored Markdown.
+One library target, no fetched dependencies, no Foundation, no Apple closed-source
+frameworks — the Swift standard library, the platform libc, and the system zlib.
 
 The Rust implementation is treated as an **executable specification**. Correctness is not
 "the tests pass" but "the output matches the reference, byte for byte" — checked with
@@ -11,12 +11,12 @@ fixture snapshots, generated adversarial corpora, deterministic mutation sweeps,
 differential probes that run the reference's own code as an oracle. Where the reference
 has a bug, this port reproduces it deliberately and says so at the call site.
 
-See [PLAN.md](PLAN.md) for the feasibility analysis, the phase plan, and the exact
-remaining-work inventory.
+See [PLAN.md](PLAN.md) for the feasibility analysis, the phase plan, the wave-by-wave
+record, and every decision taken with its evidence.
 
 ## Status
 
-**13 of 14 formats are complete.** PDF is in progress.
+**All 14 formats are ported.** `.xlsb` is deliberately unsupported — see below.
 
 | Phase | Formats | Status |
 | --- | --- | --- |
@@ -26,28 +26,31 @@ remaining-work inventory.
 | 3 | odt / ods / odp, pptx, epub, xlsx | ✅ |
 | 4 | rtf | ✅ |
 | 5 | doc, ppt, xls (+ CFB, CJK codepages) | ✅ |
-| 6 | pdf | 🚧 in progress |
+| 6 | pdf | ✅ |
+| 7 | performance, docs, release | 🚧 in progress |
 
 Extensions handled: `csv` `doc` `docm` `docx` `epub` `odp` `ods` `odt` `pdf` `pot` `pps`
-`ppsm` `ppsx` `ppt` `pptm` `pptx` `rtf` `xls` `xlsb` `xlsm` `xlsx`.
+`ppsm` `ppsx` `ppt` `pptm` `pptx` `rtf` `xls` `xlsm` `xlsx`.
 
-### PDF progress
+### What "done" means here
 
-The pipeline runs end to end — bytes → objects → cross-reference → filters → content
-streams → ToUnicode-decoded text → glyph widths and positions → fragment merging → lines,
-words and paragraphs → captions, headings, lists and code → emphasis and geometric
-underlines → tables → Markdown, then a cleanup pass.
+- **57 of 58** reference fixtures convert byte-identically; the one exclusion is the PDF
+  fixture, which has its own harness below.
+- **168** generated adversarial PDFs, byte-identical against the reference binary.
+- **1,384** corruption mutants: no crashes, no hangs.
+- **265** hand-built adversarial documents across the other formats, plus corruption
+  sweeps totalling over 6,000 mutants.
+- 1,793 tests.
 
-Complete: the object layer (classic and stream cross-references, object streams,
-incremental updates), Flate/LZW/ASCII85 filters with PNG predictors, content-stream
-interpretation, CID and simple font metrics, layout and reading order, graphics-path
-extraction, link annotations and AcroForm fields, geometric underline and strikeout
-detection, and the heuristic (borderless) table strategy.
+### `.xlsb` is deliberately unsupported
 
-Not yet ported: the ruled-table strategies (`detect_rects`, most of `detect_lines`),
-structure-tree tables, base14/TrueType/glyph-name encodings for fonts without a
-`ToUnicode` CMap, multi-column layout, scanned-vs-text classification, and encryption.
-PLAN.md carries a per-file inventory.
+`Format.excel` covers `.xlsx`, `.xlsm` and binary `.xls`. The fourth member, `.xlsb`, is a
+different record stream and is not implemented: the reference reaches it through the
+`calamine` crate rather than its own code, **no fixture or snapshot exercises it on either
+side**, and a port would therefore be written from the specification with nothing to check
+it against. An `.xlsb` file currently fails as a malformed document rather than converting.
+Given a fixture and a reference conversion, the rest is ordinary work — the CFB reader and
+the shared spreadsheet model are already here.
 
 ## Usage
 
@@ -56,6 +59,22 @@ import AnyDoc
 
 let markdown = try AnyDoc.markdown(contentsOf: "report.docx")
 ```
+
+## Performance
+
+Median in-process conversion over the fixture corpus, Apple silicon, release build:
+
+| | median | peak RSS |
+| --- | --- | --- |
+| all formats | 0.23 ms | — |
+| pdf | 6.5 ms | 5.7 MB |
+| everything else | 0.03 – 4.9 ms | 3.0 – 4.2 MB |
+
+PDF conversion runs at about **1.5×** the Rust reference on the same file and machine
+(median of five interleaved trials; the spread across trials is 1.4–1.7×, so read it as
+"about 1.5×" rather than a fixed number). `scripts/bench.py` reproduces the table;
+`anydoc-cli <file> --bench <runs>` times one file in-process, which is the only way to
+measure formats whose conversion is faster than process startup.
 
 ## Building and testing
 
@@ -66,32 +85,41 @@ swift test
 
 The suite runs offline and needs nothing else. The differential probes are opt-in — they
 build the Rust reference locally as an oracle and are gated behind environment variables,
-so a plain `swift test` skips them:
+so a plain `swift test` skips them. One script sets all eight gates:
 
 ```bash
-scripts/gen-graphics-oracle.sh /tmp/oracle          # vendors the reference, builds probes
-scripts/gen-pdf-corpus.py      /tmp/corpus          # 30 adversarial PDFs, generated
-scripts/gen-pdf-oracles.sh     /tmp/corpus /tmp/oracle
-scripts/gen-classify-probe.py  /tmp/probe
-scripts/gen-grid-probe.py      /tmp/grid --oracle /tmp/oracle
-
-ANYDOC_PDF_CORPUS=/tmp/corpus ANYDOC_CLASSIFY_PROBE=/tmp/probe \
-  ANYDOC_GRID_PROBE=/tmp/grid swift test
+scripts/run-probes.sh /tmp/work
 ```
 
-These require `cargo` and the crates in the local registry. Nothing they generate is
-committed — the corpora and oracle dumps are build products.
+It vendors and builds the reference, generates every corpus (adversarial PDFs, corruption
+mutants, font, marked-content, structure-tree, classifier and NFKC), and runs the suite
+with each gate set. Use it rather than assembling the variables by hand: a gate pointed at
+the wrong directory makes its suite compare nothing and report green, which is how three
+suites once ran idle for eleven waves without anyone noticing. Nothing it generates is
+committed — the corpora and oracle dumps are build products, and it needs `cargo`.
 
-## Zero dependencies, enforced
+## Dependencies, enforced
 
-`Package.swift` declares no dependencies. `import Foundation` and Apple's closed-source
-frameworks are banned inside `Sources/AnyDoc` and the ban is checked by
-`scripts/lint-purity.sh` in CI; tests may use Foundation. CI builds on Linux, where those
-frameworks do not exist, so the constraint holds structurally rather than by convention.
+`Package.swift` fetches nothing. A package may be added when it is pure Swift and supports
+every platform this targets — macOS, iOS and Linux — and each must be named in
+`scripts/lint-purity.sh`; the list is empty today. A *system* library may be linked when it
+is already present on all three: `CZlib` is the one such link, for `zlib`, which replaced
+the in-repo inflater on the hot path after profiling put a third of PDF conversion there.
+The in-repo decoder remains as the fallback and is differentially tested against zlib.
 
-Everything is written in-repo: inflate (RFC 1951), ZIP, MS-CFB, a namespace-aware XML
-pull parser, legacy codepage tables generated from the WHATWG Encoding Standard, and the
-PDF stack.
+`import Foundation` and Apple's closed-source frameworks are banned inside `Sources/AnyDoc`
+and the ban is checked in CI; tests and tooling may use Foundation. CI builds on Linux,
+where those frameworks do not exist, so the constraint holds structurally rather than by
+convention.
+
+Everything else is written in-repo: ZIP, MS-CFB, a namespace-aware XML pull parser
+(matching the recovery behaviour of the reference's `quick-xml`, which is what the
+malformed-document fixtures depend on), legacy codepage tables generated from the WHATWG
+Encoding Standard, and the whole PDF stack.
+
+**CI proves the package builds and the non-differential tests pass — nothing more.** The
+differential suite is a local gate by deliberate choice, so that the published repository
+carries no dependency on upstream. A green badge is not a differential result.
 
 ## Licence
 

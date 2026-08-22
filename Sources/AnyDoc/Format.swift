@@ -18,7 +18,11 @@ public enum Format: Sendable, Hashable, CaseIterable {
     case rtf
     /// EPUB 2 and 3 (`.epub`).
     case epub
-    /// Excel workbooks: `.xlsx`, `.xlsm`, `.xlsb`, and binary `.xls`.
+    /// Excel workbooks: `.xlsx`, `.xlsm` and binary `.xls`.
+    ///
+    /// `.xlsb` maps here too, so the extension is recognised rather than
+    /// unknown — but its record stream is unported and such a file fails as
+    /// malformed. See the note in README.md for why.
     case excel
     /// OpenDocument Spreadsheet (`.ods`).
     case ods
