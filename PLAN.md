@@ -312,6 +312,7 @@ Performance is done (waves 1–5: PDF 15.91 → 6.51 ms, ~1.5× the reference,
 meeting §5.6's target). Docs, SemVer and release automation are done (waves
 6–7). **Phase 7's stated list is complete**; the package is untagged, which is
 the remaining decision rather than remaining work.
+Wave 8 gated the docs so they cannot rot the way the README did.
 
 **Wave 6 — the docs, and the public surface they exposed.**
 
@@ -6726,3 +6727,30 @@ readings**.
   the completion criterion asks for — it added a harness rather than probing
   with the existing one, and a harness on its first run has never yet been
   trustworthy in this project.
+
+**Wave 8 — gating the docs, and a gate that would not have fired.**
+
+Wave 6 only found its own defects because it *built* the catalog. Nothing did
+that automatically, so `scripts/lint-docs.sh` now does, wired into CI as a
+`Docs gate` job on macOS (Xcode's `docc`; still no SPM dependency).
+
+**The obvious gate is inert for the failure that actually happened.** The first
+instinct was `docc --warnings-as-errors`. Measured against a deliberately
+uncurated `public struct`: **docc exits 0**. It considers an uncurated public
+symbol perfectly fine and quietly files it under an auto-generated
+`Structures` / `Functions` / `Enumerations` heading — which is precisely how
+wave 6's catalog covered 12 of 26 symbols while looking correct. Had the lint
+shipped as warnings-as-errors alone, it would have been a green check that
+could not see the thing it was written for.
+
+So the lint is two checks, each verified to fire:
+
+| check | catches | probe | exit |
+| --- | --- | --- | --- |
+| `--warnings-as-errors` | broken symbol links | renamed ``PdfInspection`` in the curation | 1 |
+| empty auto-generated buckets | uncurated public symbols | added an uncurated `public struct` | 1 |
+| — | (clean catalog) | unmodified | 0 |
+
+Both were run in both directions before the commit. A gate that has only been
+seen to pass is not known to be a gate — the same lesson as wave 152's
+vacuous oracle, and cheap enough to re-learn deliberately.

@@ -24,6 +24,22 @@ jobs:
       - name: Banned imports, escape hatches, and dependencies
         run: bash scripts/lint-purity.sh
 
+  # Docs are the surface nobody re-reads while working, so they rot silently:
+  # the README spent all of phase 6 saying PDF was in progress. Building the
+  # catalog is what catches it — a curation list is prose until docc resolves
+  # it.
+  #
+  # macOS because this needs Xcode's docc; adding swift-docc-plugin would
+  # trip the purity gate and make the build fetch.
+  docs:
+    name: Docs gate
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the DocC catalog, and check every public symbol is curated
+        run: bash scripts/lint-docs.sh
+
   # Linux is the primary target. Apple's closed-source frameworks do not
   # exist here, so a green build is structural proof of the zero-dependency
   # claim rather than a promise — which is why this matrix, not macOS, is
