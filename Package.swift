@@ -9,12 +9,18 @@ let package = Package(
         .executable(name: "anydoc-cli", targets: ["anydoc-cli"]),
     ],
     targets: [
-        // The library: pure Swift, zero dependencies. No Foundation — the
-        // stdlib and (for file reads only) the platform libc are the world.
-        .target(name: "AnyDoc", path: "Sources/AnyDoc"),
+        // The library: zero fetched dependencies. No Foundation — the stdlib,
+        // the platform libc and the system zlib are the world.
+        // The system zlib. Not a fetched dependency — no `.package(...)` is
+        // declared — but a link against a library macOS, the iOS SDK and every
+        // mainstream Linux already ship. It replaces the in-repo inflater on
+        // the hot path; that implementation stays as the fallback and as the
+        // thing zlib is differentially tested against.
+        .systemLibrary(name: "CZlib", path: "Sources/CZlib"),
+        .target(name: "AnyDoc", dependencies: ["CZlib"], path: "Sources/AnyDoc"),
         .executableTarget(name: "anydoc-cli", dependencies: ["AnyDoc"], path: "Sources/anydoc-cli"),
         .testTarget(
-            name: "AnyDocTests", dependencies: ["AnyDoc"], path: "Tests/AnyDocTests",
+            name: "AnyDocTests", dependencies: ["AnyDoc", "CZlib"], path: "Tests/AnyDocTests",
             // Binary payloads the tests feed to parsers directly.
             resources: [.copy("Resources")]),
     ]

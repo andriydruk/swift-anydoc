@@ -451,6 +451,50 @@ Cross-session absolute numbers remain unreliable — the same build measured
 9.73 ms in one session and 10.40 ms in another under different load. Only
 back-to-back A/Bs are quoted above.
 
+**Wave 5 — linking the system zlib.**
+
+The in-repo inflater was still a third of PDF time after a table-driven decode
+and a bulk copy, and no further Swift-level change was going to close that.
+`Sources/CZlib` now exposes the platform zlib as a module and `inflateRaw`
+goes through it.
+
+**This is a link, not a fetch, and §5.7's gate had conflated the two.**
+`Package.swift` still declares no `.package(...)`; zlib ships with macOS, the
+iOS SDK and every mainstream Linux. `lint-purity.sh` now says so explicitly:
+it strips comments before looking for fetched packages — it had failed on a
+*comment* containing the literal `.package(`, which is the wrong kind of
+failure — and permits exactly one system library, `CZlib`, by name, so a
+second one has to be a decision rather than a silent pass.
+
+| | conversion | vs reference |
+| --- | --- | --- |
+| wave 1 | 15.91 ms | 4.9× |
+| wave 2, Huffman table | 7.03 ms | 2.15× |
+| wave 4, ASCII whitespace | 9.73 ms* | — |
+| **wave 5, system zlib** | **6.51 ms** | **1.46×** |
+
+\* different session, different load; only same-session comparisons are
+meaningful, which is why the ratio column skips it.
+
+The ratio is the median of five interleaved trials and ranged 1.42–1.71×.
+**§5.6's Phase 7 target of 1.5× is met on that measurement**, but the spread
+is wide enough that it should be read as "about 1.5×", not as a number to
+defend. Peak RSS is 5.7 MB against the target of within 1.5× — untested
+against the reference, which was never measured for it.
+
+**`inflateRawSwift` stays.** It is the fallback if zlib will not start, and
+`InflateParityTests` now decompresses sixty generated streams — literal runs
+mixed with back-references, at budgets on and around the truncation boundary
+— through both decoders and requires identical bytes and identical
+`limitHit`. That test found a real difference on the way in: the zlib path
+first reported a truncation when output landed *exactly* on the budget, where
+the in-repo decoder reports none. Only a stream with more to give is a
+truncation, and the buffer has to be larger than the budget to tell those
+apart.
+
+The 1,384-mutant corruption sweep is **unchanged at 51 and 16** — swapping
+the decoder did not move how corrupt input is handled.
+
 ---
 
 ## 5. Validation strategy — "how exactly do we know it works"

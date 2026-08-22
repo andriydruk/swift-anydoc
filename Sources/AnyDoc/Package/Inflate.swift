@@ -1,5 +1,7 @@
-/// Raw DEFLATE (RFC 1951) decompression. In-repo implementation — the
-/// zero-dependency replacement for flate2/zip's inflater.
+import CZlib
+
+/// Raw DEFLATE (RFC 1951) decompression, through the system zlib with an
+/// in-repo decoder behind it.
 ///
 /// - Decompresses `input` as a raw deflate stream (no zlib/gzip wrapper).
 /// - Never produces more than `maxOutput` bytes: when the budget is reached,
@@ -14,7 +16,91 @@ struct InflateResult {
     var limitHit: Bool
 }
 
+/// Decompress through the system zlib.
+///
+/// **Why a system library in a package that fetches none.** Profiling put a
+/// third of PDF conversion in the in-repo inflater even after a table-driven
+/// Huffman decode; zlib is decades of tuning and ships with macOS, the iOS
+/// SDK and every mainstream Linux, so this is a link rather than a
+/// dependency — `Package.swift` still declares no `.package(...)`.
+///
+/// `inflateRawSwift` remains: it is the fallback when zlib cannot start, and
+/// `PdfInflateParityTests` decompresses the corpus through both to check they
+/// agree.
+///
+/// The contract is unchanged — raw deflate, never more than `maxOutput`
+/// bytes, `limitHit` when truncated there, and `ConvertError.malformed` with
+/// flate2's own wording on corrupt input.
 func inflateRaw(_ input: ArraySlice<UInt8>, maxOutput: Int) throws -> InflateResult {
+    let budget = max(0, maxOutput)
+    if input.isEmpty || budget == 0 {
+        return try inflateRawSwift(input, maxOutput: budget)
+    }
+
+    var stream = z_stream()
+    // -15 selects raw deflate: no zlib or gzip wrapper, matching what the
+    // callers hand in.
+    guard inflateInit2_(&stream, -15, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK
+    else {
+        return try inflateRawSwift(input, maxOutput: budget)
+    }
+    defer { inflateEnd(&stream) }
+
+    var out = [UInt8]()
+    var limitHit = false
+    var finished = false
+    // A fixed 64 KiB, deliberately not `min(budget, …)`: the buffer has to be
+    // able to hold *more* than the budget, or a stream that overruns by a
+    // byte looks identical to one that ends exactly on it. Those are
+    // different answers — only the first is a truncation.
+    var chunk = [UInt8](repeating: 0, count: 64 * 1024)
+
+    let status: Int32 = try input.withUnsafeBufferPointer { source -> Int32 in
+        stream.next_in = UnsafeMutablePointer(mutating: source.baseAddress)
+        stream.avail_in = uInt(source.count)
+        while true {
+            var code: Int32 = Z_OK
+            let produced: Int = chunk.withUnsafeMutableBufferPointer { destination -> Int in
+                stream.next_out = destination.baseAddress
+                stream.avail_out = uInt(destination.count)
+                code = inflate(&stream, Z_NO_FLUSH)
+                return destination.count - Int(stream.avail_out)
+            }
+            if produced > 0 {
+                let room = budget - out.count
+                if produced > room {
+                    // More output than the budget allows: keep what fits and
+                    // stop, exactly where the in-repo decoder stops.
+                    out.append(contentsOf: chunk[0..<room])
+                    limitHit = true
+                    return Z_OK
+                }
+                out.append(contentsOf: chunk[0..<produced])
+            }
+            switch code {
+            case Z_STREAM_END:
+                finished = true
+                return Z_STREAM_END
+            case Z_OK, Z_BUF_ERROR:
+                // No progress and no input left is the end of what this
+                // stream can give; zlib reports truncation as Z_BUF_ERROR.
+                if produced == 0 && stream.avail_in == 0 { return code }
+            default:
+                return code
+            }
+        }
+    }
+
+    if limitHit { return InflateResult(bytes: out, limitHit: true) }
+    if finished || status == Z_STREAM_END {
+        return InflateResult(bytes: out, limitHit: false)
+    }
+    throw corruptStream()
+}
+
+/// The in-repo raw-deflate decoder: the fallback, and zlib's differential
+/// counterpart.
+func inflateRawSwift(_ input: ArraySlice<UInt8>, maxOutput: Int) throws -> InflateResult {
     var state = Inflater(input: input, maxOutput: max(0, maxOutput))
     return try state.run()
 }
