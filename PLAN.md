@@ -347,6 +347,46 @@ That is inside §5.6's core-parity bar of 2× and outside its Phase 7 target of
 reach the target; no other format is close to mattering. Where those 22 ms go
 is the next wave's question — measured, not guessed.
 
+**Wave 2 — profiled, and the answer was not PDF code.**
+
+`sample` over 800 conversions put **58.2% of the time in the inflater**, and
+most of that in `Inflater.bits(_:)` — called up to fifteen times per symbol by
+a bit-serial Huffman decode. The PDF pipeline itself barely registered.
+
+`Huffman` now carries a 512-entry lookup table covering codes of nine bits or
+fewer, indexed by the next bits of the stream with the code reversed (DEFLATE
+reads low bit first; a canonical code is written high bit first). Longer codes
+fall through to the original bit-serial walk, so the semantics are unchanged.
+Every format benefited, because every ZIP container and every PDF stream
+inflates:
+
+| | before | after |
+| --- | --- | --- |
+| pdf | 15.91 ms | **7.03 ms** |
+| odp | 5.27 ms | 3.28 ms |
+| xlsx | 1.48 ms | 0.92 ms |
+| all formats, median | 0.274 ms | **0.170 ms** |
+
+Inflate is now 39% of PDF time rather than 58%, and the next items are its
+LZ77 copy loop (13.6%, one bounds-checked byte at a time) and Unicode property
+lookups (7.3%).
+
+**A correction to how wave 1 stated the ratio.** Comparing whole processes
+charges both binaries' startup to the conversion and *understates* the gap:
+measured separately, bare spawn is 8.14 ms, the reference adds 2.40 ms of
+startup and this port 1.72 ms. Against conversion alone the honest figures
+are:
+
+| | conversion |
+| --- | --- |
+| reference | 3.27 ms |
+| this port, wave 1 | 15.91 ms — **4.9×** |
+| this port, now | 7.03 ms — **2.15×** |
+
+So wave 1's "1.97×" was too kind, and the real starting point was nearly 5×.
+§5.6's 1.5× target should be read against conversion, and 2.15× is where this
+stands.
+
 ---
 
 ## 5. Validation strategy — "how exactly do we know it works"

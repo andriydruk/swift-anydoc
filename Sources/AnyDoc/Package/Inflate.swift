@@ -30,6 +30,17 @@ private struct Huffman {
     var count: [Int]
     /// Symbols sorted by (length, symbol value).
     var symbol: [Int]
+    /// One-step lookup for codes of `fastBits` or fewer, indexed by the next
+    /// `fastBits` bits of the stream and packing `length << 16 | symbol`.
+    /// Zero means "no short code here" — a real entry always has a length of
+    /// at least one, so it can never be zero — and sends the decoder to the
+    /// bit-serial walk below.
+    ///
+    /// **This is where PDF conversion time went.** Profiling put 58% of it in
+    /// the inflater, and most of that in `bits(1)` called up to fifteen times
+    /// per symbol by a bit-serial decode. Nine bits covers the overwhelming
+    /// majority of literals in real streams.
+    var fast: [UInt32]
 
     /// Build from per-symbol code lengths. Returns `nil` when the code is
     /// over-subscribed; `left > 0` flags an incomplete code (callers decide
@@ -41,7 +52,7 @@ private struct Huffman {
         }
         if count[0] == lengths.count {
             // No codes at all: complete by convention, decoding will fail.
-            return (Huffman(count: count, symbol: []), 0)
+            return (Huffman(count: count, symbol: [], fast: []), 0)
         }
         // Check for an over-subscribed or incomplete set of lengths.
         var left = 1
@@ -62,8 +73,52 @@ private struct Huffman {
             symbol[offs[len]] = i
             offs[len] += 1
         }
-        return (Huffman(count: count, symbol: symbol), left)
+        return (
+            Huffman(count: count, symbol: symbol, fast: buildFast(count: count, symbol: symbol)),
+            left
+        )
     }
+}
+
+/// How many bits the one-step table covers.
+private let fastBits = 9
+
+/// Fill the lookup table from the canonical code.
+///
+/// The codes of each length are consecutive, and `symbol` is already ordered
+/// by (length, symbol), so walking the lengths reproduces the same assignment
+/// the bit-serial decoder makes. **The index is the code's bits reversed**:
+/// DEFLATE reads the stream low bit first while a canonical code is written
+/// high bit first, so the first bit read is the code's *most* significant.
+/// Every index sharing those low bits maps to the same symbol, which is why
+/// each entry is stored at a stride of `1 << len`.
+private func buildFast(count: [Int], symbol: [Int]) -> [UInt32] {
+    var table = [UInt32](repeating: 0, count: 1 << fastBits)
+    var first = 0
+    var index = 0
+    for len in 1...15 {
+        let howMany = count[len]
+        if len <= fastBits {
+            for offset in 0..<howMany {
+                let code = first + offset
+                var reversed = 0
+                var remaining = code
+                for _ in 0..<len {
+                    reversed = (reversed << 1) | (remaining & 1)
+                    remaining >>= 1
+                }
+                let entry = UInt32(len << 16 | symbol[index + offset])
+                var slot = reversed
+                while slot < table.count {
+                    table[slot] = entry
+                    slot += 1 << len
+                }
+            }
+        }
+        index += howMany
+        first = (first + howMany) << 1
+    }
+    return table
 }
 
 /// Fixed literal/length and distance codes (RFC 1951 §3.2.6).
@@ -154,6 +209,24 @@ private struct Inflater {
     /// Decode one symbol bit-serially against a canonical code. A walk that
     /// exhausts all 15 lengths ran off the code (incomplete code hit).
     mutating func decode(_ h: Huffman) throws -> Int {
+        // Top up the buffer without demanding the bits exist: near the end of
+        // a stream there may be fewer than `fastBits` left, and a code that
+        // fits in what remains must still decode.
+        while bitCount < fastBits, pos < input.endIndex {
+            bitBuf |= UInt32(input[pos]) << bitCount
+            pos += 1
+            bitCount += 8
+        }
+        if !h.fast.isEmpty {
+            let entry = h.fast[Int(bitBuf) & ((1 << fastBits) - 1)]
+            let length = Int(entry >> 16)
+            if length != 0 && length <= bitCount {
+                bitBuf >>= length
+                bitCount -= length
+                return Int(entry & 0xFFFF)
+            }
+        }
+
         var code = 0
         var first = 0
         var index = 0
