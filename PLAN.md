@@ -308,6 +308,45 @@ Honest sizing: this phase alone is comparable to Phases 0–5 combined.
 - Performance pass (see §5.6 targets), allocation profiling on the bench corpus.
 - API docs (DocC), README with the same format table, SemVer, CI release automation.
 
+**Wave 1 — the measurement, and what it cost to get an honest one.**
+
+`scripts/bench.py` reports median, p95, slowest and peak RSS per format over
+the fixture corpus. Baseline on this machine, 15 in-process conversions per
+file:
+
+| | median | slowest | peak RSS |
+| --- | --- | --- | --- |
+| all formats | **0.274 ms** | — | — |
+| pdf | 15.914 ms | 15.914 ms | 5.9 MB |
+| odp | 5.268 ms | 5.268 ms | 4.0 MB |
+| xlsx | 1.484 ms | 2.701 ms | 4.0 MB |
+| everything else | 0.03–0.71 ms | ≤ 4.5 ms | 2.9–4.3 MB |
+
+**The first harness measured nothing.** It spawned a process per conversion
+and found a **12.8 ms floor** for fork, exec and dynamic linking — three
+times the entire Rust median it was meant to compare against — so every
+format but PDF reported a net time of zero. `anydoc-cli --bench <runs>` now
+reads the file once and converts in a loop, which is what the table above
+uses.
+
+**One comparison is currently valid, and it is not the one §5.6 states.**
+That section's "Rust: 4.4 ms median" has no recorded methodology, and this
+port's 0.274 ms in-process median is not comparable to it — different corpus,
+possibly process-inclusive. The full `anydoc` binary is not available here
+(only the vendored `pdf-inspector` slice), so the honest measurement is PDF
+alone, same file and machine, process time minus the spawn floor:
+
+| | net |
+| --- | --- |
+| reference | 11.25 ms |
+| this port | 22.18 ms |
+| **ratio** | **1.97×** |
+
+That is inside §5.6's core-parity bar of 2× and outside its Phase 7 target of
+1.5×. **PDF is therefore the performance work**, and needs roughly 25% to
+reach the target; no other format is close to mattering. Where those 22 ms go
+is the next wave's question — measured, not guessed.
+
 ---
 
 ## 5. Validation strategy — "how exactly do we know it works"

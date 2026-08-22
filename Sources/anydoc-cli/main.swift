@@ -50,7 +50,7 @@ func readBytes(_ path: String) -> [UInt8]? {
 
 let args = CommandLine.arguments
 guard args.count >= 2 else {
-    fail("usage: anydoc-cli <file> [--format <name>]")
+    fail("usage: anydoc-cli <file> [--format <name>] [--bench <runs>]")
 }
 let path = args[1]
 var format: Format? = nil
@@ -59,6 +59,42 @@ if let i = args.firstIndex(of: "--format"), i + 1 < args.count {
         fail("unknown format: \(args[i + 1])")
     }
     format = named
+}
+
+/// `--bench <runs>`: convert the same bytes `runs` times in one process and
+/// report the timings, instead of writing the Markdown.
+///
+/// **Spawning a process per conversion cannot measure this library.** The
+/// first attempt at a benchmark did exactly that and found a 12.8 ms floor
+/// for fork, exec and dynamic linking — three times the whole Rust median it
+/// was supposed to compare against — so every format but PDF reported a net
+/// time of zero. Reading the file once and converting in a loop removes all
+/// of it, and reports what the parser actually costs.
+if let index = args.firstIndex(of: "--bench"), index + 1 < args.count {
+    guard let runs = Int(args[index + 1]), runs > 0 else {
+        fail("--bench needs a positive run count")
+    }
+    guard let bytes = readBytes(path) else { fail("cannot read \(path)") }
+    let resolved = format ?? Format(path: path)
+    var samples: [Double] = []
+    samples.reserveCapacity(runs)
+    for _ in 0..<runs {
+        let start = ContinuousClock.now
+        do {
+            _ = try resolved.map { try AnyDoc.markdown(bytes, format: $0) }
+                ?? AnyDoc.markdown(bytes)
+        } catch {
+            fail("conversion failed: \(error)")
+        }
+        let elapsed = ContinuousClock.now - start
+        samples.append(Double(elapsed.components.attoseconds) / 1e15
+            + Double(elapsed.components.seconds) * 1000)
+    }
+    samples.sort()
+    let median = samples[samples.count / 2]
+    let p95 = samples[min(samples.count - 1, Int(Double(samples.count) * 0.95))]
+    write("\(median) \(p95) \(samples[0])\n", to: 1)
+    exit(0)
 }
 
 do {
