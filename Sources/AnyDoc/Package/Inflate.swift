@@ -245,6 +245,49 @@ private struct Inflater {
 
     // MARK: output, budget-capped
 
+    /// Copy a back-reference, checking the budget once instead of per byte.
+    ///
+    /// **The loop must stay byte-by-byte**, because DEFLATE's run-length case
+    /// depends on it: a distance of one repeats the previous byte for the
+    /// whole length, and a bulk copy of the source range would read bytes
+    /// that have not been written yet. What comes out is the per-byte
+    /// *overhead* — a function call, a budget test, a uniqueness check and a
+    /// capacity test each time — which profiling put at 13.6% of PDF
+    /// conversion after the Huffman table landed.
+    ///
+    /// Returns false when the budget ran out mid-copy, which stops the block
+    /// exactly where `emit` used to.
+    mutating func copyMatch(distance: Int, length: Int) -> Bool {
+        let room = maxOutput - out.count
+        if room <= 0 {
+            limitHit = true
+            return false
+        }
+        let copying = min(length, room)
+        let start = out.count - distance
+
+        // Grow once, then fill through a buffer pointer. Appending byte by
+        // byte instead pays a uniqueness and capacity check each time and
+        // measured *slower*, despite touching the bytes once rather than
+        // twice — the checks cost more than the extra pass.
+        out.append(contentsOf: repeatElement(0, count: copying))
+        out.withUnsafeMutableBufferPointer { buffer in
+            var source = start
+            var destination = buffer.count - copying
+            for _ in 0..<copying {
+                buffer[destination] = buffer[source]
+                destination += 1
+                source += 1
+            }
+        }
+
+        if copying < length {
+            limitHit = true
+            return false
+        }
+        return true
+    }
+
     /// Append one byte unless the budget is exhausted; false stops the block.
     mutating func emit(_ byte: UInt8) -> Bool {
         if out.count >= maxOutput {
@@ -358,11 +401,7 @@ private struct Inflater {
                 // Raw deflate has no preset dictionary: a copy from before
                 // the start of output is corrupt.
                 guard distance <= out.count else { throw corruptStream() }
-                for _ in 0..<length {
-                    if !emit(out[out.count - distance]) {
-                        return
-                    }
-                }
+                if !copyMatch(distance: distance, length: length) { return }
             }
         }
     }

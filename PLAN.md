@@ -387,6 +387,40 @@ So wave 1's "1.97×" was too kind, and the real starting point was nearly 5×.
 §5.6's 1.5× target should be read against conversion, and 2.15× is where this
 stands.
 
+**Wave 3 — the LZ77 copy, and a profile line that promised more than it had.**
+
+`Inflater.codes(len:dist:)` held 13.6% of PDF time after the Huffman table, so
+the back-reference copy looked like the next win. It was worth about **2–3%**,
+not 13.6%, and the gap is the lesson: that line's *self* time covers the whole
+symbol loop — literal emission, the length and distance arithmetic, the call
+overhead into `decode` — and the byte-copy is only part of it. Self-time on a
+loop body is not a budget for optimising one statement inside it.
+
+The copy now checks the output budget once instead of per byte and fills
+through a buffer pointer. Two variants were measured against the original
+under the same machine load, best-of-three in-process:
+
+| | median | best |
+| --- | --- | --- |
+| per-byte `emit` (original) | 10.83 ms | 10.55 ms |
+| reserve then `append` per byte | 10.93 ms | 10.46 ms |
+| **grow once, fill through a buffer pointer** | **10.52 ms** | **10.36 ms** |
+
+The single-pass `append` variant *lost* to the two-pass one, which is
+counter-intuitive and worth recording: appending pays a uniqueness and a
+capacity check per byte, and those cost more than a second pass over the same
+bytes.
+
+The loop stays byte-by-byte on purpose. DEFLATE's run-length case — distance
+one, repeating the previous byte — reads bytes the same copy is writing, so a
+bulk range copy would be wrong, not merely different.
+
+**Machine load made the first reading of this useless.** A benchmark taken
+while the load average was 7.8 showed every format ~1.4× slower, including
+`csv` and `ppt`, which this change cannot touch. The A/B above was taken by
+rebuilding both versions back to back under the same conditions; absolute
+numbers from different sessions are not comparable here.
+
 ---
 
 ## 5. Validation strategy — "how exactly do we know it works"
